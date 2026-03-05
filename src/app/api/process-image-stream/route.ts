@@ -176,14 +176,18 @@ export async function POST(request: NextRequest) {
 
               console.log(`  Debug模式：检测到 ${detectedPanels.length} 个面板的裁切坐标`);
 
-              sendEvent(controller, 'debug_complete', {
+              const debugCompleteData = {
                 debugPanels: debugPanels,
-                detectedPanels: detectedPanels,  // 新增：返回裁切坐标
+                detectedPanels: detectedPanels,  // 返回裁切坐标
                 imageMetadata: {
                   width: metadata.width,
                   height: metadata.height
                 }
-              });
+              };
+
+              console.log(`  Debug模式：准备发送 debug_complete 事件，数据:`, JSON.stringify(debugCompleteData, null, 2));
+              sendEvent(controller, 'debug_complete', debugCompleteData);
+              console.log(`  Debug模式：debug_complete 事件已发送`);
 
               controller.close();
               return;
