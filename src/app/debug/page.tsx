@@ -34,6 +34,7 @@ export default function WikiDebugPage() {
   const [selectedPanelIndex, setSelectedPanelIndex] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [cropResults, setCropResults] = useState<any[]>([]); // 裁切结果
+  const [verificationResults, setVerificationResults] = useState<any[]>([]); // 验证结果
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -639,8 +640,30 @@ export default function WikiDebugPage() {
 
       if (result.success) {
         setCropResults(result.results);
-        alert(`裁切成功！共裁切 ${result.total} 个icon\n\n结果已保存到 public/wiki-cropped/travel-town/`);
+        setVerificationResults(result.verification?.details || []);
+
+        // 构建验证信息提示
+        let message = `裁切成功！共裁切 ${result.total} 个icon\n\n结果已保存到 public/wiki-cropped/travel-town/`;
+
+        if (result.verification && result.verification.details.length > 0) {
+          const { matched, mismatched, details } = result.verification;
+          message += `\n\n=== LLM数量验证结果 ===`;
+          message += `\n✓ 匹配: ${matched}/${details.length} 个面板`;
+
+          if (mismatched > 0) {
+            message += `\n✗ 不匹配: ${mismatched}/${details.length} 个面板`;
+            message += `\n\n不匹配的面板详情:\n`;
+            details.forEach((v: any) => {
+              if (!v.match) {
+                message += `- ${v.panelTitle}: 网格推断${v.gridCount}个, LLM识别${v.llmCount}个\n`;
+              }
+            });
+          }
+        }
+
+        alert(message);
         console.log('裁切结果:', result.results);
+        console.log('验证结果:', result.verification);
       } else {
         throw new Error(result.error || '裁切失败');
       }
@@ -993,8 +1016,23 @@ export default function WikiDebugPage() {
                     {isProcessing ? '裁切中...' : '导出到工作台'}
                   </Button>
                   {cropResults.length > 0 && (
-                    <div className="mt-2 text-sm text-green-600">
-                      已裁切 {cropResults.length} 个icon
+                    <div className="mt-2 space-y-2">
+                      <div className="text-sm text-green-600">
+                        ✓ 已裁切 {cropResults.length} 个icon
+                      </div>
+
+                      {/* LLM验证结果 */}
+                      {verificationResults.length > 0 && (
+                        <div className="mt-4 p-3 bg-gray-50 rounded-md border">
+                          <div className="text-sm font-semibold mb-2">LLM数量验证结果</div>
+                          {verificationResults.map((v, idx) => (
+                            <div key={idx} className={`text-xs py-1 ${v.match ? 'text-green-600' : 'text-red-600'}`}>
+                              {v.match ? '✓' : '✗'} {v.panelTitle}: 网格{v.gridCount} vs LLM{v.llmCount}
+                              <div className="ml-2 text-gray-500">{v.confidence}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

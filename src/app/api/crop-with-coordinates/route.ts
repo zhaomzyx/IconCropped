@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs/promises';
 import { cwd } from 'process';
+import { Config, LLMClient } from 'coze-coding-dev-sdk';
 
 // 接口定义
 interface Coordinate {
@@ -24,6 +25,7 @@ interface DebugPanel {
   imageUrl: string;
   greenBox?: Coordinate;  // 绿框（标题区域）
   redBoxes?: Coordinate[];  // 红框（icon区域）
+  blueBox?: Coordinate;  // 蓝框（大panel区域）
 }
 
 interface CropResult {
@@ -35,6 +37,116 @@ interface CropResult {
   col: number;
   wikiName: string;
   imageUrl: string;
+}
+
+interface VerificationResult {
+  panelIndex: number;
+  panelTitle: string;
+  gridCount: number;  // 网格推断的icon数量
+  llmCount: number;   // LLM识别的icon数量
+  match: boolean;     // 是否匹配
+  confidence: string; // LLM的置信度说明
+}
+
+// 使用LLM验证icon数量
+async function verifyIconCountWithLLM(
+  imageBuffer: Buffer,
+  blueBox: Coordinate,
+  panelTitle: string
+): Promise<{ count: number; confidence: string }> {
+  try {
+    // 裁切蓝框区域（大panel）
+    const panelBuffer = await sharp(imageBuffer)
+      .extract({
+        left: blueBox.x,
+        top: blueBox.y,
+        width: blueBox.width,
+        height: blueBox.height,
+      })
+      .png()
+      .toBuffer();
+
+    // 如果图片太大，先缩放到合理尺寸
+    let processBuffer = panelBuffer;
+    const panelMetadata = await sharp(panelBuffer).metadata();
+    const maxWidth = 1000;
+    if (panelMetadata.width && panelMetadata.width > maxWidth) {
+      const scale = maxWidth / panelMetadata.width;
+      processBuffer = await sharp(panelBuffer)
+        .resize(maxWidth, null)
+        .toBuffer();
+    }
+
+    // 转换为base64
+    const base64Image = processBuffer.toString('base64');
+    const dataUri = `data:image/png;base64,${base64Image}`;
+
+    // LLM提示词（识别并统计icon数量）
+    const prompt = `请统计图片中图标底座的数量。图片是一个游戏合成面板，包含多个方形图标底座排列成网格。请只返回一个JSON对象，格式为：{"count": 图标总数, "confidence": "置信度说明"}。例如：{"count": 15, "confidence": "识别到5行3列的网格，共15个图标"}`;
+
+    // 调用LLM API
+    const config = new Config();
+    const client = new LLMClient(config);
+
+    const messages = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: prompt },
+          {
+            type: "image_url" as const,
+            image_url: {
+              url: dataUri,
+              detail: "high" as const
+            }
+          }
+        ]
+      }
+    ];
+
+    const response = await client.invoke(messages, {
+      model: "doubao-seed-1-6-vision-250815",
+      temperature: 0.3
+    });
+
+    console.log(`  LLM response for icon count verification:`, response.content.substring(0, 500));
+
+    // 解析LLM返回的JSON
+    let jsonText = response.content.trim();
+    let jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      const codeBlockMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (codeBlockMatch) {
+        jsonText = codeBlockMatch[1].trim();
+        jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+      }
+    }
+
+    if (!jsonMatch) {
+      console.error(`  Failed to parse LLM response for icon count verification:`, response.content);
+      throw new Error('无法解析LLM返回的JSON');
+    }
+
+    let result;
+    try {
+      result = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      console.error(`  JSON parse error:`, parseError);
+      console.error(`  JSON text:`, jsonMatch[0]);
+      throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
+    }
+
+    console.log(`  LLM verified icon count: ${result.count} (${result.confidence})`);
+
+    return {
+      count: result.count || 0,
+      confidence: result.confidence || '未提供置信度说明'
+    };
+
+  } catch (error) {
+    console.error('LLM icon count verification failed:', error);
+    throw new Error(`LLM数量验证失败: ${error instanceof Error ? error.message : '未知错误'}`);
+  }
 }
 
 // 使用LLM识别绿框中的文字
@@ -129,13 +241,55 @@ export async function POST(request: NextRequest) {
     console.log(`原始图片尺寸: ${metadata.width}x${metadata.height}`);
 
     const results: CropResult[] = [];
+    const verificationResults: VerificationResult[] = [];
 
     // 遍历所有面板（蓝框）
     for (let panelIndex = 0; panelIndex < debugPanels.length; panelIndex++) {
       const panel = debugPanels[panelIndex];
       console.log(`\n处理面板 ${panelIndex + 1}/${debugPanels.length}: ${panel.title}`);
 
-      // 步骤1：识别绿框中的文字（面板标题）
+      // 步骤1：LLM验证icon数量（如果提供了blueBox）
+      let llmCount = 0;
+      let llmConfidence = '未验证';
+      if (panel.blueBox) {
+        console.log(`  LLM验证icon数量...`);
+        const verification = await verifyIconCountWithLLM(imageBuffer, panel.blueBox, panel.title);
+        llmCount = verification.count;
+        llmConfidence = verification.confidence;
+      }
+
+      // 步骤2：计算网格推断的icon数量
+      let gridCount = 0;
+      if (panel.redBoxes && panel.redBoxes.length > 0) {
+        gridCount = panel.redBoxes.length;
+      } else if (panel.rows && panel.cols) {
+        gridCount = panel.rows * panel.cols;
+        if (panel.total) {
+          gridCount = Math.min(gridCount, panel.total);
+        }
+      }
+
+      // 步骤3：记录验证结果
+      if (panel.blueBox && gridCount > 0) {
+        const isMatch = llmCount === gridCount;
+        verificationResults.push({
+          panelIndex,
+          panelTitle: panel.title,
+          gridCount,
+          llmCount,
+          match: isMatch,
+          confidence: llmConfidence
+        });
+
+        console.log(`  验证结果: 网格推断=${gridCount}, LLM识别=${llmCount}, ${isMatch ? '✓ 匹配' : '✗ 不匹配'} (${llmConfidence})`);
+
+        // 如果数量不匹配，给出警告
+        if (!isMatch) {
+          console.warn(`  ⚠️ 警告: 面板"${panel.title}"的icon数量不匹配！网格推断${gridCount}个，LLM识别${llmCount}个`);
+        }
+      }
+
+      // 步骤4：识别绿框中的文字（面板标题）
       let panelTitle = panel.title;
       if (panel.greenBox) {
         console.log(`  识别绿框文字...`);
@@ -143,7 +297,7 @@ export async function POST(request: NextRequest) {
         console.log(`  面板标题: ${panelTitle}`);
       }
 
-      // 步骤2：裁切所有红框（icon）
+      // 步骤5：裁切所有红框（icon）
       if (panel.redBoxes && panel.redBoxes.length > 0) {
         console.log(`  开始裁切 ${panel.redBoxes.length} 个icon...`);
 
@@ -202,10 +356,24 @@ export async function POST(request: NextRequest) {
 
     console.log(`\n裁切完成！共裁切 ${results.length} 个icon`);
 
+    // 汇总验证结果
+    const matchCount = verificationResults.filter(v => v.match).length;
+    const mismatchCount = verificationResults.filter(v => !v.match).length;
+
+    if (verificationResults.length > 0) {
+      console.log(`\n验证汇总: ${matchCount}/${verificationResults.length} 个面板数量匹配，${mismatchCount} 个不匹配`);
+    }
+
     return NextResponse.json({
       success: true,
       results,
       total: results.length,
+      verification: {
+        total: verificationResults.length,
+        matched: matchCount,
+        mismatched: mismatchCount,
+        details: verificationResults
+      }
     });
 
   } catch (error) {
