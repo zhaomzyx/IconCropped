@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Upload, ArrowLeft, CheckCircle, AlertCircle, Link2, X, ChevronDown, FileImage, Package, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 import { ResourceItem, WikiCroppedImage, MappingRelation } from '@/types';
+import { detectPanelsWithCanvas } from '@/lib/canvas-detection';
 
 // Wiki图片预览组件
 const WikiImagePreview = ({ filename, wikiName, onRemove }: { filename: string; wikiName?: string; onRemove: () => void }) => {
@@ -513,11 +514,11 @@ export default function WorkbenchPage() {
       // 合并通过URL获取的文件（已经在服务器上）
       wikiFilenames.push(...fetchedWikiFiles);
 
-      // 批量处理Wiki图像切割（两级切割：板块 → icon）- 使用SSE流式接口
+      // 批量处理Wiki图像切割（使用前端 Canvas 检测）
       if (wikiFilenames.length > 0) {
         setWikiProcessingStep(`📊 正在梳理图片资源（共${wikiFilenames.length}张）...`);
 
-        // 在 fetch 之前，读取你之前调试好的完美参数
+        // 读取调试参数
         const STORAGE_KEY = 'wiki_slice_config';
         let customParams = {};
         try {
@@ -529,93 +530,134 @@ export default function WorkbenchPage() {
           console.warn('无法读取调试参数，使用默认值');
         }
 
-        const processResponse = await fetch('/api/process-image-stream', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            filenames: wikiFilenames,
-            gridSize: 4,
-            wikiName: fetchedWikiName,  // 传递Wiki名称
-            params: customParams  // <--- 重点：把参数一并传给后端！
-          }),
-        });
+        let allWikiCrops: WikiCroppedImage[] = [];
 
-        if (!processResponse.ok) {
-          throw new Error(`HTTP ${processResponse.status}: ${processResponse.statusText}`);
-        }
+        // 逐张处理 Wiki 图片
+        for (let i = 0; i < wikiFilenames.length; i++) {
+          const filename = wikiFilenames[i];
+          setWikiProcessingStep(`🖼️ 正在处理第 ${i + 1}/${wikiFilenames.length} 张图片...`);
 
-        const reader = processResponse.body?.getReader();
-        if (!reader) {
-          throw new Error('无法读取响应流');
-        }
+          try {
+            // 1. 调用 debug=true 模式获取面板元数据
+            setWikiProcessingStep(`🔍 图片 ${i + 1}/${wikiFilenames.length} - 正在识别大板块...`);
 
-        const decoder = new TextDecoder();
-        let currentEventType = '';
-        let wikiCrops: any[] = [];
-        let totalCropsCount = 0;
+            const debugResponse = await fetch('/api/process-image-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                filenames: [filename],
+                debug: true,
+              }),
+            });
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-
-          for (const line of lines) {
-            if (line.startsWith('event:')) {
-              currentEventType = line.slice(6).trim();
-              continue;
+            if (!debugResponse.ok) {
+              throw new Error(`获取面板元数据失败: ${debugResponse.status}`);
             }
-            if (line.startsWith('data:')) {
-              const dataStr = line.slice(5).trim();
-              if (!dataStr) continue; // 跳过空数据行
-              try {
-                const data = JSON.parse(dataStr);
 
-                // 显示进度信息
-                if (data.message) {
-                  setWikiProcessingStep(data.message);
-                }
+            const reader = debugResponse.body?.getReader();
+            if (!reader) {
+              throw new Error('无法读取响应流');
+            }
 
-                // 监听单张图片完成事件
-                if (currentEventType === 'image_complete' && data.cropsCount) {
-                  totalCropsCount += data.cropsCount;
-                  setWikiProcessingStep(`✓ ${data.filename} 处理完成，已切割 ${totalCropsCount} 个图标`);
-                }
+            const decoder = new TextDecoder();
+            let debugPanels: any[] = [];
+            let imageMetadata: any = null;
 
-                // 监听最终完成事件
-                if (currentEventType === 'complete' && data.success) {
-                  wikiCrops = data.crops || [];
-                  // 保存Wiki名称
-                  if (data.wikiName) {
-                    setFetchedWikiName(data.wikiName);
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              const chunk = decoder.decode(value);
+              const lines = chunk.split('\n');
+
+              for (const line of lines) {
+                if (line.startsWith('event:')) {
+                  const event = line.slice(6).trim();
+                  const nextLine = lines[lines.indexOf(line) + 1];
+                  if (nextLine?.startsWith('data:')) {
+                    try {
+                      const data = JSON.parse(nextLine.slice(5));
+                      if (event === 'debug_complete') {
+                        debugPanels = data.debugPanels;
+                        imageMetadata = data.imageMetadata;
+                      } else if (event === 'error') {
+                        throw new Error(data.message || '处理失败');
+                      }
+                    } catch (e) {
+                      console.error('JSON解析失败:', e);
+                    }
                   }
                 }
-
-                // 监听错误事件
-                if (currentEventType === 'error') {
-                  throw new Error(data.message || '处理失败');
-                }
-              } catch (parseError) {
-                console.warn('JSON解析失败，跳过该行:', dataStr, parseError);
-                // 继续处理下一行，不中断整个流程
               }
             }
+
+            console.log(`获取到 ${debugPanels.length} 个面板的元数据`);
+
+            // 2. 使用前端 Canvas 进行检测
+            setWikiProcessingStep(`🎨 图片 ${i + 1}/${wikiFilenames.length} - 正在检测面板坐标...`);
+
+            // 创建隐藏的图片元素
+            const imageElement = new Image();
+            imageElement.crossOrigin = 'anonymous';
+
+            // 构建图片URL
+            const imageUrl = fetchedWikiName
+              ? `/WikiPic/${fetchedWikiName}/${filename}`
+              : `/api/uploads/wiki/${filename}`;
+
+            // 等待图片加载
+            await new Promise((resolve, reject) => {
+              imageElement.onload = resolve;
+              imageElement.onerror = reject;
+              imageElement.src = imageUrl;
+            });
+
+            // 使用 Canvas 检测模块进行检测
+            const detectedPanels = await detectPanelsWithCanvas(
+              imageElement,
+              debugPanels,
+              customParams
+            );
+
+            console.log(`检测到 ${detectedPanels.length} 个面板`);
+
+            // 3. 将检测到的坐标传给后端接口进行裁切
+            setWikiProcessingStep(`✂️ 图片 ${i + 1}/${wikiFilenames.length} - 正在裁切图标...`);
+
+            const cropResponse = await fetch('/api/crop-with-detected-coordinates', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                filename: filename,
+                wikiName: fetchedWikiName,
+                detectedPanels: detectedPanels,
+                customParams: customParams,
+              }),
+            });
+
+            if (!cropResponse.ok) {
+              throw new Error(`裁切失败: ${cropResponse.status}`);
+            }
+
+            const cropData = await cropResponse.json();
+
+            if (!cropData.success) {
+              throw new Error(cropData.error || '裁切失败');
+            }
+
+            allWikiCrops = [...allWikiCrops, ...cropData.crops];
+            setWikiProcessingStep(`✓ 图片 ${i + 1}/${wikiFilenames.length} 处理完成，已切割 ${cropData.crops.length} 个图标`);
+          } catch (error) {
+            console.error(`处理图片 ${filename} 失败:`, error);
+            throw new Error(`处理图片 ${filename} 失败: ${error instanceof Error ? error.message : '未知错误'}`);
           }
         }
 
-        // 处理完成
-        if (wikiCrops.length > 0) {
-          const newWikiImages = wikiCrops.map((crop: any) => ({
-            ...crop,
-            wikiName: crop.wikiName || fetchedWikiName || wikiFilenames[0].replace(/\.[^/.]+$/, '')
-          }));
-          setWikiImages(newWikiImages);
-          setWikiProcessingStep(`✅ 裁切完成！共切割出 ${newWikiImages.length} 个图标`);
-          console.log(`Wiki处理完成：切割出${newWikiImages.length}个icon`);
-        } else {
-          throw new Error('未切割出任何图标');
-        }
+        // 设置最终结果
+        setWikiImages(allWikiCrops);
+        setFetchedWikiName(fetchedWikiName);
+        setWikiProcessed(true);
+        setWikiProcessingStep(`✅ 全部处理完成！共裁切 ${allWikiCrops.length} 个图标`);
       }
     } catch (error) {
       console.error('Wiki processing error:', error);
