@@ -590,114 +590,38 @@ export default function WikiDebugPage() {
         canvas.height
       );
 
-      // 2. X轴多行检测：对每个panel检测X坐标范围和多行icon位置
+      // 2. X轴检测：对每个panel检测X坐标范围（仅检测Panel边界）
       const panelRanges = panelVerticalRanges.map((vRange, index) => {
         const panel = debugPanels[index];
+        const midY = Math.round((vRange.startY + vRange.endY) / 2);
+        
         console.log(`\n[Panel ${index + 1}] ${panel.title}`);
+        console.log(`[Panel ${index + 1}] 中间检测线 Y: ${midY}`);
         
-        // 第一行icon检测线的Y坐标
-        const firstLineY = vRange.startY + params.iconLineOffset;
-        console.log(`[Panel ${index + 1}] 第一行检测线 Y: ${firstLineY} (startY=${vRange.startY} + offset=${params.iconLineOffset})`);
-        
-        // 检测第一行icon
-        const firstRowResult = scanHorizontalLine(
+        // 在Panel中间横线上扫描，检测Panel的左右边界
+        const hRange = scanHorizontalLine(
           imageData,
-          firstLineY,
+          midY,
           params.colorToleranceX,
           params.sustainedPixelsX,
           canvas.width
         );
         
-        const allIcons: Array<{
-          boundary: IconBoundary;
-          verticalRange: IconVerticalRange | null;
-          rowIndex: number;
-          colIndex: number;
-        }> = [];
-        
-        if (firstRowResult) {
-          console.log(`[Panel ${index + 1}] 第一行检测到 ${firstRowResult.icons.length} 个icon`);
-          
-          // 检测第一行每个icon的高度
-          firstRowResult.icons.forEach((icon, colIndex) => {
-            const verticalRange = scanIconVerticalBounds(
-              imageData,
-              icon.centerX,
-              firstLineY,
-              params.colorTolerance,
-              params.sustainedPixels,
-              canvas.width,
-              canvas.height
-            );
-            
-            allIcons.push({
-              boundary: icon,
-              verticalRange,
-              rowIndex: 0,
-              colIndex: colIndex
-            });
-          });
-          
-          // 如果第一行检测到足够的icon，继续检测第二行
-          let currentRow = 1;
-          let shouldContinue = firstRowResult.icons.length >= params.minIconsPerLine;
-          
-          while (shouldContinue && currentRow < panel.rows) {
-            const lineY = firstLineY + currentRow * params.iconLineGap;
-            console.log(`[Panel ${index + 1}] 第${currentRow + 1}行检测线 Y: ${lineY}`);
-            
-            const rowResult = scanHorizontalLine(
-              imageData,
-              lineY,
-              params.colorToleranceX,
-              params.sustainedPixelsX,
-              canvas.width
-            );
-            
-            if (rowResult && rowResult.icons.length >= params.minIconsPerLine) {
-              console.log(`[Panel ${index + 1}] 第${currentRow + 1}行检测到 ${rowResult.icons.length} 个icon ✓`);
-              
-              // 检测这一行每个icon的高度
-              rowResult.icons.forEach((icon, colIndex) => {
-                const verticalRange = scanIconVerticalBounds(
-                  imageData,
-                  icon.centerX,
-                  lineY,
-                  params.colorTolerance,
-                  params.sustainedPixels,
-                  canvas.width,
-                  canvas.height
-                );
-                
-                allIcons.push({
-                  boundary: icon,
-                  verticalRange,
-                  rowIndex: currentRow,
-                  colIndex: colIndex
-                });
-              });
-              
-              currentRow++;
-            } else {
-              console.log(`[Panel ${index + 1}] 第${currentRow + 1}行检测到 ${rowResult?.icons.length ?? 0} 个icon，不足${params.minIconsPerLine}个，停止检测 ✗`);
-              shouldContinue = false;
-            }
-          }
+        if (hRange) {
+          console.log(`[Panel ${index + 1}] 检测到 Panel 边界: startX=${hRange.startX}, endX=${hRange.endX}, width=${hRange.endX - hRange.startX}`);
         } else {
-          console.warn(`[Panel ${index + 1}] 第一行未检测到icon`);
+          console.warn(`[Panel ${index + 1}] 未检测到 Panel 边界`);
         }
-        
-        console.log(`[Panel ${index + 1}] 总共检测到 ${allIcons.length} 个icon`);
         
         return {
           startY: vRange.startY,
           endY: vRange.endY,
-          startX: firstRowResult?.startX ?? 0,
-          endX: firstRowResult?.endX ?? 0,
-          width: firstRowResult ? firstRowResult.endX - firstRowResult.startX : 0,
+          startX: hRange?.startX ?? 0,
+          endX: hRange?.endX ?? 0,
+          width: hRange ? hRange.endX - hRange.startX : 0,
           height: vRange.endY - vRange.startY,
-          firstLineY: firstLineY,
-          icons: allIcons
+        };
+      });
         };
       });
 
@@ -714,8 +638,6 @@ export default function WikiDebugPage() {
           console.log(`  startY = ${range.startY}, endY = ${range.endY}, height = ${range.height}`);
           console.log(`[X轴检测结果]`);
           console.log(`  startX = ${range.startX}, endX = ${range.endX}, width = ${range.width}`);
-          console.log(`  第一行检测线 Y = ${range.firstLineY}`);
-          console.log(`  检测到 ${range.icons.length} 个icon`);
         }
 
         // 绘制蓝色框（Panel外边缘）
@@ -746,174 +668,59 @@ export default function WikiDebugPage() {
           range.startY + 24
         );
 
-        // 绘制多行检测线（仅选中panel）
+        // 绘制中间横线（用于调试X轴检测）
         if (isSelected) {
-          // 获取所有检测到的行号
-          const rowIndices = [...new Set(range.icons.map(icon => icon.rowIndex))];
-          
-          rowIndices.forEach(rowIndex => {
-            const lineY = range.firstLineY + rowIndex * params.iconLineGap;
-            ctx.strokeStyle = rowIndex === 0 ? '#00FF00' : '#00CC00'; // 第一行绿色，后续深绿色
-            ctx.lineWidth = 1;
-            ctx.setLineDash([3, 3]);
-            ctx.beginPath();
-            ctx.moveTo(range.startX, lineY);
-            ctx.lineTo(range.endX, lineY);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            ctx.fillStyle = rowIndex === 0 ? '#00FF00' : '#00CC00';
-            ctx.font = '10px monospace';
-            ctx.fillText(`Line ${rowIndex + 1} Y=${lineY}`, range.startX + 5, lineY - 5);
-          });
-        }
-
-        // 绘制红色框（使用检测到的icon边界）
-        range.icons.forEach((iconData, iconIndex) => {
-          const { boundary, verticalRange, rowIndex, colIndex } = iconData;
-          
-          // 使用检测到的高度，如果没有检测到则使用默认大小
-          const iconHeight = verticalRange?.height ?? params.iconSize;
-          const iconWidth = boundary.endX - boundary.startX;
-          
-          const iconX = boundary.centerX - iconWidth / 2;
-          const iconY = verticalRange ? verticalRange.topY : range.firstLineY + rowIndex * params.iconLineGap - params.iconSize / 2;
-
-          ctx.strokeStyle = '#EF4444';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(iconX, iconY, iconWidth, iconHeight);
-
-          // 绘制序号
-          ctx.fillStyle = '#EF4444';
-          ctx.font = '12px Arial';
-          ctx.fillText(`#${iconIndex + 1}`, iconX + 3, iconY + 15);
-
-          // 绘制红框坐标
-          ctx.fillStyle = '#EF4444';
-          ctx.font = '9px monospace';
-          ctx.fillText(
-            `(${Math.round(iconX)}, ${Math.round(iconY)})`,
-            iconX + 3,
-            iconY + iconHeight - 3
-          );
-
-          // 绘制中心点标记和垂直检测线（仅选中panel）
-          if (isSelected) {
-            // 绘制中心点标记
-            ctx.fillStyle = '#FF00FF';
-            ctx.beginPath();
-            ctx.arc(boundary.centerX, iconY + iconHeight / 2, 3, 0, 2 * Math.PI);
-            ctx.fill();
-
-            // 绘制垂直检测线
-            ctx.strokeStyle = '#FF00FF';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([2, 2]);
-            ctx.beginPath();
-            ctx.moveTo(boundary.centerX, iconY);
-            ctx.lineTo(boundary.centerX, iconY + iconHeight);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // 标注高度信息
-            ctx.fillStyle = '#FF00FF';
-            ctx.font = '8px monospace';
-            ctx.fillText(
-              `h=${Math.round(iconHeight)}`,
-              boundary.centerX + 5,
-              iconY + iconHeight / 2
-            );
-          }
-        });
-
-        // 绘制蓝框坐标
-        ctx.fillStyle = isSelected ? '#3B82F6' : '#93C5FD';
-        ctx.font = '10px monospace';
-        ctx.fillText(
-          `(${Math.round(range.startX)}, ${Math.round(range.startY)}) ${Math.round(range.width)}x${Math.round(range.height)}`,
-          range.startX + 5,
-          range.startY + 12
-        );
-
-        // 绘制绿色框（标题区域）
-        ctx.strokeStyle = '#22C55E';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(range.startX, range.startY, range.width, params.gridStartY);
-
-        // 绘制绿框坐标
-        ctx.fillStyle = '#22C55E';
-        ctx.font = '10px monospace';
-        ctx.fillText(
-          `(${Math.round(range.startX)}, ${Math.round(range.startY)})`,
-          range.startX + 5,
-          range.startY + 24
-        );
-
-        // 绘制第一行检测线（用于X轴检测）
-        if (isSelected) {
-          const firstLineY = range.firstLineY;
+          const midY = Math.round((range.startY + range.endY) / 2);
           ctx.strokeStyle = '#00FF00'; // 绿色
           ctx.lineWidth = 1;
           ctx.setLineDash([3, 3]);
           ctx.beginPath();
-          ctx.moveTo(range.startX, firstLineY);
-          ctx.lineTo(range.endX, firstLineY);
+          ctx.moveTo(range.startX, midY);
+          ctx.lineTo(range.endX, midY);
           ctx.stroke();
           ctx.setLineDash([]);
 
           ctx.fillStyle = '#00FF00';
           ctx.font = '10px monospace';
-          ctx.fillText(`line1Y=${firstLineY}`, range.startX + 5, firstLineY - 5);
-
-          // 绘制多行检测线
-          for (let row = 1; row < panel.rows; row++) {
-            const lineY = firstLineY + row * params.iconLineGap;
-            ctx.strokeStyle = '#00FF00';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([3, 3]);
-            ctx.beginPath();
-            ctx.moveTo(range.startX, lineY);
-            ctx.lineTo(range.endX, lineY);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            ctx.fillStyle = '#00FF00';
-            ctx.font = '10px monospace';
-            ctx.fillText(`line${row + 1}Y=${lineY}`, range.startX + 5, lineY - 5);
-          }
+          ctx.fillText(`midY=${midY}`, range.startX + 5, midY - 5);
         }
 
-        // 绘制红色框（使用检测到的图标边界）
-        range.icons.forEach((iconData, index) => {
-          const { boundary, verticalRange } = iconData;
-          const iconHeight = verticalRange?.height ?? params.iconSize;
-          const iconWidth = boundary.endX - boundary.startX;
-          const iconX = boundary.centerX - iconWidth / 2;
-          const iconY = verticalRange ? verticalRange.topY : range.firstLineY - params.iconSize / 2;
+        // 使用中心点间距计算红框（图标位置）
+        const iconPositions = calculateIconPositions(
+          panel,
+          range.startY,
+          ctx
+        );
+
+        // 绘制红色框（使用中心点间距计算的图标位置）
+        iconPositions.forEach((pos) => {
+          const { x, y, width, height } = pos;
+          const centerX = Math.round(x + width / 2);
+          const centerY = Math.round(y + height / 2);
 
           ctx.strokeStyle = '#EF4444';
           ctx.lineWidth = 2;
-          ctx.strokeRect(iconX, iconY, iconWidth, iconHeight);
+          ctx.strokeRect(x, y, width, height);
 
           // 绘制序号
           ctx.fillStyle = '#EF4444';
           ctx.font = '12px Arial';
-          ctx.fillText(`#${index + 1}`, iconX + 3, iconY + 15);
+          ctx.fillText(`#${pos.row * panel.cols + pos.col + 1}`, x + 3, y + 15);
 
           // 绘制红框坐标
           ctx.fillStyle = '#EF4444';
           ctx.font = '9px monospace';
           ctx.fillText(
-            `(${Math.round(iconX)}, ${Math.round(iconY)}) ${Math.round(iconWidth)}x${Math.round(iconHeight)}`,
-            iconX + 3,
-            iconY + iconHeight - 3
+            `(${Math.round(x)}, ${Math.round(y)}) ${Math.round(width)}x${Math.round(height)}`,
+            x + 3,
+            y + height - 3
           );
 
           // 绘制中心点标记
           if (isSelected) {
             ctx.fillStyle = '#FF00FF';
             ctx.beginPath();
-            ctx.arc(boundary.centerX, iconY + iconHeight / 2, 3, 0, 2 * Math.PI);
+            ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
             ctx.fill();
           }
         });
@@ -967,7 +774,7 @@ export default function WikiDebugPage() {
       ctx.setLineDash([]);
     };
     img.src = imageUrl;
-  }, [imageUrl, debugPanels, selectedPanelIndex, params, scanVerticalLine, scanHorizontalLine]);
+  }, [imageUrl, debugPanels, selectedPanelIndex, params, scanVerticalLine, scanHorizontalLine, calculateIconPositions]);
 
   // 重新绘制Canvas
   useEffect(() => {
@@ -1195,99 +1002,27 @@ export default function WikiDebugPage() {
         canvas.height
       );
 
-      // 2. X轴多行检测：对每个panel检测X坐标范围和多行icon位置
+      // 2. X轴检测：对每个panel检测X坐标范围（不检测icon位置，只检测Panel边界）
       const panelRanges = panelVerticalRanges.map((vRange, index) => {
         const panel = debugPanels[index];
-        const firstLineY = vRange.startY + params.iconLineOffset;
+        const midY = Math.round((vRange.startY + vRange.endY) / 2);
         
-        // 检测第一行icon
-        const firstRowResult = scanHorizontalLine(
+        // 在Panel中间横线上扫描，检测Panel的左右边界
+        const hRange = scanHorizontalLine(
           imageData,
-          firstLineY,
+          midY,
           params.colorToleranceX,
           params.sustainedPixelsX,
           canvas.width
         );
         
-        const allIcons: Array<{
-          boundary: IconBoundary;
-          verticalRange: IconVerticalRange | null;
-          rowIndex: number;
-          colIndex: number;
-        }> = [];
-        
-        if (firstRowResult) {
-          // 检测第一行每个icon的高度
-          firstRowResult.icons.forEach((icon, colIndex) => {
-            const verticalRange = scanIconVerticalBounds(
-              imageData,
-              icon.centerX,
-              firstLineY,
-              params.colorTolerance,
-              params.sustainedPixels,
-              canvas.width,
-              canvas.height
-            );
-            
-            allIcons.push({
-              boundary: icon,
-              verticalRange,
-              rowIndex: 0,
-              colIndex: colIndex
-            });
-          });
-          
-          // 如果第一行检测到足够的icon，继续检测第二行
-          let currentRow = 1;
-          let shouldContinue = firstRowResult.icons.length >= params.minIconsPerLine;
-          
-          while (shouldContinue && currentRow < panel.rows) {
-            const lineY = firstLineY + currentRow * params.iconLineGap;
-            const rowResult = scanHorizontalLine(
-              imageData,
-              lineY,
-              params.colorToleranceX,
-              params.sustainedPixelsX,
-              canvas.width
-            );
-            
-            if (rowResult && rowResult.icons.length >= params.minIconsPerLine) {
-              // 检测这一行每个icon的高度
-              rowResult.icons.forEach((icon, colIndex) => {
-                const verticalRange = scanIconVerticalBounds(
-                  imageData,
-                  icon.centerX,
-                  lineY,
-                  params.colorTolerance,
-                  params.sustainedPixels,
-                  canvas.width,
-                  canvas.height
-                );
-                
-                allIcons.push({
-                  boundary: icon,
-                  verticalRange,
-                  rowIndex: currentRow,
-                  colIndex: colIndex
-                });
-              });
-              
-              currentRow++;
-            } else {
-              shouldContinue = false;
-            }
-          }
-        }
-        
         return {
           startY: vRange.startY,
           endY: vRange.endY,
-          startX: firstRowResult?.startX ?? 0,
-          endX: firstRowResult?.endX ?? 0,
-          width: firstRowResult ? firstRowResult.endX - firstRowResult.startX : 0,
+          startX: hRange?.startX ?? 0,
+          endX: hRange?.endX ?? 0,
+          width: hRange ? hRange.endX - hRange.startX : 0,
           height: vRange.endY - vRange.startY,
-          firstLineY: firstLineY,
-          icons: allIcons
         };
       });
 
@@ -1301,8 +1036,6 @@ export default function WikiDebugPage() {
         logInfo(`  startY = ${range.startY}, endY = ${range.endY}, height = ${range.height}`);
         logInfo(`[X轴检测结果]`);
         logInfo(`  startX = ${range.startX}, endX = ${range.endX}, width = ${range.width}`);
-        logInfo(`  第一行检测线 Y = ${range.firstLineY}`);
-        logInfo(`  检测到 ${range.icons.length} 个icon`);
 
         // 蓝框坐标（一级裁切区域）
         const blueBox = {
@@ -1320,25 +1053,24 @@ export default function WikiDebugPage() {
           height: params.gridStartY,
         };
 
-        // 红框坐标（icon区域，二级裁切）- 使用检测到的icon边界
-        const redBoxes = range.icons.map((iconData, iconIndex) => {
-          const { boundary, verticalRange } = iconData;
-          
-          // 使用检测到的高度，如果没有检测到则使用默认大小
-          const iconHeight = verticalRange?.height ?? params.iconSize;
-          const iconWidth = boundary.endX - boundary.startX;
-          
-          const iconX = boundary.centerX - iconWidth / 2;
-          const iconY = verticalRange ? verticalRange.topY : range.firstLineY - params.iconSize / 2;
-          
+        // 使用中心点间距计算红框坐标（icon区域）
+        const iconPositions = calculateIconPositions(
+          panel,
+          range.startY,
+          ctx
+        );
+
+        const redBoxes = iconPositions.map((pos) => {
           return {
-            x: iconX,
-            y: iconY,
-            width: iconWidth,
-            height: iconHeight,
+            x: pos.x,
+            y: pos.y,
+            width: pos.width,
+            height: pos.height,
           };
         });
 
+        logInfo(`[图标检测结果]`);
+        logInfo(`  检测到 ${iconPositions.length} 个有效图标`);
         logInfo(`  最终坐标:`);
         logInfo(`    BlueBox: x=${Math.round(blueBox.x)}, y=${Math.round(blueBox.y)}, w=${Math.round(blueBox.width)}, h=${Math.round(blueBox.height)}`);
         logInfo(`    GreenBox: x=${Math.round(greenBox.x)}, y=${Math.round(greenBox.y)}, w=${Math.round(greenBox.width)}, h=${Math.round(greenBox.height)}`);
