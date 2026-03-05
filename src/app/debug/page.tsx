@@ -281,82 +281,145 @@ export default function WikiDebugPage() {
               <CardHeader>
                 <CardTitle>调试参数</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-5">
                 <div>
-                  <Label>Panel Left Offset: {params.panelLeftOffset}</Label>
-                  <Slider
-                    value={[params.panelLeftOffset]}
-                    onValueChange={([v]) => handleParamChange('panelLeftOffset', v)}
-                    min={-50}
-                    max={50}
-                    step={1}
-                  />
+                  <Label className="text-sm font-medium">大框 X 起点 (Left Offset)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.panelLeftOffset]}
+                      onValueChange={([v]) => handleParamChange('panelLeftOffset', v)}
+                      min={-200}
+                      max={2000}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.panelLeftOffset}
+                      onChange={(e) => handleParamChange('panelLeftOffset', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <Label>Panel Top Offset: {params.panelTopOffset}</Label>
-                  <Slider
-                    value={[params.panelTopOffset]}
-                    onValueChange={([v]) => handleParamChange('panelTopOffset', v)}
-                    min={-50}
-                    max={50}
-                    step={1}
-                  />
+                  <Label className="text-sm font-medium">大框 Y 起点 (Top Offset)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.panelTopOffset]}
+                      onValueChange={([v]) => handleParamChange('panelTopOffset', v)}
+                      min={-200}
+                      max={2000}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.panelTopOffset}
+                      onChange={(e) => handleParamChange('panelTopOffset', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <Label>Grid Start X: {params.gridStartX}</Label>
-                  <Slider
-                    value={[params.gridStartX]}
-                    onValueChange={([v]) => handleParamChange('gridStartX', v)}
-                    min={0}
-                    max={200}
-                    step={1}
-                  />
+                  <Label className="text-sm font-medium">首个图标左边距 (Grid Start X)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.gridStartX]}
+                      onValueChange={([v]) => handleParamChange('gridStartX', v)}
+                      min={-200}
+                      max={2000}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.gridStartX}
+                      onChange={(e) => handleParamChange('gridStartX', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <Label>Grid Start Y: {params.gridStartY}</Label>
-                  <Slider
-                    value={[params.gridStartY]}
-                    onValueChange={([v]) => handleParamChange('gridStartY', v)}
-                    min={0}
-                    max={200}
-                    step={1}
-                  />
+                  <Label className="text-sm font-medium">首个图标上边距 (Grid Start Y)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.gridStartY]}
+                      onValueChange={([v]) => handleParamChange('gridStartY', v)}
+                      min={-200}
+                      max={2000}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.gridStartY}
+                      onChange={(e) => handleParamChange('gridStartY', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <Label>Icon Size: {params.iconSize}</Label>
-                  <Slider
-                    value={[params.iconSize]}
-                    onValueChange={([v]) => handleParamChange('iconSize', v)}
-                    min={50}
-                    max={200}
-                    step={1}
-                  />
+                  <Label className="text-sm font-medium">图标边长尺寸 (Icon Size)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.iconSize]}
+                      onValueChange={([v]) => handleParamChange('iconSize', v)}
+                      min={10}
+                      max={500}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.iconSize}
+                      onChange={(e) => handleParamChange('iconSize', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <Label>Gap X: {params.gapX}</Label>
-                  <Slider
-                    value={[params.gapX]}
-                    onValueChange={([v]) => handleParamChange('gapX', v)}
-                    min={0}
-                    max={50}
-                    step={1}
-                  />
+                  <Label className="text-sm font-medium">横向间距 (Gap X)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.gapX]}
+                      onValueChange={([v]) => handleParamChange('gapX', v)}
+                      min={0}
+                      max={500}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.gapX}
+                      onChange={(e) => handleParamChange('gapX', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <Label>Gap Y: {params.gapY}</Label>
-                  <Slider
-                    value={[params.gapY]}
-                    onValueChange={([v]) => handleParamChange('gapY', v)}
-                    min={0}
-                    max={50}
-                    step={1}
-                  />
+                  <Label className="text-sm font-medium">纵向间距 (Gap Y)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.gapY]}
+                      onValueChange={([v]) => handleParamChange('gapY', v)}
+                      min={0}
+                      max={500}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.gapY}
+                      onChange={(e) => handleParamChange('gapY', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
                 </div>
               </CardContent>
             </Card>
