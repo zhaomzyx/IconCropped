@@ -891,6 +891,7 @@ export default function WikiDebugPage() {
 
         const decoder = new TextDecoder();
         let eventCount = 0;
+        let fullSSEContent = '';  // 收集完整的 SSE 内容
 
         logInfo('开始读取SSE流...');
 
@@ -901,37 +902,79 @@ export default function WikiDebugPage() {
             break;
           }
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          const chunk = decoder.decode(value, { stream: true });
+          fullSSEContent += chunk;
+        }
 
-          for (const line of lines) {
-            if (line.startsWith('event:')) {
-              const event = line.slice(6).trim();
-              const nextLine = lines[lines.indexOf(line) + 1];
-              if (nextLine?.startsWith('data:')) {
-                try {
-                  const data = JSON.parse(nextLine.slice(5));
-                  eventCount++;
-                  logInfo(`收到事件 ${eventCount}: ${event}`, data);
+        // 使用更健壮的 SSE 解析逻辑（与工作台一致）
+        logInfo('开始解析 SSE 流...');
 
-                  if (event === 'debug_complete') {
-                    logInfo('✓ Debug模式完成，面板数据:', data.debugPanels);
-                    setDebugPanels(data.debugPanels);
-                    // 设置图片URL - 使用正确的API路由
-                    setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
-                    logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
-                  } else if (event === 'error') {
-                    console.error('✗ 收到错误事件:', data);
-                    throw new Error(data.message || '处理过程中发生错误');
-                  }
-                } catch (e) {
-                  console.error('Failed to parse SSE data:', e, 'Line:', nextLine);
-                  if (e instanceof Error && e.message !== 'Failed to parse SSE data') {
-                    throw e; // 重新抛出解析错误以外的错误
-                  }
-                }
+        // 按 SSE 协议规范解析：每个事件以 "event:" 开头，以空行结束
+        const lines = fullSSEContent.split('\n');
+        let currentEvent = '';
+        let currentData = '';
+        let isReadingData = false;
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+
+          if (trimmedLine.startsWith('event:')) {
+            currentEvent = trimmedLine.substring(6).trim();
+            currentData = '';
+            isReadingData = false;
+          } else if (trimmedLine.startsWith('data:')) {
+            currentData = trimmedLine.substring(5).trim();
+            isReadingData = true;
+          } else if (trimmedLine === '' && currentEvent && currentData) {
+            // 空行表示事件结束，处理当前事件
+            try {
+              const data = JSON.parse(currentData);
+              eventCount++;
+              logInfo(`收到事件 ${eventCount}: ${currentEvent}`, data);
+
+              if (currentEvent === 'debug_complete') {
+                logInfo('✓ Debug模式完成，面板数据:', data.debugPanels);
+                setDebugPanels(data.debugPanels);
+                // 设置图片URL - 使用正确的API路由
+                setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
+                logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
+              } else if (currentEvent === 'error') {
+                console.error('✗ 收到错误事件:', data);
+                throw new Error(data.message || '处理过程中发生错误');
               }
+            } catch (e) {
+              console.error(`Failed to parse SSE data for event ${currentEvent}:`, e, '原始数据:', currentData.substring(0, 100));
+              throw e;
             }
+
+            currentEvent = '';
+            currentData = '';
+            isReadingData = false;
+          } else if (isReadingData && trimmedLine.startsWith('{')) {
+            // 多行 JSON 数据（虽然当前后端不使用，但为了兼容性）
+            currentData += '\n' + trimmedLine;
+          }
+        }
+
+        // 处理最后一个事件（如果没有空行结束）
+        if (currentEvent && currentData) {
+          try {
+            const data = JSON.parse(currentData);
+            eventCount++;
+            logInfo(`收到事件 ${eventCount}: ${currentEvent}`, data);
+
+            if (currentEvent === 'debug_complete') {
+              logInfo('✓ Debug模式完成，面板数据:', data.debugPanels);
+              setDebugPanels(data.debugPanels);
+              setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
+              logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
+            } else if (currentEvent === 'error') {
+              console.error('✗ 收到错误事件:', data);
+              throw new Error(data.message || '处理过程中发生错误');
+            }
+          } catch (e) {
+            console.error(`Failed to parse SSE data for event ${currentEvent}:`, e, '原始数据:', currentData.substring(0, 100));
+            throw e;
           }
         }
 
