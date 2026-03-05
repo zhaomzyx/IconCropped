@@ -736,33 +736,63 @@ interface ColorThreshold {
 
 async function detectBeigeRectangles(
   imageBuffer: Buffer,
-  region: BoundingBox
+  region: BoundingBox,
+  useBigPanelThreshold: boolean = false
 ): Promise<BoundingBox[]> {
   console.log(`  Detecting beige rectangles in region: x=${region.x}, y=${region.y}, width=${region.width}, height=${region.height}`);
+
+  // 获取图片元数据
+  const metadata = await sharp(imageBuffer).metadata();
+  const imgWidth = metadata.width!;
+  const imgHeight = metadata.height!;
+
+  // 边界检查和修正
+  const correctedX = Math.max(0, Math.min(region.x, imgWidth - 1));
+  const correctedY = Math.max(0, Math.min(region.y, imgHeight - 1));
+  const correctedWidth = Math.max(1, Math.min(region.width, imgWidth - correctedX));
+  const correctedHeight = Math.max(1, Math.min(region.height, imgHeight - correctedY));
+
+  console.log(`  Corrected region: x=${correctedX}, y=${correctedY}, width=${correctedWidth}, height=${correctedHeight}`);
 
   // 裁切指定区域
   const croppedBuffer = await sharp(imageBuffer)
     .extract({
-      left: Math.round(region.x),
-      top: Math.round(region.y),
-      width: Math.round(region.width),
-      height: Math.round(region.height)
+      left: correctedX,
+      top: correctedY,
+      width: correctedWidth,
+      height: correctedHeight
     })
     .raw()
     .toBuffer();
 
-  const width = region.width;
-  const height = region.height;
+  const width = correctedWidth;
+  const height = correctedHeight;
   const pixels = new Uint8ClampedArray(croppedBuffer);
 
   console.log(`  Region size: ${width}x${height}, pixels: ${pixels.length}`);
 
   // 浅米色阈值（根据实际图片调整）
-  const beigeThreshold: ColorThreshold = {
-    rMin: 200, rMax: 255,
-    gMin: 190, gMax: 245,
-    bMin: 170, bMax: 230
-  };
+  // 大panel的色值约在247, 231, 207上下波动
+  // 小panel的色值约在238, 211, 181上下波动
+  let beigeThreshold: ColorThreshold;
+
+  if (useBigPanelThreshold) {
+    // 大panel阈值（用于一级裁切）
+    beigeThreshold = {
+      rMin: 235, rMax: 255,
+      gMin: 220, gMax: 240,
+      bMin: 195, bMax: 220
+    };
+    console.log(`  Using big panel threshold (247, 231, 207 ± variance)`);
+  } else {
+    // 小panel阈值（用于二级裁切）
+    beigeThreshold = {
+      rMin: 225, rMax: 250,
+      gMin: 200, gMax: 225,
+      bMin: 170, bMax: 200
+    };
+    console.log(`  Using small panel threshold (238, 211, 181 ± variance)`);
+  }
 
   // 创建二值化图像（浅米色为1，其他为0）
   const binaryImage = new Uint8Array(width * height);
@@ -784,10 +814,10 @@ async function detectBeigeRectangles(
 
   console.log(`  Found ${rectangles.length} beige rectangles`);
 
-  // 转换为全局坐标
+  // 转换为全局坐标（使用修正后的坐标）
   return rectangles.map(rect => ({
-    x: region.x + rect.x,
-    y: region.y + rect.y,
+    x: correctedX + rect.x,
+    y: correctedY + rect.y,
     width: rect.width,
     height: rect.height
   }));
@@ -801,8 +831,8 @@ function findConnectedComponentRectangles(
 ): BoundingBox[] {
   const visited = new Set<number>();
   const rectangles: BoundingBox[] = [];
-  const minArea = 2500; // 最小面积（50x50）
-  const maxArea = 50000; // 最大面积（200x250）
+  const minArea = 5000; // 最小面积（70x70，考虑圆角）
+  const maxArea = 40000; // 最大面积（200x200）
 
   // 8方向偏移（包括对角线）
   const directions = [
