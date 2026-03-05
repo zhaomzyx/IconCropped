@@ -5,28 +5,30 @@
 
 import sharp from 'sharp';
 
-// 默认检测参数
+// 默认检测参数（与调试台一致）
 export const DEFAULT_DETECTION_PARAMS = {
-  panelLeftOffset: -28,
+  panelLeftOffset: 49,
   panelTopOffset: 0,
-  gridStartX: 69,
-  gridStartY: 107,
-  iconSize: 132,
-  iconCenterOffsetX: 66,
-  iconCenterOffsetY: 66,
-  centerGapX: 146,
-  centerGapY: 144,
-  scanLineX: 49,
+  gridStartX: 100,
+  gridStartY: 80,
+  iconSize: 130,
+  iconCenterOffsetX: 20,
+  iconCenterOffsetY: 93,
+  centerGapX: 145,
+  centerGapY: 145,
+  scanLineX: 90,
   scanStartY: 200,
-  colorTolerance: 30,
-  sustainedPixels: 5,
-  panelWidth: 876,
-  greenBoxWidth: 876,
-  colorToleranceX: 30,
-  sustainedPixelsX: 5,
-  iconLineOffset: 107,
-  iconLineGap: 144,
+  colorTolerance: 50,
+  sustainedPixels: 10,
+  panelWidth: 820,
+  greenBoxWidth: 790,
+  colorToleranceX: 40,
+  sustainedPixelsX: 10,
+  iconLineOffset: 137,
+  iconLineGap: 113,
   minIconsPerLine: 5,
+  gapX: 10,
+  gapY: 0,
   varianceThreshold: 50,  // 空位探测器的方差阈值（与调试台一致）
 };
 

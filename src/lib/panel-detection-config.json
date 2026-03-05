@@ -23,6 +23,7 @@
     "iconLineGap": 113,
     "minIconsPerLine": 5,
     "gapX": 10,
-    "gapY": 0
+    "gapY": 0,
+    "varianceThreshold": 50
   }
 }
