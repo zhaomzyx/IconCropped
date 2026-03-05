@@ -48,12 +48,6 @@ export default function WikiDebugPage() {
 
   // LocalStorage 键名
   const STORAGE_KEY = 'wiki_slice_config';
-  const PRESETS_KEY = 'wiki_slice_presets';
-
-  // 预设管理状态
-  const [presets, setPresets] = useState<Array<{ id: string; name: string; params: typeof DEFAULT_PARAMS; createdAt: string }>>([]);
-  const [showSavePreset, setShowSavePreset] = useState(false);
-  const [newPresetName, setNewPresetName] = useState('');
 
   // 从 LocalStorage 加载参数
   const loadParamsFromStorage = useCallback((): typeof DEFAULT_PARAMS => {
