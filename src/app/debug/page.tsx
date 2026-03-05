@@ -48,6 +48,7 @@ export default function WikiDebugPage() {
     scanLineX: 20,         // 扫描线 X 坐标
     scanStartY: 200,       // 扫描起始 Y 坐标
     colorTolerance: 15,    // 颜色容差值
+    sustainedPixels: 20,   // 连续判定高度（滑动窗口）
   };
 
   // LocalStorage 键名
@@ -130,12 +131,13 @@ export default function WikiDebugPage() {
     );
   };
 
-  // 垂直像素扫描，找出所有面板的起始 Y 坐标
+  // 垂直像素扫描（滑动窗口算法），找出所有面板的起始 Y 坐标
   const scanVerticalLine = useCallback((
     imageData: ImageData,
     scanLineX: number,
     scanStartY: number,
     colorTolerance: number,
+    sustainedPixels: number,
     width: number,
     height: number
   ): number[] => {
@@ -161,24 +163,44 @@ export default function WikiDebugPage() {
 
     const backgroundColor = getPixelColor(scanLineX, scanStartY);
 
+    // 滑动窗口算法
+    let isPanel = false;
+    let consecutiveBg = 0;    // 连续背景色计数器
+    let consecutivePanel = 0; // 连续面板色计数器
+    const requiredPixels = sustainedPixels;
+
     // 从 Y=scanStartY 扫描到底部（跳过顶部杂乱区域）
-    let inPanel = false;
     for (let y = scanStartY; y < height; y++) {
       const currentColor = getPixelColor(scanLineX, y);
       const diff = colorDiff(currentColor, backgroundColor);
 
-      // 检测是否进入或离开面板
-      if (!inPanel && diff > colorTolerance) {
-        // 进入面板，记录起始 Y
-        panelStartYs.push(y);
-        inPanel = true;
-      } else if (inPanel && diff <= colorTolerance) {
-        // 离开面板
-        inPanel = false;
+      if (diff > colorTolerance) {
+        // 识别为浅色面板区域
+        consecutivePanel++;
+        consecutiveBg = 0;
+
+        if (!isPanel && consecutivePanel >= requiredPixels) {
+          // 真正的起点是几十个像素之前突变的那个点
+          const actualStartY = y - requiredPixels + 1;
+          panelStartYs.push(actualStartY);
+          isPanel = true;
+
+          console.log(`Panel started at Y=${actualStartY} (detected at Y=${y})`);
+        }
+      } else {
+        // 识别为深色背景区域
+        consecutiveBg++;
+        consecutivePanel = 0;
+
+        if (isPanel && consecutiveBg >= requiredPixels) {
+          // 面板结束
+          isPanel = false;
+          console.log(`Panel ended at Y=${y - requiredPixels + 1} (detected at Y=${y})`);
+        }
       }
     }
 
-    console.log(`Scanned ${panelStartYs.length} panel start positions from Y=${scanStartY}:`, panelStartYs);
+    console.log(`Scanned ${panelStartYs.length} panel start positions from Y=${scanStartY} (sustained=${requiredPixels}):`, panelStartYs);
     return panelStartYs;
   }, []);
 
@@ -208,6 +230,7 @@ export default function WikiDebugPage() {
         params.scanLineX,
         params.scanStartY,
         params.colorTolerance,
+        params.sustainedPixels,
         canvas.width,
         canvas.height
       );
@@ -706,6 +729,26 @@ export default function WikiDebugPage() {
                       type="number"
                       value={params.colorTolerance}
                       onChange={(e) => handleParamChange('colorTolerance', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
+                </div>
+                {/* 滑动窗口连续判定高度 */}
+                <div>
+                  <Label className="text-sm font-medium">连续判定高度 (Sustained Pixels)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.sustainedPixels]}
+                      onValueChange={([v]) => handleParamChange('sustainedPixels', v)}
+                      min={5}
+                      max={100}
+                      step={5}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.sustainedPixels}
+                      onChange={(e) => handleParamChange('sustainedPixels', parseInt(e.target.value) || 0)}
                       className="w-20 text-center"
                     />
                   </div>
