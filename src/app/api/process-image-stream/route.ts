@@ -152,27 +152,33 @@ export async function POST(request: NextRequest) {
             const panelData = await detectPanelsWithLLM(imageBuffer, metadata, filename);
             console.log(`  LLM detected ${panelData.panels.length} panels`);
 
-            // Debug模式：返回Panel元数据（职责：建表），让前端Canvas夺权覆盖坐标
+            // Debug模式：返回Panel元数据和裁切坐标
             if (debug) {
               const debugPanels = panelData.panels.map((panel, idx) => {
                 return {
                   title: panel.title || `板块_${idx + 1}`,
-                  x: 0,  // LLM的X不准，前端会覆盖
-                  y: 0,  // LLM的Y不准，前端会覆盖
-                  width: 0,  // LLM的width不准，前端会覆盖
-                  height: 0,  // LLM的height不准，前端会覆盖
-                  rows: panel.rows,  // 保留：用于前端双层for循环
-                  cols: panel.cols,  // 保留：用于前端双层for循环
-                  total: panel.total ?? (panel.rows * panel.cols),  // 保留：用于前端双层for循环
+                  x: 0,  // LLM的X不准，后端会覆盖
+                  y: 0,  // LLM的Y不准，后端会覆盖
+                  width: 0,  // LLM的width不准，后端会覆盖
+                  height: 0,  // LLM的height不准，后端会覆盖
+                  rows: panel.rows,  // 保留：用于后端双层for循环
+                  cols: panel.cols,  // 保留：用于后端双层for循环
+                  total: panel.total ?? (panel.rows * panel.cols),  // 保留：用于后端双层for循环
                   imageUrl: ''  // 不需要保存大panel图片
                 };
               });
 
               console.log(`  Debug模式：返回 ${debugPanels.length} 个Panel的元数据（title, rows, cols）`);
-              console.log(`  前端Canvas将使用scanVerticalLine扫描覆盖Y坐标`);
+
+              // 使用 A 计划检测面板坐标（传入 imageBuffer 和 customParams）
+              console.log(`  Debug模式：调用 detectPanels 获取裁切坐标`);
+              const detectedPanels = await detectPanels(imageBuffer, debugPanels, customParams);
+
+              console.log(`  Debug模式：检测到 ${detectedPanels.length} 个面板的裁切坐标`);
 
               sendEvent(controller, 'debug_complete', {
                 debugPanels: debugPanels,
+                detectedPanels: detectedPanels,  // 新增：返回裁切坐标
                 imageMetadata: {
                   width: metadata.width,
                   height: metadata.height

@@ -9,7 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Upload, ArrowLeft, CheckCircle, AlertCircle, Link2, X, ChevronDown, FileImage, Package, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 import { ResourceItem, WikiCroppedImage, MappingRelation } from '@/types';
-import { detectPanelsWithCanvas } from '@/lib/canvas-detection';
 
 // Wiki图片预览组件
 const WikiImagePreview = ({ filename, wikiName, onRemove }: { filename: string; wikiName?: string; onRemove: () => void }) => {
@@ -540,8 +539,8 @@ export default function WorkbenchPage() {
           setWikiProcessingStep(`🖼️ 正在处理第 ${i + 1}/${wikiFilenames.length} 张图片...`);
 
           try {
-            // 1. 调用 debug=true 模式获取面板元数据
-            setWikiProcessingStep(`🔍 图片 ${i + 1}/${wikiFilenames.length} - 正在识别大板块...`);
+            // 1. 调用 debug=true 模式获取面板元数据和裁切坐标
+            setWikiProcessingStep(`🔍 图片 ${i + 1}/${wikiFilenames.length} - 正在识别大板块和裁切坐标...`);
 
             const debugResponse = await fetch('/api/process-image-stream', {
               method: 'POST',
@@ -549,6 +548,7 @@ export default function WorkbenchPage() {
               body: JSON.stringify({
                 filenames: [filename],
                 debug: true,
+                params: customParams,  // 传递自定义参数
               }),
             });
 
@@ -563,6 +563,7 @@ export default function WorkbenchPage() {
 
             const decoder = new TextDecoder();
             let debugPanels: any[] = [];
+            let detectedPanels: any[] = [];
             let imageMetadata: any = null;
 
             while (true) {
@@ -581,6 +582,7 @@ export default function WorkbenchPage() {
                       const data = JSON.parse(nextLine.slice(5));
                       if (event === 'debug_complete') {
                         debugPanels = data.debugPanels;
+                        detectedPanels = data.detectedPanels;  // 获取裁切坐标
                         imageMetadata = data.imageMetadata;
                       } else if (event === 'error') {
                         throw new Error(data.message || '处理失败');
@@ -595,44 +597,10 @@ export default function WorkbenchPage() {
 
             console.log(`获取到 ${debugPanels.length} 个面板的元数据`);
             console.log('📋 调试台返回的面板元数据:', debugPanels);
+            console.log(`获取到 ${detectedPanels.length} 个面板的裁切坐标`);
+            console.log('🎨 调试台返回的裁切坐标:', JSON.stringify(detectedPanels, null, 2));
 
-            // 2. 使用前端 Canvas 进行检测
-            setWikiProcessingStep(`🎨 图片 ${i + 1}/${wikiFilenames.length} - 正在检测面板坐标...`);
-
-            // 创建隐藏的图片元素
-            const imageElement = new Image();
-            imageElement.crossOrigin = 'anonymous';
-
-            // 构建图片URL
-            const imageUrl = fetchedWikiName
-              ? `/WikiPic/${fetchedWikiName}/${filename}`
-              : `/api/uploads/wiki/${filename}`;
-
-            console.log(`📷 加载图片: ${imageUrl}`);
-
-            // 等待图片加载
-            await new Promise((resolve, reject) => {
-              imageElement.onload = resolve;
-              imageElement.onerror = reject;
-              imageElement.src = imageUrl;
-            });
-
-            console.log(`✓ 图片加载成功:`);
-            console.log(`  图片自然尺寸 (naturalWidth × naturalHeight): ${imageElement.naturalWidth} × ${imageElement.naturalHeight}`);
-            console.log(`  图片显示尺寸 (width × height): ${imageElement.width} × ${imageElement.height}`);
-            console.log(`  图片 URL: ${imageUrl}`);
-
-            // 使用 Canvas 检测模块进行检测
-            const detectedPanels = await detectPanelsWithCanvas(
-              imageElement,
-              debugPanels,
-              customParams
-            );
-
-            console.log(`✓ Canvas 检测完成，共检测到 ${detectedPanels.length} 个面板`);
-            console.log('🎨 Canvas 检测的面板坐标:', JSON.stringify(detectedPanels, null, 2));
-
-            // 3. 将检测到的坐标传给后端接口进行裁切
+            // 2. 将裁切坐标传给后端接口进行裁切
             setWikiProcessingStep(`✂️ 图片 ${i + 1}/${wikiFilenames.length} - 正在裁切图标...`);
 
             console.log(`📤 准备发送裁切请求到后端接口`);
@@ -640,7 +608,6 @@ export default function WorkbenchPage() {
               filename: filename,
               wikiName: fetchedWikiName,
               detectedPanels: detectedPanels,
-              customParams: customParams,
             }, null, 2));
 
             const cropResponse = await fetch('/api/crop-with-detected-coordinates', {
@@ -650,7 +617,6 @@ export default function WorkbenchPage() {
                 filename: filename,
                 wikiName: fetchedWikiName,
                 detectedPanels: detectedPanels,
-                customParams: customParams,
               }),
             });
 
