@@ -194,6 +194,17 @@ export async function POST(request: NextRequest) {
               subStep: 'icon_cutting'
             });
 
+            // UI布局常量（可调整）
+            const UI_LAYOUT = {
+              COLS: 5,              // 固定为5列
+              TOP_PADDING: 80,      // 顶部标题区域高度
+              BOTTOM_PADDING: 20,   // 底部留白
+              SIDE_PADDING: 30,     // 左右两侧的总留白
+              GAP: 15               // 图标之间的间距
+            };
+
+            console.log(`  UI Layout: COLS=${UI_LAYOUT.COLS}, TOP_PADDING=${UI_LAYOUT.TOP_PADDING}, BOTTOM_PADDING=${UI_LAYOUT.BOTTOM_PADDING}, SIDE_PADDING=${UI_LAYOUT.SIDE_PADDING}, GAP=${UI_LAYOUT.GAP}`);
+
             // 处理每个板块
             const crops: WikiCroppedImage[] = [];
 
@@ -213,93 +224,57 @@ export async function POST(request: NextRequest) {
                 subStep: 'panel_processing'
               });
 
-              // 使用图像处理算法精确检测浅米色圆角矩形框
-              const panelRegion: BoundingBox = {
-                x: panel.x,
-                y: panel.y,
-                width: panel.width,
-                height: panel.height
-              };
+              // 边界检查和修正
+              const correctedX = Math.max(0, Math.min(panel.x, metadata.width! - 1));
+              const correctedY = Math.max(0, Math.min(panel.y, metadata.height! - 1));
+              const correctedWidth = Math.max(1, Math.min(panel.width, metadata.width! - correctedX));
+              const correctedHeight = Math.max(1, Math.min(panel.height, metadata.height! - correctedY));
 
-              const beigeRectangles = await detectBeigeRectangles(imageBuffer, panelRegion);
-              console.log(`  Panel ${j} (${title}): detected ${beigeRectangles.length} beige rectangles`);
+              // 使用数学网格计算图标位置
+              const iconPositions = calculateIconPositions(
+                correctedX,
+                correctedY,
+                correctedWidth,
+                correctedHeight,
+                UI_LAYOUT
+              );
 
-              if (beigeRectangles.length === 0) {
-                console.warn(`  No beige rectangles found for panel "${title}", skipping...`);
-                continue;
-              }
+              console.log(`  Panel ${j} (${title}): calculated ${iconPositions.positions.length} icon positions (${iconPositions.rows} rows x ${iconPositions.cols} cols)`);
 
-              // 根据坐标对浅米色矩形框进行排序（从上到下，从左到右）
-              // 使用聚类算法将矩形框分配到网格位置
-              const gridItems = clusterIconBasesToGrid(beigeRectangles, panel.rows, panel.cols);
-
-              console.log(`  Grid items: ${gridItems.length}, rows=${panel.rows}, cols=${panel.cols}`);
-
-              // 计算总行数和总列数
-              const totalRows = gridItems.length > 0 ? Math.max(...gridItems.map(g => g.row)) + 1 : 1;
-              const totalCols = gridItems.length > 0 ? Math.max(...gridItems.map(g => g.col)) + 1 : 1;
-
-              // 统一裁切尺寸：130x130
-              // 注意：这里使用矩形框的精确边界，而不是固定的130x130
-              // 如果矩形框接近130x130，就使用矩形框的边界
-              // 否则使用130x130并以矩形框中心为基准
-              const targetSize = 130;
-
-              // 裁切图标（使用矩形框的精确边界）
-              for (const gridItem of gridItems) {
-                const base = gridItem.box;
-
-                // 计算图标序号（行优先）
-                const iconIndex = gridItem.row * totalCols + gridItem.col;
+              // 裁切图标（使用数学计算的位置）
+              for (const iconPos of iconPositions.positions) {
+                const iconIndex = iconPos.row * iconPositions.cols + iconPos.col;
                 const iconFileName = `${title}_icon_${iconIndex}.png`;
                 const iconPath = path.join(wikiDir, iconFileName);
 
-                // 使用矩形框的精确边界进行裁切
-                // 添加一点边距（2像素）以包含完整的圆角
-                const padding = 2;
-                let cropX = Math.max(0, Math.round(base.x - padding));
-                let cropY = Math.max(0, Math.round(base.y - padding));
-                let cropWidth = Math.min(base.width + padding * 2, metadata.width - cropX);
-                let cropHeight = Math.min(base.height + padding * 2, metadata.height - cropY);
-
-                // 如果矩形框尺寸接近130x130，直接使用矩形框边界
-                // 否则，以矩形框中心为基准，裁切130x130
-                const isNearTargetSize =
-                  Math.abs(base.width - targetSize) < 20 &&
-                  Math.abs(base.height - targetSize) < 20;
-
-                if (!isNearTargetSize) {
-                  // 使用固定尺寸130x130，以矩形框中心为基准
-                  const centerX = base.x + base.width / 2;
-                  const centerY = base.y + base.height / 2;
-
-                  cropX = Math.max(0, Math.round(centerX - targetSize / 2));
-                  cropY = Math.max(0, Math.round(centerY - targetSize / 2));
-                  cropWidth = Math.min(targetSize, metadata.width - cropX);
-                  cropHeight = Math.min(targetSize, metadata.height - cropY);
-                }
-
-                console.log(`  Icon ${iconIndex}: rect=(${Math.round(base.x)},${Math.round(base.y)},${Math.round(base.width)},${Math.round(base.height)}), crop=(${cropX},${cropY},${cropWidth},${cropHeight})`);
+                console.log(`  Icon ${iconIndex}: [${iconPos.row},${iconPos.col}] position=(${iconPos.x},${iconPos.y}, ${iconPos.width}x${iconPos.height})`);
 
                 // 边界检查（确保裁切区域不超出原图）
-                if (cropX >= 0 && cropY >= 0 && cropX + cropWidth <= metadata.width && cropY + cropHeight <= metadata.height) {
+                if (iconPos.x >= 0 && iconPos.y >= 0 &&
+                    iconPos.x + iconPos.width <= metadata.width &&
+                    iconPos.y + iconPos.height <= metadata.height) {
                   try {
                     await sharp(imageBuffer)
-                      .extract({ left: cropX, top: cropY, width: cropWidth, height: cropHeight })
+                      .extract({
+                        left: iconPos.x,
+                        top: iconPos.y,
+                        width: iconPos.width,
+                        height: iconPos.height
+                      })
                       .png()
                       .toFile(iconPath);
 
                     crops.push({
                       path: iconFileName,
                       name: `${title}_icon_${iconIndex}`,
-                      row: gridItem.row,
-                      col: gridItem.col,
-                      totalRows: totalRows,
-                      totalCols: totalCols,
-                      x: cropX,
-                      y: cropY,
-                      width: cropWidth,
-                      height: cropHeight,
+                      row: iconPos.row,
+                      col: iconPos.col,
+                      totalRows: iconPositions.rows,
+                      totalCols: iconPositions.cols,
+                      x: iconPos.x,
+                      y: iconPos.y,
+                      width: iconPos.width,
+                      height: iconPos.height,
                       panelName: title,
                       title: title,
                       wikiName: actualWikiName,
@@ -307,7 +282,7 @@ export async function POST(request: NextRequest) {
                       imageUrl: `/api/crops/${actualWikiName}/${iconFileName}`
                     });
 
-                    console.log(`  Saved icon: ${iconFileName} (row=${gridItem.row}, col=${gridItem.col}, size=${cropWidth}x${cropHeight})`);
+                    console.log(`  Saved icon: ${iconFileName} (row=${iconPos.row}, col=${iconPos.col}, size=${iconPos.width}x${iconPos.height})`);
                   } catch (e) {
                     console.error(`  Failed to save icon ${iconFileName}:`, e);
                   }
@@ -921,4 +896,96 @@ function findConnectedComponentRectangles(
   }
 
   return rectangles;
+}
+
+// ========== 数学网格计算函数 ==========
+
+interface UILayout {
+  COLS: number;
+  TOP_PADDING: number;
+  BOTTOM_PADDING: number;
+  SIDE_PADDING: number;
+  GAP: number;
+}
+
+interface IconPosition {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  row: number;
+  col: number;
+}
+
+interface IconPositionsResult {
+  positions: IconPosition[];
+  rows: number;
+  cols: number;
+}
+
+// 使用数学网格计算图标位置
+function calculateIconPositions(
+  panelX: number,
+  panelY: number,
+  panelWidth: number,
+  panelHeight: number,
+  layout: UILayout
+): IconPositionsResult {
+  console.log(`  Calculating icon positions for panel at (${panelX}, ${panelY}), size ${panelWidth}x${panelHeight}`);
+
+  const { COLS, TOP_PADDING, BOTTOM_PADDING, SIDE_PADDING, GAP } = layout;
+
+  // 计算图标可用区域
+  const availableWidth = panelWidth - SIDE_PADDING;
+  const availableHeight = panelHeight - TOP_PADDING - BOTTOM_PADDING;
+
+  console.log(`  Available area: ${availableWidth}x${availableHeight}`);
+
+  // 计算单个图标的宽度和高度
+  const iconWidth = (availableWidth - (COLS - 1) * GAP) / COLS;
+
+  // 估算单个图标的高度（假设图标是正方形）
+  const estimatedIconHeight = iconWidth;
+
+  // 计算行数
+  const rows = Math.round(availableHeight / (estimatedIconHeight + GAP));
+
+  console.log(`  Estimated icon size: ${iconWidth.toFixed(1)}x${estimatedIconHeight.toFixed(1)}`);
+  console.log(`  Calculated rows: ${rows}`);
+
+  // 重新计算实际图标高度（基于行数）
+  const actualIconHeight = (availableHeight - (rows - 1) * GAP) / rows;
+
+  console.log(`  Actual icon size: ${iconWidth.toFixed(1)}x${actualIconHeight.toFixed(1)}`);
+
+  // 计算起始位置（居中对齐）
+  const startX = panelX + SIDE_PADDING / 2;
+  const startY = panelY + TOP_PADDING;
+
+  // 计算所有图标的位置
+  const positions: IconPosition[] = [];
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const x = startX + col * (iconWidth + GAP);
+      const y = startY + row * (actualIconHeight + GAP);
+
+      positions.push({
+        x: Math.round(x),
+        y: Math.round(y),
+        width: Math.round(iconWidth),
+        height: Math.round(actualIconHeight),
+        row,
+        col
+      });
+    }
+  }
+
+  console.log(`  Generated ${positions.length} icon positions`);
+
+  return {
+    positions,
+    rows,
+    cols: COLS
+  };
 }
