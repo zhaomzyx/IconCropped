@@ -36,19 +36,19 @@ export default function WikiDebugPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 默认参数常量
+  // 默认参数常量（基于用户调试优化）
   const DEFAULT_PARAMS = {
-    panelLeftOffset: 0,
-    panelTopOffset: 0,
-    gridStartX: 30,
-    gridStartY: 60,
-    iconSize: 130,
-    gapX: 15,
-    gapY: 15,
-    scanLineX: 20,         // 扫描线 X 坐标
-    scanStartY: 200,       // 扫描起始 Y 坐标
-    colorTolerance: 15,    // 颜色容差值
-    sustainedPixels: 20,   // 连续判定高度（滑动窗口）
+    panelLeftOffset: -20,
+    panelTopOffset: 238,
+    gridStartX: 73,
+    gridStartY: 121,
+    iconSize: 135,
+    gapX: 22,
+    gapY: 24,
+    scanLineX: 86,          // 扫描线 X 坐标
+    scanStartY: 200,        // 扫描起始 Y 坐标
+    colorTolerance: 50,     // 颜色容差值
+    sustainedPixels: 10,    // 连续判定高度（滑动窗口）
   };
 
   // LocalStorage 键名
