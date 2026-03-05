@@ -771,6 +771,22 @@ async function detectBeigeRectangles(
 
   console.log(`  Region size: ${width}x${height}, pixels: ${pixels.length}`);
 
+  // 采样像素颜色，用于调试
+  const sampleColors: number[][] = [];
+  const sampleStep = Math.max(1, Math.floor((width * height) / 100)); // 采样约100个像素
+  for (let i = 0; i < pixels.length; i += sampleStep) {
+    sampleColors.push([pixels[i], pixels[i + 1], pixels[i + 2]]);
+  }
+  console.log(`  Sampled ${sampleColors.length} pixels for color analysis`);
+
+  // 计算平均颜色
+  const avgColor = [
+    Math.round(sampleColors.reduce((sum, c) => sum + c[0], 0) / sampleColors.length),
+    Math.round(sampleColors.reduce((sum, c) => sum + c[1], 0) / sampleColors.length),
+    Math.round(sampleColors.reduce((sum, c) => sum + c[2], 0) / sampleColors.length)
+  ];
+  console.log(`  Average color: RGB(${avgColor.join(', ')})`);
+
   // 浅米色阈值（根据实际图片调整）
   // 大panel的色值约在247, 231, 207上下波动
   // 小panel的色值约在238, 211, 181上下波动
@@ -786,16 +802,18 @@ async function detectBeigeRectangles(
     console.log(`  Using big panel threshold (247, 231, 207 ± variance)`);
   } else {
     // 小panel阈值（用于二级裁切）
+    // 放宽范围以适应实际图片颜色
     beigeThreshold = {
-      rMin: 225, rMax: 250,
-      gMin: 200, gMax: 225,
-      bMin: 170, bMax: 200
+      rMin: 200, rMax: 255,  // 238 ± 38
+      gMin: 180, gMax: 240,  // 211 ± 31
+      bMin: 150, bMax: 215   // 181 ± 31
     };
-    console.log(`  Using small panel threshold (238, 211, 181 ± variance)`);
+    console.log(`  Using small panel threshold (238, 211, 181 ± variance, widened)`);
   }
 
   // 创建二值化图像（浅米色为1，其他为0）
   const binaryImage = new Uint8Array(width * height);
+  let beigePixelCount = 0;
   for (let i = 0; i < pixels.length; i += 4) {
     const r = pixels[i];
     const g = pixels[i + 1];
@@ -806,8 +824,14 @@ async function detectBeigeRectangles(
       g >= beigeThreshold.gMin && g <= beigeThreshold.gMax &&
       b >= beigeThreshold.bMin && b <= beigeThreshold.bMax;
 
+    if (isBeige) {
+      beigePixelCount++;
+    }
+
     binaryImage[i / 4] = isBeige ? 1 : 0;
   }
+
+  console.log(`  Beige pixels: ${beigePixelCount} / ${pixels.length / 4} (${(beigePixelCount / (pixels.length / 4) * 100).toFixed(2)}%)`);
 
   // 使用连通区域分析找到独立的矩形框
   const rectangles = findConnectedComponentRectangles(binaryImage, width, height);
