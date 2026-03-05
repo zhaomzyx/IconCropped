@@ -784,8 +784,8 @@ export default function WikiDebugPage() {
               <CardContent>
                 <canvas
                   ref={canvasRef}
-                  className="border border-gray-300 w-full"
-                  style={{ maxWidth: '100%', height: 'auto' }}
+                  className="border border-gray-300"
+                  style={{ maxWidth: '100%', width: 'auto', height: 'auto' }}
                 />
               </CardContent>
             </Card>
@@ -1211,55 +1211,87 @@ export default function WikiDebugPage() {
       )}
 
       {/* 调试信息 */}
-      {imageUrl && canvasRef.current && (
-        <Card className="mt-6 bg-yellow-50">
-          <CardHeader>
-            <CardTitle className="text-yellow-800">调试信息</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-yellow-900">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <strong>Canvas 实际尺寸：</strong>
-                <p>{canvasRef.current.width} x {canvasRef.current.height} 像素</p>
+      {imageUrl && canvasRef.current && (() => {
+        const scaleRatioX = canvasRef.current.clientWidth / canvasRef.current.width * 100;
+        const scaleRatioY = canvasRef.current.clientHeight / canvasRef.current.height * 100;
+        const isScaled = Math.abs(scaleRatioX - 100) > 1 || Math.abs(scaleRatioY - 100) > 1;
+
+        return (
+          <Card className={`mt-6 ${isScaled ? 'bg-red-50' : 'bg-green-50'}`}>
+            <CardHeader>
+              <CardTitle className={isScaled ? 'text-red-800' : 'text-green-800'}>
+                {isScaled ? '⚠️ 警告：Canvas 被缩放了！' : '✅ Canvas 缩放正常'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className={`text-sm ${isScaled ? 'text-red-900' : 'text-green-900'}`}>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <strong>Canvas 实际尺寸：</strong>
+                  <p>{canvasRef.current.width} x {canvasRef.current.height} 像素</p>
+                </div>
+                <div>
+                  <strong>Canvas 显示尺寸：</strong>
+                  <p>{canvasRef.current.clientWidth} x {canvasRef.current.clientHeight} 像素</p>
+                </div>
+                <div>
+                  <strong>缩放比例：</strong>
+                  <p className={isScaled ? 'text-red-600 font-bold' : ''}>
+                    X: {scaleRatioX.toFixed(1)}%
+                    <br />
+                    Y: {scaleRatioY.toFixed(1)}%
+                  </p>
+                </div>
+                <div>
+                  <strong>图片 URL：</strong>
+                  <p className="text-xs break-all">{imageUrl}</p>
+                </div>
               </div>
-              <div>
-                <strong>Canvas 显示尺寸：</strong>
-                <p>{canvasRef.current.clientWidth} x {canvasRef.current.clientHeight} 像素</p>
-              </div>
-              <div>
-                <strong>缩放比例：</strong>
-                <p>X: {(canvasRef.current.clientWidth / canvasRef.current.width * 100).toFixed(1)}%</p>
-                <p>Y: {(canvasRef.current.clientHeight / canvasRef.current.height * 100).toFixed(1)}%</p>
-              </div>
-              <div>
-                <strong>图片 URL：</strong>
-                <p className="text-xs break-all">{imageUrl}</p>
-              </div>
-            </div>
-            <div className="mt-4 p-3 bg-yellow-100 rounded">
-              <strong>红框坐标示例（选中面板的第一个图标）：</strong>
-              {selectedPanelIndex < debugPanels.length && (() => {
-                const positions = calculateIconPositions(
-                  debugPanels[selectedPanelIndex],
-                  0, // 只用于示例
-                  canvasRef.current.getContext('2d')!
-                );
-                if (positions.length > 0) {
-                  const pos = positions[0];
-                  return (
-                    <div className="mt-2 text-xs">
-                      <p>左上角：x={pos.x}, y={pos.y}</p>
-                      <p>中心点：x={pos.x + Math.round(pos.width / 2)}, y={pos.y + Math.round(pos.height / 2)}</p>
-                      <p>尺寸：{pos.width} x {pos.height}</p>
-                    </div>
+
+              {isScaled && (
+                <div className="mt-4 p-3 bg-red-100 rounded border border-red-300">
+                  <strong className="text-red-800">🚨 问题说明：</strong>
+                  <p className="mt-2 text-red-900">
+                    Canvas 被缩放了 {Math.abs(scaleRatioX - 100).toFixed(1)}%，这会导致裁切坐标不准确！
+                  </p>
+                  <p className="mt-2 text-red-900">
+                    <strong>可能原因：</strong>
+                    <br />• CSS 样式导致 Canvas 被拉伸
+                    <br />• 浏览器缩放或显示器缩放
+                  </p>
+                  <p className="mt-2 text-red-900">
+                    <strong>解决方案：</strong>
+                    <br />• 刷新页面重新加载图片
+                    <br />• 检查浏览器缩放比例（应为 100%）
+                    <br />• 如果问题持续，请联系开发者
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-4 p-3 bg-yellow-100 rounded">
+                <strong>红框坐标示例（选中面板的第一个图标）：</strong>
+                {selectedPanelIndex < debugPanels.length && (() => {
+                  const positions = calculateIconPositions(
+                    debugPanels[selectedPanelIndex],
+                    0, // 只用于示例
+                    canvasRef.current.getContext('2d')!
                   );
-                }
-                return <p className="mt-2">无图标</p>;
-              })()}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                  if (positions.length > 0) {
+                    const pos = positions[0];
+                    return (
+                      <div className="mt-2 text-xs">
+                        <p>左上角：x={pos.x}, y={pos.y}</p>
+                        <p>中心点：x={pos.x + Math.round(pos.width / 2)}, y={pos.y + Math.round(pos.height / 2)}</p>
+                        <p>尺寸：{pos.width} x {pos.height}</p>
+                      </div>
+                    );
+                  }
+                  return <p className="mt-2">无图标</p>
+                })()}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* 图例说明 */}
       {imageUrl && (
