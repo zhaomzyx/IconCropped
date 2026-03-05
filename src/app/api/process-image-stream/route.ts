@@ -788,27 +788,27 @@ async function detectBeigeRectangles(
   console.log(`  Average color: RGB(${avgColor.join(', ')})`);
 
   // 浅米色阈值（根据实际图片调整）
-  // 大panel的色值约在247, 231, 207上下波动
-  // 小panel的色值约在238, 211, 181上下波动
+  // 一级裁切（大panel）：浅米色，约 247, 231, 207
+  // 二级裁切（小panel）：深米色，实际采样显示约 222, 177, 129
   let beigeThreshold: ColorThreshold;
 
   if (useBigPanelThreshold) {
     // 大panel阈值（用于一级裁切）
     beigeThreshold = {
-      rMin: 235, rMax: 255,
-      gMin: 220, gMax: 240,
-      bMin: 195, bMax: 220
+      rMin: 230, rMax: 255,  // 247 ± 17
+      gMin: 215, gMax: 245,  // 231 ± 16
+      bMin: 190, bMax: 220   // 207 ± 17
     };
     console.log(`  Using big panel threshold (247, 231, 207 ± variance)`);
   } else {
-    // 小panel阈值（用于二级裁切）
-    // 放宽范围以适应实际图片颜色
+    // 小panel阈值（用于二级裁切）- 深米色
+    // 根据实际采样结果调整：RGB(222, 177, 129)
     beigeThreshold = {
-      rMin: 200, rMax: 255,  // 238 ± 38
-      gMin: 180, gMax: 240,  // 211 ± 31
-      bMin: 150, bMax: 215   // 181 ± 31
+      rMin: 200, rMax: 245,  // 222 ± 22
+      gMin: 155, gMax: 200,  // 177 ± 22
+      bMin: 105, bMax: 160   // 129 ± 24
     };
-    console.log(`  Using small panel threshold (238, 211, 181 ± variance, widened)`);
+    console.log(`  Using small panel threshold (222, 177, 129 ± variance, dark beige)`);
   }
 
   // 创建二值化图像（浅米色为1，其他为0）
