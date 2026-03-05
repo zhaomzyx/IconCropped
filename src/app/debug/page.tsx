@@ -44,16 +44,16 @@ export default function WikiDebugPage() {
     gridStartX: 69,
     gridStartY: 107,
     iconSize: 132,
-    iconCenterOffsetX: 66,   // 图标中心点 X 偏移（默认为 iconSize / 2）
-    iconCenterOffsetY: 66,   // 图标中心点 Y 偏移（默认为 iconSize / 2）
-    gapX: 14,
-    gapY: 12,
-    scanLineX: 86,          // 扫描线 X 坐标
-    scanStartY: 200,        // 扫描起始 Y 坐标
-    colorTolerance: 50,     // 颜色容差值
-    sustainedPixels: 10,    // 连续判定高度（滑动窗口）
-    panelWidth: 876,        // 蓝框宽度（Panel外边缘）
-    greenBoxWidth: 876,     // 绿框宽度（标题区域）
+    iconCenterOffsetX: 66,   // 首个图标中心点 X 偏移
+    iconCenterOffsetY: 66,   // 首个图标中心点 Y 偏移
+    centerGapX: 146,         // 中心点横向间距（默认 iconSize + gap）
+    centerGapY: 144,         // 中心点纵向间距（默认 iconSize + gap）
+    scanLineX: 86,           // 扫描线 X 坐标
+    scanStartY: 200,         // 扫描起始 Y 坐标
+    colorTolerance: 50,      // 颜色容差值
+    sustainedPixels: 10,     // 连续判定高度（滑动窗口）
+    panelWidth: 876,         // 蓝框宽度（Panel外边缘）
+    greenBoxWidth: 876,      // 绿框宽度（标题区域）
   };
 
   // LocalStorage 键名
@@ -145,10 +145,11 @@ export default function WikiDebugPage() {
     ctx: CanvasRenderingContext2D
   ): IconPosition[] => {
     const { width, rows, cols, total } = panel;
-    const { gridStartX, gridStartY, iconSize, gapX, gapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY } = params;
+    const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY } = params;
 
-    const startX = panel.x + panelLeftOffset + gridStartX;
-    const startY = panelY + gridStartY;
+    // 首个中心点坐标
+    const firstCenterX = panel.x + panelLeftOffset + gridStartX + iconCenterOffsetX;
+    const firstCenterY = panelY + gridStartY + iconCenterOffsetY;
 
     const positions: IconPosition[] = [];
     let count = 0;
@@ -161,7 +162,7 @@ export default function WikiDebugPage() {
 
     console.log(`  开始扫描图标位置，rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
     console.log(`  方差阈值: ${varianceThreshold}, 核心区域大小: ${coreSize}x${coreSize}`);
-    console.log(`  中心点偏移: iconCenterOffsetX=${iconCenterOffsetX}, iconCenterOffsetY=${iconCenterOffsetY}`);
+    console.log(`  首个中心点: (${firstCenterX}, ${firstCenterY}), 中心点间距: X=${centerGapX}, Y=${centerGapY}`);
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -171,8 +172,8 @@ export default function WikiDebugPage() {
         }
 
         // 计算中心点坐标
-        const centerX = Math.round(startX + col * (iconSize + gapX) + iconCenterOffsetX);
-        const centerY = Math.round(startY + row * (iconSize + gapY) + iconCenterOffsetY);
+        const centerX = Math.round(firstCenterX + col * centerGapX);
+        const centerY = Math.round(firstCenterY + row * centerGapY);
 
         // 从中心点计算左上角坐标（用于红框绘制）
         const x = centerX - Math.round(iconSize / 2);
@@ -344,7 +345,11 @@ export default function WikiDebugPage() {
         const usedRows = positions.length > 0
           ? Math.ceil(positions[positions.length - 1].row + 1)
           : 1;
-        const iconAreaHeight = usedRows * params.iconSize + (usedRows - 1) * params.gapY;
+        // 使用中心点间距计算高度：第一个图标顶部 + (行数-1) * 中心点间距 + 图标大小
+        const firstIconTop = panelY + params.gridStartY + params.iconCenterOffsetY - Math.round(params.iconSize / 2);
+        const iconAreaHeight = usedRows > 0 
+          ? firstIconTop + (usedRows - 1) * params.centerGapY + params.iconSize - firstIconTop
+          : params.iconSize;
 
         // 计算当前大框的实际总高度
         const currentPanelHeight = params.gridStartY + iconAreaHeight;
@@ -648,7 +653,11 @@ export default function WikiDebugPage() {
         const usedRows = positions.length > 0
           ? Math.ceil(positions[positions.length - 1].row + 1)
           : 1;
-        const iconAreaHeight = usedRows * params.iconSize + (usedRows - 1) * params.gapY;
+        // 使用中心点间距计算高度
+        const firstIconTop = panelY + params.gridStartY + params.iconCenterOffsetY - Math.round(params.iconSize / 2);
+        const iconAreaHeight = usedRows > 0 
+          ? firstIconTop + (usedRows - 1) * params.centerGapY + params.iconSize - firstIconTop
+          : params.iconSize;
         const currentPanelHeight = params.gridStartY + iconAreaHeight;
 
         // 蓝框坐标（一级裁切区域）
@@ -961,6 +970,7 @@ export default function WikiDebugPage() {
                           className="w-20 text-center text-sm"
                         />
                       </div>
+                      <p className="text-xs text-gray-500 mt-1">以中心点为基准的矩形裁切大小（不影响中心点位置）</p>
                     </div>
 
                     <div>
@@ -981,7 +991,7 @@ export default function WikiDebugPage() {
                           className="w-20 text-center text-sm"
                         />
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">图标中心点相对于 gridStartX 的 X 偏移</p>
+                      <p className="text-xs text-gray-500 mt-1">首个中心点相对于 gridStartX 的偏移</p>
                     </div>
 
                     <div>
@@ -1002,15 +1012,15 @@ export default function WikiDebugPage() {
                           className="w-20 text-center text-sm"
                         />
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">图标中心点相对于 gridStartY 的 Y 偏移</p>
+                      <p className="text-xs text-gray-500 mt-1">首个中心点相对于 gridStartY 的偏移</p>
                     </div>
 
                     <div>
-                      <Label className="text-xs font-medium text-gray-600">横向间距 (Gap X)</Label>
+                      <Label className="text-xs font-medium text-gray-600">中心点横向间距 (Center Gap X)</Label>
                       <div className="flex items-center gap-3 mt-2">
                         <Slider
-                          value={[params.gapX]}
-                          onValueChange={([v]) => handleParamChange('gapX', v)}
+                          value={[params.centerGapX]}
+                          onValueChange={([v]) => handleParamChange('centerGapX', v)}
                           min={0}
                           max={500}
                           step={1}
@@ -1018,19 +1028,20 @@ export default function WikiDebugPage() {
                         />
                         <Input
                           type="number"
-                          value={params.gapX}
-                          onChange={(e) => handleParamChange('gapX', parseInt(e.target.value) || 0)}
+                          value={params.centerGapX}
+                          onChange={(e) => handleParamChange('centerGapX', parseInt(e.target.value) || 0)}
                           className="w-20 text-center text-sm"
                         />
                       </div>
+                      <p className="text-xs text-gray-500 mt-1">相邻中心点之间的 X 轴距离</p>
                     </div>
 
                     <div>
-                      <Label className="text-xs font-medium text-gray-600">纵向间距 (Gap Y)</Label>
+                      <Label className="text-xs font-medium text-gray-600">中心点纵向间距 (Center Gap Y)</Label>
                       <div className="flex items-center gap-3 mt-2">
                         <Slider
-                          value={[params.gapY]}
-                          onValueChange={([v]) => handleParamChange('gapY', v)}
+                          value={[params.centerGapY]}
+                          onValueChange={([v]) => handleParamChange('centerGapY', v)}
                           min={0}
                           max={500}
                           step={1}
@@ -1038,11 +1049,12 @@ export default function WikiDebugPage() {
                         />
                         <Input
                           type="number"
-                          value={params.gapY}
-                          onChange={(e) => handleParamChange('gapY', parseInt(e.target.value) || 0)}
+                          value={params.centerGapY}
+                          onChange={(e) => handleParamChange('centerGapY', parseInt(e.target.value) || 0)}
                           className="w-20 text-center text-sm"
                         />
                       </div>
+                      <p className="text-xs text-gray-500 mt-1">相邻中心点之间的 Y 轴距离</p>
                     </div>
                   </div>
                 </div>
@@ -1213,7 +1225,7 @@ export default function WikiDebugPage() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-red-500" />
-                <span>红色框：图标裁切区域</span>
+                <span>红色框：图标裁切区域（基于中心点生成）</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-orange-500 border-dashed" />
