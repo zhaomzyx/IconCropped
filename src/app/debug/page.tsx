@@ -50,6 +50,8 @@ export default function WikiDebugPage() {
     scanStartY: 200,        // 扫描起始 Y 坐标
     colorTolerance: 50,     // 颜色容差值
     sustainedPixels: 10,    // 连续判定高度（滑动窗口）
+    panelWidth: 876,        // 蓝框宽度（Panel外边缘）
+    greenBoxWidth: 876,     // 绿框宽度（标题区域）
   };
 
   // LocalStorage 键名
@@ -342,12 +344,12 @@ export default function WikiDebugPage() {
         // 绘制蓝色框（Panel外边缘）
         ctx.strokeStyle = isSelected ? '#3B82F6' : '#93C5FD'; // 选中时深蓝，未选中时浅蓝
         ctx.lineWidth = isSelected ? 3 : 2;
-        ctx.strokeRect(panelX, panelY, panel.width, currentPanelHeight);
+        ctx.strokeRect(panelX, panelY, params.panelWidth, currentPanelHeight);
 
         // 绘制绿色框（标题区域）
         ctx.strokeStyle = '#22C55E';
         ctx.lineWidth = 2;
-        ctx.strokeRect(panelX, panelY, panel.width, params.gridStartY);
+        ctx.strokeRect(panelX, panelY, params.greenBoxWidth, params.gridStartY);
 
         // 绘制红色框（图标位置）
         positions.forEach((pos, index) => {
@@ -642,12 +644,10 @@ export default function WikiDebugPage() {
         const currentPanelHeight = params.gridStartY + iconAreaHeight;
 
         // 蓝框坐标（一级裁切区域）
-        // 临时修复：使用canvas宽度减去边距作为面板宽度
-        const panelWidth = Math.max(panel.width, canvas.width - 40); // 假设左右各20px边距
         const blueBox = {
           x: panelX,
           y: panelY,
-          width: panelWidth,
+          width: params.panelWidth,
           height: currentPanelHeight,
         };
 
@@ -655,7 +655,7 @@ export default function WikiDebugPage() {
         const greenBox = {
           x: panelX,
           y: panelY,
-          width: panelWidth,
+          width: params.greenBoxWidth,
           height: params.gridStartY,
         };
 
@@ -933,6 +933,46 @@ export default function WikiDebugPage() {
                       type="number"
                       value={params.gapY}
                       onChange={(e) => handleParamChange('gapY', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium">蓝框宽度 (Panel Width)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.panelWidth]}
+                      onValueChange={([v]) => handleParamChange('panelWidth', v)}
+                      min={100}
+                      max={2000}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.panelWidth}
+                      onChange={(e) => handleParamChange('panelWidth', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium">绿框宽度 (Green Box Width)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.greenBoxWidth]}
+                      onValueChange={([v]) => handleParamChange('greenBoxWidth', v)}
+                      min={100}
+                      max={2000}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.greenBoxWidth}
+                      onChange={(e) => handleParamChange('greenBoxWidth', parseInt(e.target.value) || 0)}
                       className="w-20 text-center"
                     />
                   </div>
