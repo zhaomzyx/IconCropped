@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs/promises';
 import { cwd } from 'process';
+import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 
 // 发送SSE事件
 function sendEvent(stream: ReadableStreamDefaultController<any>, event: string, data: any) {
@@ -134,76 +135,65 @@ export async function POST(request: NextRequest) {
 
             const image = sharp(imageBuffer);
 
-            // 阶段3：一级裁切（使用颜色检测大板）
+            // 阶段3：一级裁切（使用LLM识别大板块）
             sendEvent(controller, 'progress', {
               step: 'detecting_panels',
-              message: `🔍 图片 ${i + 1}/${filenames.length} - 一级裁切：正在检测大板...`,
+              message: `🔍 图片 ${i + 1}/${filenames.length} - 一级裁切：正在识别大板块（LLM视觉识别）...`,
               currentImage: i + 1,
               totalImages: filenames.length,
               filename: filename,
               subStep: 'panel_detection'
             });
 
-            const panels = await detectPanels(image, metadata);
-            console.log(`  Detected ${panels.length} panels`);
+            const panelData = await detectPanelsWithLLM(imageBuffer, metadata, filename);
+            console.log(`  LLM detected ${panelData.panels.length} panels`);
 
-            // 阶段4：使用LLM只检测标题
-            sendEvent(controller, 'progress', {
-              step: 'detecting_titles',
-              message: `📝 图片 ${i + 1}/${filenames.length} - 正在识别板块标题...`,
-              currentImage: i + 1,
-              totalImages: filenames.length,
-              totalPanels: panels.length,
-              filename: filename,
-              subStep: 'title_detection'
-            });
-
-            const panelTitles = await detectPanelTitlesWithLLM(imageBuffer, metadata, panels);
-            console.log(`  LLM detected ${panelTitles.length} titles`);
-
-            // 阶段5：二级裁切（使用颜色检测小板）
+            // 阶段4：二级裁切（使用LLM识别每个板块的图标底座）
             sendEvent(controller, 'progress', {
               step: 'cutting_icons',
-              message: `✂️ 图片 ${i + 1}/${filenames.length} - 二级裁切：正在处理 ${panels.length} 个板块...`,
+              message: `✂️ 图片 ${i + 1}/${filenames.length} - 二级裁切：正在处理 ${panelData.panels.length} 个板块...`,
               currentImage: i + 1,
               totalImages: filenames.length,
-              totalPanels: panels.length,
+              totalPanels: panelData.panels.length,
               filename: filename,
               subStep: 'icon_cutting'
             });
 
             // 处理每个板块
             const crops: WikiCroppedImage[] = [];
-            
-            for (let j = 0; j < panels.length; j++) {
-              const panel = panels[j];
-              const title = panelTitles[j] || `板块_${j + 1}`;
+
+            for (let j = 0; j < panelData.panels.length; j++) {
+              const panel = panelData.panels[j];
+              const title = panel.title || `板块_${j + 1}`;
 
               sendEvent(controller, 'progress', {
                 step: 'processing_panel',
-                message: `🎨 图片 ${i + 1}/${filenames.length} - 板块 ${j + 1}/${panels.length}：${title}`,
+                message: `🎨 图片 ${i + 1}/${filenames.length} - 板块 ${j + 1}/${panelData.panels.length}：${title}`,
                 currentImage: i + 1,
                 totalImages: filenames.length,
                 currentPanel: j + 1,
-                totalPanels: panels.length,
+                totalPanels: panelData.panels.length,
                 panelTitle: title,
                 filename: filename,
                 subStep: 'panel_processing'
               });
 
-              // 在板块内检测小板（图标底座）
-              const iconBases = await detectIconBasesInPanel(imageBuffer, metadata, panel);
-              console.log(`  Panel ${j}: detected ${iconBases.length} icons`);
+              // 使用LLM识别板块内的图标底座
+              const iconBases = await detectIconBasesWithLLM(imageBuffer, metadata, panel, filename);
+              console.log(`  Panel ${j} (${title}): detected ${iconBases.length} icons`);
 
-              // 聚类成网格
-              const gridItems = clusterToGrid(iconBases);
+              // LLM已经按顺序返回了图标，不需要再聚类
+              const gridItems = iconBases.map((box, index) => ({
+                row: Math.floor(index / panel.cols),
+                col: index % panel.cols,
+                box: box
+              }));
 
               // 计算总行数和总列数
               const totalRows = gridItems.length > 0 ? Math.max(...gridItems.map(g => g.row)) + 1 : 1;
               const totalCols = gridItems.length > 0 ? Math.max(...gridItems.map(g => g.col)) + 1 : 1;
 
-              // 裁切图标（固定128x128，以小底板中心为基准）
-              const iconSize = 128; // 固定图标尺寸
+              // 裁切图标（按底座四条边裁切1:1正方形）
               for (const gridItem of gridItems) {
                 const base = gridItem.box;
 
@@ -212,24 +202,26 @@ export async function POST(request: NextRequest) {
                 const iconFileName = `${title}_icon_${iconIndex}.png`;
                 const iconPath = path.join(wikiDir, iconFileName);
 
-                // 计算小底板的中心点
+                // 按底座四条边裁切，确保1:1正方形
+                // 取宽度和高度的最大值作为正方形边长
+                const squareSize = Math.max(base.width, base.height);
+
+                // 以底座中心为基准，计算正方形裁切区域
                 const centerX = base.x + base.width / 2;
                 const centerY = base.y + base.height / 2;
 
-                // 以中心点为基准，计算128x128裁切区域
-                const cropX = Math.max(0, Math.round(centerX - iconSize / 2));
-                const cropY = Math.max(0, Math.round(centerY - iconSize / 2));
+                const cropX = Math.max(0, Math.round(centerX - squareSize / 2));
+                const cropY = Math.max(0, Math.round(centerY - squareSize / 2));
 
                 // 边界检查（确保裁切区域不超出原图）
-                const finalX = Math.min(cropX, metadata.width - iconSize);
-                const finalY = Math.min(cropY, metadata.height - iconSize);
-                const finalSize = iconSize; // 固定尺寸
+                const finalX = Math.min(cropX, metadata.width - squareSize);
+                const finalY = Math.min(cropY, metadata.height - squareSize);
 
                 // 检查是否有足够空间裁切
-                if (finalX + finalSize <= metadata.width && finalY + finalSize <= metadata.height) {
+                if (finalX + squareSize <= metadata.width && finalY + squareSize <= metadata.height && squareSize > 0) {
                   try {
                     await sharp(imageBuffer)
-                      .extract({ left: finalX, top: finalY, width: finalSize, height: finalSize })
+                      .extract({ left: finalX, top: finalY, width: squareSize, height: squareSize })
                       .png()
                       .toFile(iconPath);
 
@@ -242,8 +234,8 @@ export async function POST(request: NextRequest) {
                       totalCols: totalCols,
                       x: finalX,
                       y: finalY,
-                      width: finalSize,
-                      height: finalSize,
+                      width: squareSize,
+                      height: squareSize,
                       panelName: title,
                       title: title,
                       wikiName: actualWikiName,
@@ -251,12 +243,12 @@ export async function POST(request: NextRequest) {
                       imageUrl: `/api/crops/${actualWikiName}/${iconFileName}`
                     });
 
-                    console.log(`  Saved icon: ${iconFileName} (row=${gridItem.row}, col=${gridItem.col}, center=${Math.round(centerX)},${Math.round(centerY)})`);
+                    console.log(`  Saved icon: ${iconFileName} (row=${gridItem.row}, col=${gridItem.col}, size=${squareSize}x${squareSize})`);
                   } catch (e) {
                     console.error(`  Failed to save icon ${iconFileName}:`, e);
                   }
                 } else {
-                  console.warn(`  Icon ${iconIndex} at (${Math.round(centerX)},${Math.round(centerY)}) out of bounds, skipping`);
+                  console.warn(`  Icon ${iconIndex} at (${Math.round(base.x)},${Math.round(base.y)}, size=${base.width}x${base.height}) out of bounds, skipping`);
                 }
               }
             }
@@ -320,443 +312,231 @@ export async function POST(request: NextRequest) {
   });
 }
 
-// ========== 颜色检测函数 ==========
+// ========== LLM视觉识别函数 ==========
 
-// 检测背景颜色
-function detectBackgroundColor(
-  data: Buffer,
-  width: number,
-  height: number,
-  channels: number
-): { r: number; g: number; b: number } {
-  const rValues: number[] = [];
-  const gValues: number[] = [];
-  const bValues: number[] = [];
-  const margin = 5;
-
-  // 采样边缘像素
-  for (let y = 0; y < margin && y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * channels;
-      rValues.push(data[idx]);
-      gValues.push(data[idx + 1]);
-      bValues.push(data[idx + 2]);
-    }
-  }
-
-  // 使用中位数
-  rValues.sort((a, b) => a - b);
-  gValues.sort((a, b) => a - b);
-  bValues.sort((a, b) => a - b);
-
-  return {
-    r: rValues[Math.floor(rValues.length / 2)],
-    g: gValues[Math.floor(gValues.length / 2)],
-    b: bValues[Math.floor(bValues.length / 2)]
-  };
+// 使用LLM识别Wiki图中的所有大板块
+interface PanelInfo {
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rows: number;
+  cols: number;
 }
 
-// 计算自适应阈值（使用Otsu方法）
-function calculateAdaptiveThreshold(
-  data: Buffer,
-  width: number,
-  height: number,
-  channels: number,
-  backgroundColor: { r: number; g: number; b: number },
-  targetType: 'panel' | 'icon' = 'panel'
-): number {
-  // 计算所有像素与背景色的差异
-  const colorDiffs: number[] = [];
-  const sampleRate = Math.max(1, Math.floor((width * height) / 10000)); // 采样最多10000个像素
-
-  for (let i = 0; i < width * height; i += sampleRate) {
-    const r = data[i * channels];
-    const g = data[i * channels + 1];
-    const b = data[i * channels + 2];
-
-    const diff = Math.abs(r - backgroundColor.r) +
-                  Math.abs(g - backgroundColor.g) +
-                  Math.abs(b - backgroundColor.b);
-    colorDiffs.push(diff);
-  }
-
-  colorDiffs.sort((a, b) => a - b);
-
-  const p25 = colorDiffs[Math.floor(colorDiffs.length * 0.25)];
-  const p50 = colorDiffs[Math.floor(colorDiffs.length * 0.5)];
-  const p75 = colorDiffs[Math.floor(colorDiffs.length * 0.75)];
-
-  console.log(`  Color diff stats: 25%=${p25}, 50%=${p50}, 75%=${p75}`);
-
-  // 使用Otsu方法计算最佳阈值
-  let maxVariance = 0;
-  let bestThreshold = 0;
-  const histogram = new Array(766).fill(0); // 最大可能的颜色差异是 255*3=765
-
-  // 构建直方图
-  for (const diff of colorDiffs) {
-    const idx = Math.min(Math.floor(diff), 765);
-    histogram[idx]++;
-  }
-
-  const totalPixels = colorDiffs.length;
-  let sum = 0;
-  for (let i = 0; i < 766; i++) {
-    sum += i * histogram[i];
-  }
-
-  let sumB = 0;
-  let wB = 0;
-  for (let t = 0; t < 766; t++) {
-    wB += histogram[t];
-    if (wB === 0) continue;
-
-    const wF = totalPixels - wB;
-    if (wF === 0) break;
-
-    sumB += t * histogram[t];
-    const mB = sumB / wB;
-    const mF = (sum - sumB) / wF;
-
-    const variance = wB * wF * (mB - mF) * (mB - mF);
-    if (variance > maxVariance) {
-      maxVariance = variance;
-      bestThreshold = t;
-    }
-  }
-
-  console.log(`  Otsu threshold: ${bestThreshold}`);
-
-  // 根据目标类型调整阈值
-  if (targetType === 'panel') {
-    // 对于大板检测：使用Otsu阈值，稍微降低以增加检测敏感度
-    const adaptiveThreshold = Math.max(60, Math.floor(bestThreshold * 0.7));
-    console.log(`  Panel threshold: ${adaptiveThreshold} (adjusted from Otsu)`);
-    return adaptiveThreshold;
-  } else {
-    // 对于小板检测：使用更高的Otsu阈值，更精确的检测
-    const adaptiveThreshold = Math.max(80, Math.floor(bestThreshold * 1.2));
-    console.log(`  Icon threshold: ${adaptiveThreshold} (adjusted from Otsu)`);
-    return adaptiveThreshold;
-  }
+interface PanelDetectionResult {
+  panels: PanelInfo[];
 }
 
-// 检测大板块（颜色检测）
-async function detectPanels(image: sharp.Sharp, metadata: sharp.Metadata): Promise<Panel[]> {
-  const { width, height } = metadata;
-
-  // 缩放以提高处理速度
-  const scaleFactor = Math.min(1, 800 / Math.max(width, height));
-  const scaledWidth = Math.round(width * scaleFactor);
-  const scaledHeight = Math.round(height * scaleFactor);
-
-  const { data, info } = await image
-    .resize(scaledWidth, scaledHeight, { fit: 'inside' })
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const channels = info.channels;
-
-  // 检测背景颜色
-  const backgroundColor = detectBackgroundColor(data, scaledWidth, scaledHeight, channels);
-  console.log(`  Background: RGB(${backgroundColor.r},${backgroundColor.g},${backgroundColor.b})`);
-
-  // 计算自适应阈值
-  const threshold = calculateAdaptiveThreshold(data, scaledWidth, scaledHeight, channels, backgroundColor, 'panel');
-
-  // 创建板块掩码（浅色区域）
-  const mask = Buffer.alloc(scaledWidth * scaledHeight);
-
-  for (let i = 0; i < scaledWidth * scaledHeight; i++) {
-    const r = data[i * channels];
-    const g = data[i * channels + 1];
-    const b = data[i * channels + 2];
-
-    const colorDiff = Math.abs(r - backgroundColor.r) +
-                      Math.abs(g - backgroundColor.g) +
-                      Math.abs(b - backgroundColor.b);
-
-    if (colorDiff > threshold) {
-      mask[i] = 1;
-    } else {
-      mask[i] = 0;
-    }
-  }
-
-  // 连通区域分析
-  const boundingBoxes = findBoundingBoxes(mask, scaledWidth, scaledHeight);
-
-  // 转换回原始尺寸
-  const panels: Panel[] = boundingBoxes.map((box, index) => ({
-    x: Math.round(box.x / scaleFactor),
-    y: Math.round(box.y / scaleFactor),
-    width: Math.round(box.width / scaleFactor),
-    height: Math.round(box.height / scaleFactor),
-    index
-  }));
-
-  return panels;
-}
-
-// 检测板块内的图标底座（颜色检测）
-async function detectIconBasesInPanel(
+async function detectPanelsWithLLM(
   imageBuffer: Buffer,
   metadata: sharp.Metadata,
-  panel: Panel
-): Promise<BoundingBox[]> {
-  // 提取板块区域
-  const { data, info } = await sharp(imageBuffer)
-    .extract({ left: panel.x, top: panel.y, width: panel.width, height: panel.height })
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const channels = info.channels;
-  const w = info.width;
-  const h = info.height;
-
-  // 检测板块背景颜色
-  const backgroundColor = detectBackgroundColor(data, w, h, channels);
-  console.log(`    Icon base background: RGB(${backgroundColor.r},${backgroundColor.g},${backgroundColor.b})`);
-
-  // 计算自适应阈值
-  const threshold = calculateAdaptiveThreshold(data, w, h, channels, backgroundColor, 'icon');
-
-  // 创建底座掩码（深色区域）
-  const mask = Buffer.alloc(w * h);
-
-  for (let i = 0; i < w * h; i++) {
-    const r = data[i * channels];
-    const g = data[i * channels + 1];
-    const b = data[i * channels + 2];
-
-    const colorDiff = Math.abs(r - backgroundColor.r) +
-                      Math.abs(g - backgroundColor.g) +
-                      Math.abs(b - backgroundColor.b);
-
-    if (colorDiff > threshold) {
-      mask[i] = 1;
-    } else {
-      mask[i] = 0;
-    }
-  }
-
-  // 连通区域分析
-  const boundingBoxes = findBoundingBoxes(mask, w, h);
-
-  // 转换回全局坐标
-  return boundingBoxes.map(box => ({
-    x: panel.x + Math.round(box.x),
-    y: panel.y + Math.round(box.y),
-    width: Math.round(box.width),
-    height: Math.round(box.height)
-  }));
-}
-
-// 找到连通区域
-function findBoundingBoxes(mask: Buffer, width: number, height: number): BoundingBox[] {
-  const visited = Buffer.alloc(width * height, 0);
-  const boxes: BoundingBox[] = [];
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = y * width + x;
-      if (mask[idx] === 1 && visited[idx] === 0) {
-        const box = findConnectedComponent(mask, visited, width, height, x, y);
-        if (box.width > 10 && box.height > 10) {
-          boxes.push(box);
-        }
-      }
-    }
-  }
-
-  return boxes;
-}
-
-// 找到连通区域（BFS）
-function findConnectedComponent(
-  mask: Buffer,
-  visited: Buffer,
-  width: number,
-  height: number,
-  startX: number,
-  startY: number
-): BoundingBox {
-  const queue = [[startX, startY]];
-  visited[startY * width + startX] = 1;
-
-  let minX = startX, maxX = startX;
-  let minY = startY, maxY = startY;
-
-  while (queue.length > 0) {
-    const [x, y] = queue.shift()!;
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y);
-
-    // 检查8邻域
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const nx = x + dx;
-        const ny = y + dy;
-
-        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-          const idx = ny * width + nx;
-          if (mask[idx] === 1 && visited[idx] === 0) {
-            visited[idx] = 1;
-            queue.push([nx, ny]);
-          }
-        }
-      }
-    }
-  }
-
-  return {
-    x: minX,
-    y: minY,
-    width: maxX - minX + 1,
-    height: maxY - minY + 1
-  };
-}
-
-// 将边界框聚类到网格
-function clusterToGrid(boxes: BoundingBox[]): GridItem[] {
-  if (boxes.length === 0) return [];
-
-  // 按Y坐标排序
-  const sortedByY = [...boxes].sort((a, b) => a.y - b.y);
-
-  // 检测行
-  const rows: BoundingBox[][] = [];
-  const avgHeight = boxes.reduce((sum, b) => sum + b.height, 0) / boxes.length;
-
-  for (let i = 0; i < sortedByY.length; i++) {
-    if (rows.length === 0) {
-      rows.push([sortedByY[i]]);
-    } else {
-      const lastRow = rows[rows.length - 1];
-      const centerY1 = lastRow[0].y + lastRow[0].height / 2;
-      const centerY2 = sortedByY[i].y + sortedByY[i].height / 2;
-
-      if (Math.abs(centerY2 - centerY1) < avgHeight * 0.5) {
-        lastRow.push(sortedByY[i]);
-      } else {
-        rows.push([sortedByY[i]]);
-      }
-    }
-  }
-
-  // 检测列
-  const gridItems: GridItem[] = [];
-  for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
-    const row = rows[rowIdx];
-    const sortedByX = [...row].sort((a, b) => a.x - b.x);
-    const avgWidth = row.reduce((sum, b) => sum + b.width, 0) / row.length;
-
-    let colIdx = 0;
-    gridItems.push({
-      row: rowIdx,
-      col: colIdx++,
-      box: sortedByX[0]
-    });
-
-    for (let i = 1; i < sortedByX.length; i++) {
-      const currentCenterX = sortedByX[i].x + sortedByX[i].width / 2;
-      const lastCenterX = sortedByX[i - 1].x + sortedByX[i - 1].width / 2;
-
-      if (Math.abs(currentCenterX - lastCenterX) > avgWidth * 0.5) {
-        colIdx++;
-      }
-      gridItems.push({
-        row: rowIdx,
-        col: colIdx,
-        box: sortedByX[i]
-      });
-    }
-  }
-
-  return gridItems;
-}
-
-// ========== LLM标题检测（只检测标题） ==========
-
-async function detectPanelTitlesWithLLM(
-  imageBuffer: Buffer,
-  metadata: sharp.Metadata,
-  panels: Panel[]
-): Promise<string[]> {
-  if (panels.length === 0) {
-    return [];
-  }
-
-  // 提取所有板块的标题区域用于LLM识别
-  const titleImages: Buffer[] = [];
-  for (const panel of panels) {
-    const titleHeight = Math.floor(panel.height * 0.15); // 标题区域占板块的15%
-    if (titleHeight > 0) {
-      const titleBuffer = await sharp(imageBuffer)
-        .extract({ left: panel.x, top: panel.y, width: panel.width, height: titleHeight })
-        .png()
-        .toBuffer();
-      titleImages.push(titleBuffer);
-    }
-  }
-
-  if (titleImages.length === 0) {
-    return panels.map((_, i) => `板块_${i + 1}`);
-  }
-
-  // 拼接标题图片（垂直拼接）
-  let concatenatedImage: Buffer;
-  if (titleImages.length === 1) {
-    concatenatedImage = titleImages[0];
-  } else {
-    // 获取每个图片的尺寸
-    const sizes = await Promise.all(titleImages.map(b => sharp(b).metadata()));
-    const maxWidth = Math.max(...sizes.map(s => s.width || 0));
-    const totalHeight = sizes.reduce((sum, s) => sum + (s.height || 0), 0);
-
-    // 创建白色背景
-    concatenatedImage = await sharp({
-      create: {
-        width: maxWidth,
-        height: totalHeight,
-        channels: 3,
-        background: { r: 255, g: 255, b: 255 }
-      }
-    }).composite(titleImages.map((buf, i) => ({
-      input: buf,
-      top: sizes.slice(0, i).reduce((sum, s) => sum + (s.height || 0), 0),
-      left: 0
-    }))).png().toBuffer();
+  filename: string
+): Promise<PanelDetectionResult> {
+  // 如果图片太大，先缩放到合理尺寸（避免超出LLM token限制）
+  let processBuffer = imageBuffer;
+  const maxWidth = 2000;
+  if (metadata.width && metadata.width > maxWidth) {
+    const scale = maxWidth / metadata.width;
+    processBuffer = await sharp(imageBuffer)
+      .resize(maxWidth, null)
+      .toBuffer();
   }
 
   // 转换为base64
-  const base64Image = concatenatedImage.toString('base64');
+  const base64Image = processBuffer.toString('base64');
   const dataUri = `data:image/png;base64,${base64Image}`;
 
-  // LLM提示词（识别所有板块标题）
-  const prompt = `请识别这张Wiki页面图片中每个板块的标题。
+  // LLM提示词（识别所有大板块）
+  const prompt = `请识别这张游戏Wiki页面中的所有大板块。
 
-图片包含 ${panels.length} 个板块，请按从上到下的顺序识别每个板块的标题。
+每个板块包含：
+1. 顶部有标题（英文，如"Bag"、"Shells"等）
+2. 标题下方有一条分隔线
+3. 分隔线下方是图标网格区域（有浅米色圆角底座）
 
-请只返回标题列表，格式如下：
-["标题1", "标题2", "标题3"]
+请按从上到下、从左到右的顺序识别所有板块，返回每个板块的以下信息：
+- title: 板块标题
+- x, y, width, height: 板块在图片中的位置和尺寸
+- rows: 图标区域的行数
+- cols: 图标区域的列数
+
+请只返回JSON数组，格式如下：
+[
+  {
+    "title": "Bag",
+    "x": 10,
+    "y": 20,
+    "width": 300,
+    "height": 200,
+    "rows": 2,
+    "cols": 5
+  },
+  ...
+]
 
 要求：
 1. 只返回JSON数组，不要其他文字
-2. 标题使用英文（如果图片是英文），首字母大写
-3. 精确识别文字，包含完整标题
-4. 如果某个标题无法识别，返回"Unknown_N"，其中N是板块序号（从1开始）`;
+2. 坐标和尺寸使用整数
+3. 标题使用英文，首字母大写（保持原始大小写）
+4. 如果某个板块没有标题，使用"Unknown_N"，其中N是板块序号（从1开始）
+5. 精确识别每个板块的边界`;
 
-  // 这里需要调用LLM API
-  // 如果失败，返回默认标题
   try {
-    // TODO: 实际调用LLM（doubao-seed-1-6-vision-250815）
-    // 临时返回默认标题
-    return panels.map((_, i) => `板块_${i + 1}`);
+    // 调用LLM API
+    const config = new Config();
+    const client = new LLMClient(config);
+
+    const messages = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: prompt },
+          {
+            type: "image_url" as const,
+            image_url: {
+              url: dataUri,
+              detail: "high" as const
+            }
+          }
+        ]
+      }
+    ];
+
+    const response = await client.invoke(messages, {
+      model: "doubao-seed-1-6-vision-250815",
+      temperature: 0.3
+    });
+
+    // 解析LLM返回的JSON
+    let jsonMatch = response.content.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    if (!jsonMatch) {
+      // 尝试去掉markdown代码块标记
+      jsonMatch = response.content.match(/```(?:json)?\s*\[\s*\{[\s\S]*\}\s*\]\s*```/);
+      if (jsonMatch) {
+        jsonMatch = [jsonMatch[0].replace(/```(?:json)?\s*/, '').replace(/\s*```/, '')];
+      }
+    }
+
+    if (!jsonMatch) {
+      throw new Error('无法解析LLM返回的JSON');
+    }
+
+    const panels = JSON.parse(jsonMatch[0]);
+
+    console.log(`  LLM detected ${panels.length} panels:`, panels.map((p: any) => p.title).join(', '));
+
+    return { panels };
+
   } catch (error) {
-    console.error('LLM title detection failed:', error);
-    return panels.map((_, i) => `板块_${i + 1}`);
+    console.error('LLM panel detection failed:', error);
+    throw new Error(`LLM板块识别失败: ${error instanceof Error ? error.message : '未知错误'}`);
+  }
+}
+
+// 使用LLM识别板块内的图标底座
+async function detectIconBasesWithLLM(
+  imageBuffer: Buffer,
+  metadata: sharp.Metadata,
+  panel: PanelInfo,
+  filename: string
+): Promise<BoundingBox[]> {
+  // 提取板块区域
+  const panelBuffer = await sharp(imageBuffer)
+    .extract({ left: panel.x, top: panel.y, width: panel.width, height: panel.height })
+    .toBuffer();
+
+  // 转换为base64
+  const base64Image = panelBuffer.toString('base64');
+  const dataUri = `data:image/png;base64,${base64Image}`;
+
+  // LLM提示词（识别图标底座）
+  const prompt = `请识别这个板块内的所有图标底座。
+
+板块标题：${panel.title}
+图标布局：${panel.rows}行 × ${panel.cols}列
+
+每个图标底座特征：
+- 浅米色圆角方形（比板块背景更浅）
+- 有轻微阴影效果，看起来"浮起"
+- 图标在底座中居中
+
+请按从上到下、从左到右的顺序识别所有底座，返回每个底座的位置和尺寸：
+- x, y: 底座左上角坐标（相对于板块左上角）
+- width, height: 底座的宽度和高度
+
+请只返回JSON数组，格式如下：
+[
+  {
+    "x": 10,
+    "y": 20,
+    "width": 60,
+    "height": 60
+  },
+  ...
+]
+
+要求：
+1. 只返回JSON数组，不要其他文字
+2. 坐标和尺寸使用整数
+3. 按从上到下、从左到右的顺序排列
+4. 精确识别每个底座的四条边（用于裁切）`;
+
+  try {
+    // 调用LLM API
+    const config = new Config();
+    const client = new LLMClient(config);
+
+    const messages = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: prompt },
+          {
+            type: "image_url" as const,
+            image_url: {
+              url: dataUri,
+              detail: "high" as const
+            }
+          }
+        ]
+      }
+    ];
+
+    const response = await client.invoke(messages, {
+      model: "doubao-seed-1-6-vision-250815",
+      temperature: 0.3
+    });
+
+    // 解析LLM返回的JSON
+    let jsonMatch = response.content.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    if (!jsonMatch) {
+      // 尝试去掉markdown代码块标记
+      jsonMatch = response.content.match(/```(?:json)?\s*\[\s*\{[\s\S]*\}\s*\]\s*```/);
+      if (jsonMatch) {
+        jsonMatch = [jsonMatch[0].replace(/```(?:json)?\s*/, '').replace(/\s*```/, '')];
+      }
+    }
+
+    if (!jsonMatch) {
+      throw new Error('无法解析LLM返回的JSON');
+    }
+
+    const iconBases = JSON.parse(jsonMatch[0]);
+
+    console.log(`  LLM detected ${iconBases.length} icon bases for panel "${panel.title}"`);
+
+    // 转换为全局坐标
+    return iconBases.map((base: any) => ({
+      x: panel.x + base.x,
+      y: panel.y + base.y,
+      width: base.width,
+      height: base.height
+    }));
+
+  } catch (error) {
+    console.error('LLM icon base detection failed:', error);
+    throw new Error(`LLM图标底座识别失败: ${error instanceof Error ? error.message : '未知错误'}`);
   }
 }
