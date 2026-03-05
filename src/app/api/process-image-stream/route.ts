@@ -198,43 +198,52 @@ export async function POST(request: NextRequest) {
               // 聚类成网格
               const gridItems = clusterToGrid(iconBases);
 
-              // 裁切图标
+              // 计算总行数和总列数
+              const totalRows = gridItems.length > 0 ? Math.max(...gridItems.map(g => g.row)) + 1 : 1;
+              const totalCols = gridItems.length > 0 ? Math.max(...gridItems.map(g => g.col)) + 1 : 1;
+
+              // 裁切图标（固定128x128，以小底板中心为基准）
+              const iconSize = 128; // 固定图标尺寸
               for (const gridItem of gridItems) {
                 const base = gridItem.box;
-                const iconFileName = `${title}_${gridItem.col}.png`;
+
+                // 计算图标序号（行优先）
+                const iconIndex = gridItem.row * totalCols + gridItem.col;
+                const iconFileName = `${title}_icon_${iconIndex}.png`;
                 const iconPath = path.join(wikiDir, iconFileName);
 
-                // 裁切区域（稍微扩大10%以包含完整内容）
-                const padding = Math.round(Math.max(base.width, base.height) * 0.1);
-                const cropX = Math.max(0, base.x - padding);
-                const cropY = Math.max(0, base.y - padding);
-                const cropWidth = base.width + padding * 2;
-                const cropHeight = base.height + padding * 2;
+                // 计算小底板的中心点
+                const centerX = base.x + base.width / 2;
+                const centerY = base.y + base.height / 2;
 
-                // 边界检查
-                const finalX = Math.min(cropX, metadata.width - cropWidth);
-                const finalY = Math.min(cropY, metadata.height - cropHeight);
-                const finalWidth = Math.min(cropWidth, metadata.width - finalX);
-                const finalHeight = Math.min(cropHeight, metadata.height - finalY);
+                // 以中心点为基准，计算128x128裁切区域
+                const cropX = Math.max(0, Math.round(centerX - iconSize / 2));
+                const cropY = Math.max(0, Math.round(centerY - iconSize / 2));
 
-                if (finalWidth > 20 && finalHeight > 20) {
+                // 边界检查（确保裁切区域不超出原图）
+                const finalX = Math.min(cropX, metadata.width - iconSize);
+                const finalY = Math.min(cropY, metadata.height - iconSize);
+                const finalSize = iconSize; // 固定尺寸
+
+                // 检查是否有足够空间裁切
+                if (finalX + finalSize <= metadata.width && finalY + finalSize <= metadata.height) {
                   try {
                     await sharp(imageBuffer)
-                      .extract({ left: finalX, top: finalY, width: finalWidth, height: finalHeight })
+                      .extract({ left: finalX, top: finalY, width: finalSize, height: finalSize })
                       .png()
                       .toFile(iconPath);
 
                     crops.push({
                       path: iconFileName,
-                      name: `${title}_${gridItem.col}`,
+                      name: `${title}_icon_${iconIndex}`,
                       row: gridItem.row,
                       col: gridItem.col,
-                      totalRows: gridItems.length > 0 ? Math.max(...gridItems.map(g => g.row)) + 1 : 1,
-                      totalCols: gridItems.length > 0 ? Math.max(...gridItems.map(g => g.col)) + 1 : 1,
+                      totalRows: totalRows,
+                      totalCols: totalCols,
                       x: finalX,
                       y: finalY,
-                      width: finalWidth,
-                      height: finalHeight,
+                      width: finalSize,
+                      height: finalSize,
                       panelName: title,
                       title: title,
                       wikiName: actualWikiName,
@@ -242,10 +251,12 @@ export async function POST(request: NextRequest) {
                       imageUrl: `/api/crops/${actualWikiName}/${iconFileName}`
                     });
 
-                    console.log(`  Saved icon: ${iconFileName}`);
+                    console.log(`  Saved icon: ${iconFileName} (row=${gridItem.row}, col=${gridItem.col}, center=${Math.round(centerX)},${Math.round(centerY)})`);
                   } catch (e) {
                     console.error(`  Failed to save icon ${iconFileName}:`, e);
                   }
+                } else {
+                  console.warn(`  Icon ${iconIndex} at (${Math.round(centerX)},${Math.round(centerY)}) out of bounds, skipping`);
                 }
               }
             }
@@ -674,16 +685,13 @@ async function detectPanelTitlesWithLLM(
   metadata: sharp.Metadata,
   panels: Panel[]
 ): Promise<string[]> {
-  // 提取前3个板块的标题区域用于LLM识别
-  const samplePanels = panels.slice(0, 3);
-
-  if (samplePanels.length === 0) {
-    return panels.map((_, i) => `板块_${i + 1}`);
+  if (panels.length === 0) {
+    return [];
   }
 
-  // 构建拼接图片（包含多个板块的标题区域）
+  // 提取所有板块的标题区域用于LLM识别
   const titleImages: Buffer[] = [];
-  for (const panel of samplePanels) {
+  for (const panel of panels) {
     const titleHeight = Math.floor(panel.height * 0.15); // 标题区域占板块的15%
     if (titleHeight > 0) {
       const titleBuffer = await sharp(imageBuffer)
@@ -727,22 +735,26 @@ async function detectPanelTitlesWithLLM(
   const base64Image = concatenatedImage.toString('base64');
   const dataUri = `data:image/png;base64,${base64Image}`;
 
-  // LLM提示词（只识别标题）
-  const prompt = `请识别这些Wiki板块的标题。
+  // LLM提示词（识别所有板块标题）
+  const prompt = `请识别这张Wiki页面图片中每个板块的标题。
+
+图片包含 ${panels.length} 个板块，请按从上到下的顺序识别每个板块的标题。
 
 请只返回标题列表，格式如下：
 ["标题1", "标题2", "标题3"]
 
 要求：
 1. 只返回JSON数组，不要其他文字
-2. 标题使用英文（如果图片是英文）
-3. 精确识别文字`;
+2. 标题使用英文（如果图片是英文），首字母大写
+3. 精确识别文字，包含完整标题
+4. 如果某个标题无法识别，返回"Unknown_N"，其中N是板块序号（从1开始）`;
 
   // 这里需要调用LLM API
   // 如果失败，返回默认标题
   try {
-    // TODO: 实际调用LLM
-    return samplePanels.map((_, i) => `板块_${i + 1}`);
+    // TODO: 实际调用LLM（doubao-seed-1-6-vision-250815）
+    // 临时返回默认标题
+    return panels.map((_, i) => `板块_${i + 1}`);
   } catch (error) {
     console.error('LLM title detection failed:', error);
     return panels.map((_, i) => `板块_${i + 1}`);
