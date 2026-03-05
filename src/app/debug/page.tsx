@@ -298,16 +298,23 @@ export default function WikiDebugPage() {
     const { data } = imageData;
     const panels: PanelVerticalRange[] = [];
 
+    console.log(`[Y轴检测] 开始扫描，输入参数：`);
+    console.log(`  scanLineX=${scanLineX}, scanStartY=${scanStartY}`);
+    console.log(`  colorTolerance=${colorTolerance}, sustainedPixels=${sustainedPixels}`);
+    console.log(`  image size: ${width}x${height}`);
+
     // 边界检查
     if (scanLineX < 0 || scanLineX >= width) {
-      console.warn(`Scan line X (${scanLineX}) is out of image bounds (${width})`);
+      console.warn(`[Y轴检测] ❌ Scan line X (${scanLineX}) is out of image bounds (${width})`);
       return panels;
     }
 
     if (scanStartY < 0 || scanStartY >= height) {
-      console.warn(`Scan start Y (${scanStartY}) is out of image bounds (${height})`);
+      console.warn(`[Y轴检测] ❌ Scan start Y (${scanStartY}) is out of image bounds (${height})`);
       return panels;
     }
+
+    console.log(`[Y轴检测] ✓ 边界检查通过`);
 
     // 获取主背景色（从起始坐标开始）
     const getPixelColor = (x: number, y: number): [number, number, number] => {
@@ -975,12 +982,17 @@ export default function WikiDebugPage() {
 
   // 导出到工作台（裁切icon）
   const handleExportToWorkbench = async () => {
+    console.log('[导出函数] 开始执行');
+    console.log(`[导出函数] imageUrl=${imageUrl}, debugPanels.length=${debugPanels.length}`);
+
     if (!imageUrl || debugPanels.length === 0) {
       alert('请先上传图片并完成面板调试');
       return;
     }
 
+    console.log('[导出函数] 开始处理');
     setIsProcessing(true);
+
     try {
       // 从Canvas获取面板坐标数据
       const canvas = canvasRef.current;
@@ -995,6 +1007,11 @@ export default function WikiDebugPage() {
 
       // 获取像素数据
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      console.log(`[导出函数] Canvas尺寸: ${canvas.width}x${canvas.height}`);
+
+      logInfo('\n========== 开始面板检测 ==========');
+      logInfo(`Canvas 尺寸: ${canvas.width}x${canvas.height}`);
+      logInfo(`参数: scanLineX=${params.scanLineX}, scanStartY=${params.scanStartY}`);
 
       // 1. Y轴检测：获得每个panel的Y坐标范围
       const panelVerticalRanges = scanVerticalLine(
@@ -1007,11 +1024,17 @@ export default function WikiDebugPage() {
         canvas.height
       );
 
+      logInfo(`Y轴检测完成，检测到 ${panelVerticalRanges.length} 个panel`);
+
+      if (panelVerticalRanges.length === 0) {
+        throw new Error('Y轴检测失败：未检测到任何面板，请调整扫描参数');
+      }
+
       // 2. X轴检测：对每个panel检测X坐标范围（不检测icon位置，只检测Panel边界）
       const panelRanges = panelVerticalRanges.map((vRange, index) => {
         const panel = debugPanels[index];
         const midY = Math.round((vRange.startY + vRange.endY) / 2);
-        
+
         // 在Panel中间横线上扫描，检测Panel的左右边界
         const hRange = scanHorizontalLine(
           imageData,
@@ -1020,7 +1043,7 @@ export default function WikiDebugPage() {
           params.sustainedPixelsX,
           canvas.width
         );
-        
+
         return {
           startY: vRange.startY,
           endY: vRange.endY,
@@ -1030,6 +1053,8 @@ export default function WikiDebugPage() {
           height: vRange.endY - vRange.startY,
         };
       });
+
+      logInfo(`X轴检测完成`);
 
       // 收集所有面板的坐标数据
       const exportPanels = panelRanges.map((range, i) => {
