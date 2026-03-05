@@ -55,7 +55,7 @@ interface GridItem {
 // SSE版本的process-image API
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { filenames, wikiName, gridSize } = body;
+  const { filenames, wikiName, gridSize, debug = false } = body;
 
   if (!filenames || !Array.isArray(filenames) || filenames.length === 0) {
     return new Response(JSON.stringify({ error: 'Missing or invalid filenames parameter' }), {
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  console.log(`Processing ${filenames.length} wiki files with SSE streaming (color-based detection)`);
+  console.log(`Processing ${filenames.length} wiki files with SSE streaming (debug=${debug})`);
 
   // 创建SSE流
   const stream = new ReadableStream({
@@ -74,7 +74,8 @@ export async function POST(request: NextRequest) {
         sendEvent(controller, 'progress', {
           step: 'preparing',
           message: `📊 正在梳理图片资源（共${filenames.length}张）...`,
-          totalImages: filenames.length
+          totalImages: filenames.length,
+          debugMode: debug
         });
 
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -183,7 +184,40 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // 阶段4：二级裁切（使用LLM识别每个板块的图标底座）
+            // Debug模式：返回Panel坐标信息，跳过裁切
+            if (debug) {
+              const debugPanels = panelData.panels.map((panel, idx) => {
+                // 边界检查和修正
+                const correctedX = Math.max(0, Math.min(panel.x, metadata.width! - 1));
+                const correctedY = Math.max(0, Math.min(panel.y, metadata.height! - 1));
+                const correctedWidth = Math.max(1, Math.min(panel.width, metadata.width! - correctedX));
+                const correctedHeight = Math.max(1, Math.min(panel.height, metadata.height! - correctedY));
+
+                return {
+                  title: panel.title || `板块_${idx + 1}`,
+                  x: correctedX,
+                  y: correctedY,
+                  width: correctedWidth,
+                  height: correctedHeight,
+                  rows: panel.rows,
+                  cols: panel.cols,
+                  imageUrl: `/wiki-big-cropped/${actualWikiName}/${panel.title || '板块_' + (idx + 1)}.png`
+                };
+              });
+
+              sendEvent(controller, 'debug_complete', {
+                debugPanels: debugPanels,
+                imageMetadata: {
+                  width: metadata.width,
+                  height: metadata.height
+                }
+              });
+
+              controller.close();
+              return;
+            }
+
+            // 阶段4：二级裁切（使用数学网格计算切图）
             sendEvent(controller, 'progress', {
               step: 'cutting_icons',
               message: `✂️ 图片 ${i + 1}/${filenames.length} - 二级裁切：正在处理 ${panelData.panels.length} 个板块...`,
