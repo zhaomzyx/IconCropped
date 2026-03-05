@@ -516,14 +516,27 @@ export default function WorkbenchPage() {
       // 批量处理Wiki图像切割（两级切割：板块 → icon）- 使用SSE流式接口
       if (wikiFilenames.length > 0) {
         setWikiProcessingStep(`📊 正在梳理图片资源（共${wikiFilenames.length}张）...`);
-        
+
+        // 在 fetch 之前，读取你之前调试好的完美参数
+        const STORAGE_KEY = 'wiki_slice_config';
+        let customParams = {};
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved) {
+            customParams = JSON.parse(saved);
+          }
+        } catch (e) {
+          console.warn('无法读取调试参数，使用默认值');
+        }
+
         const processResponse = await fetch('/api/process-image-stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            filenames: wikiFilenames, 
+          body: JSON.stringify({
+            filenames: wikiFilenames,
             gridSize: 4,
-            wikiName: fetchedWikiName  // 传递Wiki名称
+            wikiName: fetchedWikiName,  // 传递Wiki名称
+            params: customParams  // <--- 重点：把参数一并传给后端！
           }),
         });
 
