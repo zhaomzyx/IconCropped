@@ -193,7 +193,10 @@ export async function POST(request: NextRequest) {
               const totalRows = gridItems.length > 0 ? Math.max(...gridItems.map(g => g.row)) + 1 : 1;
               const totalCols = gridItems.length > 0 ? Math.max(...gridItems.map(g => g.col)) + 1 : 1;
 
-              // 裁切图标（按底座四条边裁切1:1正方形）
+              // 统一裁切尺寸：130x130
+              const targetSize = 130;
+
+              // 裁切图标（统一130x130）
               for (const gridItem of gridItems) {
                 const base = gridItem.box;
 
@@ -202,26 +205,22 @@ export async function POST(request: NextRequest) {
                 const iconFileName = `${title}_icon_${iconIndex}.png`;
                 const iconPath = path.join(wikiDir, iconFileName);
 
-                // 按底座四条边裁切，确保1:1正方形
-                // 取宽度和高度的最大值作为正方形边长
-                const squareSize = Math.max(base.width, base.height);
-
-                // 以底座中心为基准，计算正方形裁切区域
+                // 以底座中心为基准，计算130x130裁切区域
                 const centerX = base.x + base.width / 2;
                 const centerY = base.y + base.height / 2;
 
-                const cropX = Math.max(0, Math.round(centerX - squareSize / 2));
-                const cropY = Math.max(0, Math.round(centerY - squareSize / 2));
+                const cropX = Math.round(centerX - targetSize / 2);
+                const cropY = Math.round(centerY - targetSize / 2);
 
                 // 边界检查（确保裁切区域不超出原图）
-                const finalX = Math.min(cropX, metadata.width - squareSize);
-                const finalY = Math.min(cropY, metadata.height - squareSize);
+                const finalX = Math.max(0, Math.min(cropX, metadata.width - targetSize));
+                const finalY = Math.max(0, Math.min(cropY, metadata.height - targetSize));
 
                 // 检查是否有足够空间裁切
-                if (finalX + squareSize <= metadata.width && finalY + squareSize <= metadata.height && squareSize > 0) {
+                if (finalX >= 0 && finalY >= 0 && finalX + targetSize <= metadata.width && finalY + targetSize <= metadata.height) {
                   try {
                     await sharp(imageBuffer)
-                      .extract({ left: finalX, top: finalY, width: squareSize, height: squareSize })
+                      .extract({ left: finalX, top: finalY, width: targetSize, height: targetSize })
                       .png()
                       .toFile(iconPath);
 
@@ -234,8 +233,8 @@ export async function POST(request: NextRequest) {
                       totalCols: totalCols,
                       x: finalX,
                       y: finalY,
-                      width: squareSize,
-                      height: squareSize,
+                      width: targetSize,
+                      height: targetSize,
                       panelName: title,
                       title: title,
                       wikiName: actualWikiName,
@@ -243,12 +242,12 @@ export async function POST(request: NextRequest) {
                       imageUrl: `/api/crops/${actualWikiName}/${iconFileName}`
                     });
 
-                    console.log(`  Saved icon: ${iconFileName} (row=${gridItem.row}, col=${gridItem.col}, size=${squareSize}x${squareSize})`);
+                    console.log(`  Saved icon: ${iconFileName} (row=${gridItem.row}, col=${gridItem.col}, size=${targetSize}x${targetSize})`);
                   } catch (e) {
                     console.error(`  Failed to save icon ${iconFileName}:`, e);
                   }
                 } else {
-                  console.warn(`  Icon ${iconIndex} at (${Math.round(base.x)},${Math.round(base.y)}, size=${base.width}x${base.height}) out of bounds, skipping`);
+                  console.warn(`  Icon ${iconIndex} at center=(${Math.round(centerX)},${Math.round(centerY)}) out of bounds, skipping`);
                 }
               }
             }
@@ -349,39 +348,7 @@ async function detectPanelsWithLLM(
   const dataUri = `data:image/png;base64,${base64Image}`;
 
   // LLM提示词（识别所有大板块）
-  const prompt = `请识别这张游戏Wiki页面中的所有大板块。
-
-每个板块包含：
-1. 顶部有标题（英文，如"Bag"、"Shells"等）
-2. 标题下方有一条分隔线
-3. 分隔线下方是图标网格区域（有浅米色圆角底座）
-
-请按从上到下、从左到右的顺序识别所有板块，返回每个板块的以下信息：
-- title: 板块标题
-- x, y, width, height: 板块在图片中的位置和尺寸
-- rows: 图标区域的行数
-- cols: 图标区域的列数
-
-请只返回JSON数组，格式如下：
-[
-  {
-    "title": "Bag",
-    "x": 10,
-    "y": 20,
-    "width": 300,
-    "height": 200,
-    "rows": 2,
-    "cols": 5
-  },
-  ...
-]
-
-要求：
-1. 只返回JSON数组，不要其他文字
-2. 坐标和尺寸使用整数
-3. 标题使用英文，首字母大写（保持原始大小写）
-4. 如果某个板块没有标题，使用"Unknown_N"，其中N是板块序号（从1开始）
-5. 精确识别每个板块的边界`;
+  const prompt = `识别图片中所有板块。每个板块有英文标题（如"Bag"）、分隔线、图标网格。返回JSON数组，包含title, x, y, width, height, rows, cols。例如：[{"title":"Bag","x":10,"y":20,"width":300,"height":200,"rows":2,"cols":5}]`;
 
   try {
     // 调用LLM API
@@ -471,7 +438,7 @@ async function detectIconBasesWithLLM(
   console.log(`  Data URI length: ${dataUri.length} chars`);
 
   // LLM提示词（识别图标底座）
-  const prompt = `识别图片中所有图标底座的位置和尺寸。返回JSON数组，每个元素包含x, y, width, height。例如：[{"x":10,"y":20,"width":60,"height":60},{"x":80,"y":20,"width":60,"height":60}]`;;
+  const prompt = `识别图片中所有图标底座。图片是一个浅色背景的板块，上面有多个深色小方块（图标底座），每个底座中心有一个图标。请识别所有底座的位置。返回JSON数组：[{"x":10,"y":20,"width":130,"height":130},{"x":150,"y":20,"width":130,"height":130}]`;;
 
   try {
     // 调用LLM API
@@ -529,7 +496,38 @@ async function detectIconBasesWithLLM(
       throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
     }
 
-    console.log(`  LLM detected ${iconBases.length} icon bases for panel "${panel.title}"`);
+    // 过滤不合理的识别结果
+    iconBases = iconBases.filter((base: any) => {
+      // 检查宽度和高度是否接近（正方形比例）
+      const aspectRatio = Math.max(base.width, base.height) / Math.min(base.width, base.height);
+      const isSquare = aspectRatio < 2; // 宽高比不超过2:1
+
+      // 检查尺寸是否合理（50-200像素）
+      const minSize = 50;
+      const maxSize = 200;
+      const isReasonableSize = base.width >= minSize && base.width <= maxSize &&
+                             base.height >= minSize && base.height <= maxSize;
+
+      // 检查坐标是否为正整数
+      const hasValidCoords = Number.isInteger(base.x) && Number.isInteger(base.y) &&
+                            Number.isInteger(base.width) && Number.isInteger(base.height) &&
+                            base.x >= 0 && base.y >= 0 &&
+                            base.width > 0 && base.height > 0;
+
+      if (!isSquare) {
+        console.warn(`  Filtered out non-square base: ${base.width}x${base.height}`);
+      }
+      if (!isReasonableSize) {
+        console.warn(`  Filtered out unreasonable size: ${base.width}x${base.height}`);
+      }
+      if (!hasValidCoords) {
+        console.warn(`  Filtered out invalid coords: x=${base.x}, y=${base.y}, w=${base.width}, h=${base.height}`);
+      }
+
+      return isSquare && isReasonableSize && hasValidCoords;
+    });
+
+    console.log(`  LLM detected ${iconBases.length} icon bases for panel "${panel.title}" (after filtering)`);
 
     // 转换为全局坐标
     return iconBases.map((base: any) => ({
