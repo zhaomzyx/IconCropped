@@ -309,7 +309,7 @@ export async function scanHorizontalLine(
   return { startX: panelStartX, endX: panelEndX, icons };
 }
 
-// 计算图标位置（使用中心点间距 + 空位探测器）
+// 计算图标位置（使用中心点间距 + 空位探测器）- 与调试台一致
 export function calculateIconPositions(
   panel: any,
   panelY: number,
@@ -318,7 +318,7 @@ export function calculateIconPositions(
   imageWidth: number,
   imageHeight: number
 ): IconPosition[] {
-  const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset } = params;
+  const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY, varianceThreshold } = params;
 
   // 终极解法：我们不再死板相信 LLM 的 rows！
   // 给他一个允许的最大行数（比如 10 行），让我们的"空位探测器"自动去喊停！
@@ -326,36 +326,61 @@ export function calculateIconPositions(
   const cols = panel.cols || 5;
   const maxCount = panel.total || (rows * cols);
 
-  const startX = panel.x + panelLeftOffset + gridStartX;
-  const startY = panelY + gridStartY;
+  // 计算面板的左上角坐标（与调试台一致）
+  const panelX = panel.x + panelLeftOffset;
+
+  // 首个中心点坐标（与调试台一致）
+  const firstCenterX = panelX + gridStartX + iconCenterOffsetX;
+  const firstCenterY = panelY + gridStartY + iconCenterOffsetY;
+
+  const coreSize = 30; // 核心区域大小（正方形）
 
   const positions = [];
   let count = 0;
 
   console.log(`[图标定位] 开始计算图标位置（带空位探测器）`);
   console.log(`  panel.x=${panel.x}, panel.y=${panel.y}`);
-  console.log(`  startX=${startX}, startY=${startY}`);
+  console.log(`  panelX=${panelX}, panelY=${panelY}`);
+  console.log(`  firstCenterX=${firstCenterX}, firstCenterY=${firstCenterY}`);
   console.log(`  rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
   console.log(`  centerGapX=${centerGapX}, centerGapY=${centerGapY}`);
+  console.log(`  varianceThreshold=${varianceThreshold}`);
+  console.log(`  coreSize=${coreSize}`);
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       if (count >= maxCount) break;
 
-      const rectX = Math.round(startX + col * centerGapX);
-      const rectY = Math.round(startY + row * centerGapY);
+      // 计算中心点坐标（与调试台一致）
+      const centerX = Math.round(firstCenterX + col * centerGapX);
+      const centerY = Math.round(firstCenterY + row * centerGapY);
+
+      // 从中心点计算左上角坐标（用于红框绘制）
+      const rectX = centerX - Math.round(iconSize / 2);
+      const rectY = centerY - Math.round(iconSize / 2);
+
+      // 计算中心区域的坐标（与调试台一致）
+      const coreX = centerX - Math.floor(coreSize / 2);
+      const coreY = centerY - Math.floor(coreSize / 2);
+
+      console.log(`  [${row}, ${col}] 坐标计算:`);
+      console.log(`    中心点: (${centerX}, ${centerY})`);
+      console.log(`    左上角: (${rectX}, ${rectY})`);
+      console.log(`    核心区域: (${coreX}, ${coreY}, ${coreSize}×${coreSize})`);
 
       // 呼叫后端空位探测器！
       const hasIcon = checkIconExists(
         pixelData,
         imageWidth,
         imageHeight,
-        rectX,
-        rectY,
-        iconSize,
-        iconSize,
-        params.varianceThreshold || 300
+        coreX,
+        coreY,
+        coreSize,
+        coreSize,
+        varianceThreshold || 300
       );
+
+      console.log(`    空位检测结果: ${hasIcon ? '✓ 有图标' : '✗ 空底座'}`);
 
       if (!hasIcon) {
         console.log(`[A计划后端] 探测到位置 [${row}, ${col}] 为空底座，终止当前面板识别！`);
