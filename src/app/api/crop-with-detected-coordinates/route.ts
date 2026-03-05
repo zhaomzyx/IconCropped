@@ -76,13 +76,7 @@ export async function POST(request: NextRequest) {
     const filenameWithoutExt = filename.replace(/\.[^/.]+$/, '');
     const wikiDir = path.join(cwd(), 'public', 'wiki-cropped', actualWikiName, filenameWithoutExt);
 
-    // 清理当前图片的缓存（只删除当前图片的目录，不影响其他图片）
-    try {
-      await fs.rm(wikiDir, { recursive: true, force: true });
-    } catch (error) {
-      // 忽略错误
-    }
-
+    // 不清理缓存，保留所有历史裁切结果
     await fs.mkdir(wikiDir, { recursive: true });
 
     // 读取图片

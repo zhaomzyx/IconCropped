@@ -118,15 +118,7 @@ export async function POST(request: NextRequest) {
             // 创建Wiki目录路径
             const wikiDir = path.join(cwd(), 'public', 'wiki-cropped', actualWikiName);
 
-            // 只在非debug模式下清理缓存（debug模式不进行裁切，不需要清理）
-            if (!debug) {
-              try {
-                await fs.rm(wikiDir, { recursive: true, force: true });
-              } catch (error) {
-                // 忽略错误
-              }
-            }
-
+            // 不清理缓存，保留所有历史裁切结果
             await fs.mkdir(wikiDir, { recursive: true });
 
             // 读取图片
