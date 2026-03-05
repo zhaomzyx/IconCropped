@@ -72,10 +72,11 @@ export async function POST(request: NextRequest) {
     // 检查文件是否存在
     await fs.access(wikiFilePath);
 
-    // 创建Wiki目录路径
-    const wikiDir = path.join(cwd(), 'public', 'wiki-cropped', actualWikiName);
+    // 创建Wiki目录路径（按图片名称独立存储）
+    const filenameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+    const wikiDir = path.join(cwd(), 'public', 'wiki-cropped', actualWikiName, filenameWithoutExt);
 
-    // 清理上一轮的缓存
+    // 清理当前图片的缓存（只删除当前图片的目录，不影响其他图片）
     try {
       await fs.rm(wikiDir, { recursive: true, force: true });
     } catch (error) {
@@ -140,8 +141,8 @@ export async function POST(request: NextRequest) {
               panelName: title,
               title: title,
               wikiName: actualWikiName,
-              id: `${actualWikiName}_${iconFileName}`,
-              imageUrl: `/api/crops/${actualWikiName}/${iconFileName}`
+              id: `${actualWikiName}_${filenameWithoutExt}_${iconFileName}`,
+              imageUrl: `/api/crops/${actualWikiName}/${filenameWithoutExt}/${iconFileName}`
             });
 
             console.log(`  Saved icon: ${iconFileName} (row=${redBox.row}, col=${redBox.col}, size=${redBox.width}x${redBox.height})`);
