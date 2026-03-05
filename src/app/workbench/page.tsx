@@ -583,32 +583,73 @@ export default function WorkbenchPage() {
               console.log('📡 接收到 chunk (' + chunk.length + ' 字节)');
             }
 
-            // 使用正则表达式解析 SSE 流
+            // 使用更健壮的 SSE 解析逻辑（支持多行 JSON）
             console.log('📡 开始解析 SSE 流...');
-            const eventPattern = /event:\s*([^\n]+)\ndata:\s*([^\n]+)/g;
-            let match;
-            while ((match = eventPattern.exec(fullSSEContent)) !== null) {
-              const event = match[1].trim();
-              const jsonData = match[2].trim();
 
-              console.log(`📡 解析到事件: ${event}`);
+            // 按 SSE 协议规范解析：每个事件以 "event:" 开头，以空行结束
+            const lines = fullSSEContent.split('\n');
+            let currentEvent = '';
+            let currentData = '';
+            let isReadingData = false;
 
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+
+              if (trimmedLine.startsWith('event:')) {
+                currentEvent = trimmedLine.substring(6).trim();
+                currentData = '';
+                isReadingData = false;
+              } else if (trimmedLine.startsWith('data:')) {
+                currentData = trimmedLine.substring(5).trim();
+                isReadingData = true;
+              } else if (trimmedLine === '' && currentEvent && currentData) {
+                // 空行表示事件结束，处理当前事件
+                console.log(`📡 解析到事件: ${currentEvent}`);
+
+                try {
+                  const data = JSON.parse(currentData);
+                  console.log(`📡 SSE 事件: ${currentEvent}, 数据解析成功`);
+
+                  if (currentEvent === 'debug_complete') {
+                    debugPanels = data.debugPanels || [];
+                    detectedPanels = data.detectedPanels || [];
+                    imageMetadata = data.imageMetadata;
+                    console.log(`✓ 接收到 debug_complete 事件`);
+                    console.log(`  debugPanels 数量: ${debugPanels.length}`);
+                    console.log(`  detectedPanels 数量: ${detectedPanels.length}`);
+                  } else if (currentEvent === 'error') {
+                    throw new Error(data.message || '处理失败');
+                  }
+                } catch (e) {
+                  console.error(`📡 事件 ${currentEvent} 的 JSON 解析失败:`, e, '原始数据:', currentData.substring(0, 100));
+                }
+
+                currentEvent = '';
+                currentData = '';
+                isReadingData = false;
+              } else if (isReadingData && trimmedLine.startsWith('{')) {
+                // 多行 JSON 数据（虽然当前后端不使用，但为了兼容性）
+                currentData += '\n' + trimmedLine;
+              }
+            }
+
+            // 处理最后一个事件（如果没有空行结束）
+            if (currentEvent && currentData) {
+              console.log(`📡 解析到最后一个事件: ${currentEvent}`);
               try {
-                const data = JSON.parse(jsonData);
-                console.log(`📡 SSE 事件: ${event}, 数据解析成功`);
-
-                if (event === 'debug_complete') {
+                const data = JSON.parse(currentData);
+                if (currentEvent === 'debug_complete') {
                   debugPanels = data.debugPanels || [];
                   detectedPanels = data.detectedPanels || [];
                   imageMetadata = data.imageMetadata;
                   console.log(`✓ 接收到 debug_complete 事件`);
                   console.log(`  debugPanels 数量: ${debugPanels.length}`);
                   console.log(`  detectedPanels 数量: ${detectedPanels.length}`);
-                } else if (event === 'error') {
+                } else if (currentEvent === 'error') {
                   throw new Error(data.message || '处理失败');
                 }
               } catch (e) {
-                console.error(`📡 事件 ${event} 的 JSON 解析失败:`, e, '原始数据:', jsonData.substring(0, 100));
+                console.error(`📡 事件 ${currentEvent} 的 JSON 解析失败:`, e, '原始数据:', currentData.substring(0, 100));
               }
             }
 
