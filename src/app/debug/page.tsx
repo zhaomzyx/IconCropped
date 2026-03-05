@@ -40,10 +40,14 @@ export default function WikiDebugPage() {
 
   // 自定义日志函数（同时输出到控制台和存储日志）
   const logInfo = useCallback((...args: any[]) => {
-    const message = args.map(arg => 
-      typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-    ).join(' ');
-    logInfo(...args);
+    const message = args.map(arg => {
+      try {
+        return typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg);
+      } catch (e) {
+        return String(arg);
+      }
+    }).join(' ');
+    console.log(...args);
     setDebugLogs(prev => [...prev, message]);
   }, []);
 
