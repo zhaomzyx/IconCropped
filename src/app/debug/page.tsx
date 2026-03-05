@@ -34,8 +34,18 @@ export default function WikiDebugPage() {
   const [selectedPanelIndex, setSelectedPanelIndex] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [cropResults, setCropResults] = useState<any[]>([]); // 裁切结果
+  const [debugLogs, setDebugLogs] = useState<string[]>([]); // 调试日志
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 自定义日志函数（同时输出到控制台和存储日志）
+  const logInfo = useCallback((...args: any[]) => {
+    const message = args.map(arg => 
+      typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+    ).join(' ');
+    logInfo(...args);
+    setDebugLogs(prev => [...prev, message]);
+  }, []);
 
   // 默认参数常量（基于用户调试优化）
   const DEFAULT_PARAMS = {
@@ -55,6 +65,22 @@ export default function WikiDebugPage() {
     panelWidth: 876,         // 蓝框宽度（Panel外边缘）
     greenBoxWidth: 876,      // 绿框宽度（标题区域）
   };
+
+  // 复制日志到剪贴板
+  const copyLogs = useCallback(() => {
+    const logsText = debugLogs.join('\n');
+    navigator.clipboard.writeText(logsText).then(() => {
+      alert(`✅ 已复制 ${debugLogs.length} 条日志到剪贴板！\n\n请粘贴到对话框中发送给我。`);
+    }).catch(err => {
+      console.error('复制失败:', err);
+      alert('❌ 复制失败，请手动复制。');
+    });
+  }, [debugLogs]);
+
+  // 清空日志
+  const clearLogs = useCallback(() => {
+    setDebugLogs([]);
+  }, []);
 
   // LocalStorage 键名
   const STORAGE_KEY = 'wiki_slice_config';
@@ -163,24 +189,24 @@ export default function WikiDebugPage() {
     // 获取完整的像素数据
     const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-    console.log(`  [详细坐标分析]`);
-    console.log(`    输入参数:`);
-    console.log(`      panel.x=${panel.x}, panel.y=${panel.y}`);
-    console.log(`      panelLeftOffset=${panelLeftOffset}`);
-    console.log(`      gridStartX=${gridStartX}, gridStartY=${gridStartY}`);
-    console.log(`      iconCenterOffsetX=${iconCenterOffsetX}, iconCenterOffsetY=${iconCenterOffsetY}`);
-    console.log(`    计算过程:`);
-    console.log(`      panelX = panel.x + panelLeftOffset = ${panel.x} + ${panelLeftOffset} = ${panelX}`);
-    console.log(`      panelY = ${panelY}`);
-    console.log(`      firstCenterX = panelX + gridStartX + iconCenterOffsetX = ${panelX} + ${gridStartX} + ${iconCenterOffsetX} = ${firstCenterX}`);
-    console.log(`      firstCenterY = panelY + gridStartY + iconCenterOffsetY = ${panelY} + ${gridStartY} + ${iconCenterOffsetY} = ${firstCenterY}`);
-    console.log(`    首个图标左上角:`);
-    console.log(`      x = firstCenterX - iconSize/2 = ${firstCenterX} - ${iconSize/2} = ${firstCenterX - iconSize/2}`);
-    console.log(`      y = firstCenterY - iconSize/2 = ${firstCenterY} - ${iconSize/2} = ${firstCenterY - iconSize/2}`);
+    logInfo(`  [详细坐标分析]`);
+    logInfo(`    输入参数:`);
+    logInfo(`      panel.x=${panel.x}, panel.y=${panel.y}`);
+    logInfo(`      panelLeftOffset=${panelLeftOffset}`);
+    logInfo(`      gridStartX=${gridStartX}, gridStartY=${gridStartY}`);
+    logInfo(`      iconCenterOffsetX=${iconCenterOffsetX}, iconCenterOffsetY=${iconCenterOffsetY}`);
+    logInfo(`    计算过程:`);
+    logInfo(`      panelX = panel.x + panelLeftOffset = ${panel.x} + ${panelLeftOffset} = ${panelX}`);
+    logInfo(`      panelY = ${panelY}`);
+    logInfo(`      firstCenterX = panelX + gridStartX + iconCenterOffsetX = ${panelX} + ${gridStartX} + ${iconCenterOffsetX} = ${firstCenterX}`);
+    logInfo(`      firstCenterY = panelY + gridStartY + iconCenterOffsetY = ${panelY} + ${gridStartY} + ${iconCenterOffsetY} = ${firstCenterY}`);
+    logInfo(`    首个图标左上角:`);
+    logInfo(`      x = firstCenterX - iconSize/2 = ${firstCenterX} - ${iconSize/2} = ${firstCenterX - iconSize/2}`);
+    logInfo(`      y = firstCenterY - iconSize/2 = ${firstCenterY} - ${iconSize/2} = ${firstCenterY - iconSize/2}`);
 
-    console.log(`  开始扫描图标位置，rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
-    console.log(`  方差阈值: ${varianceThreshold}, 核心区域大小: ${coreSize}x${coreSize}`);
-    console.log(`  首个中心点: (${firstCenterX}, ${firstCenterY}), 中心点间距: X=${centerGapX}, Y=${centerGapY}`);
+    logInfo(`  开始扫描图标位置，rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
+    logInfo(`  方差阈值: ${varianceThreshold}, 核心区域大小: ${coreSize}x${coreSize}`);
+    logInfo(`  首个中心点: (${firstCenterX}, ${firstCenterY}), 中心点间距: X=${centerGapX}, Y=${centerGapY}`);
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -206,7 +232,7 @@ export default function WikiDebugPage() {
 
         const hasIcon = variance >= varianceThreshold;
 
-        console.log(`  [${row}, ${col}] 中心点: center(${centerX}, ${centerY}), 左上角: x=${x}, y=${y}, 方差=${variance.toFixed(2)}, ${hasIcon ? '✓ 有图标' : '✗ 空图标'}`);
+        logInfo(`  [${row}, ${col}] 中心点: center(${centerX}, ${centerY}), 左上角: x=${x}, y=${y}, 方差=${variance.toFixed(2)}, ${hasIcon ? '✓ 有图标' : '✗ 空图标'}`);
 
         if (hasIcon) {
           positions.push({
@@ -220,7 +246,7 @@ export default function WikiDebugPage() {
           count++;
         } else {
           // 遇到空图标，直接结束当前面板的扫描
-          console.log(`  遇到空图标，结束面板扫描。共找到 ${positions.length} 个有效图标`);
+          logInfo(`  遇到空图标，结束面板扫描。共找到 ${positions.length} 个有效图标`);
           return positions;
         }
       }
@@ -230,7 +256,7 @@ export default function WikiDebugPage() {
       }
     }
 
-    console.log(`  扫描完成，共找到 ${positions.length} 个有效图标`);
+    logInfo(`  扫描完成，共找到 ${positions.length} 个有效图标`);
     return positions;
   }, [params]);
 
@@ -297,7 +323,7 @@ export default function WikiDebugPage() {
           panelStartYs.push(actualStartY);
           isPanel = true;
 
-          console.log(`Panel started at Y=${actualStartY} (detected at Y=${y})`);
+          logInfo(`Panel started at Y=${actualStartY} (detected at Y=${y})`);
         }
       } else {
         // 识别为深色背景区域
@@ -307,12 +333,12 @@ export default function WikiDebugPage() {
         if (isPanel && consecutiveBg >= requiredPixels) {
           // 面板结束
           isPanel = false;
-          console.log(`Panel ended at Y=${y - requiredPixels + 1} (detected at Y=${y})`);
+          logInfo(`Panel ended at Y=${y - requiredPixels + 1} (detected at Y=${y})`);
         }
       }
     }
 
-    console.log(`Scanned ${panelStartYs.length} panel start positions from Y=${scanStartY} (sustained=${requiredPixels}):`, panelStartYs);
+    logInfo(`Scanned ${panelStartYs.length} panel start positions from Y=${scanStartY} (sustained=${requiredPixels}):`, panelStartYs);
     return panelStartYs;
   }, []);
 
@@ -330,8 +356,8 @@ export default function WikiDebugPage() {
       canvas.width = img.width;
       canvas.height = img.height;
 
-      console.log(`Canvas尺寸：实际=${img.width}x${img.height}, 显示=${canvas.clientWidth}x${canvas.clientHeight}`);
-      console.log(`缩放比例：X=${canvas.clientWidth / canvas.width}, Y=${canvas.clientHeight / canvas.height}`);
+      logInfo(`Canvas尺寸：实际=${img.width}x${img.height}, 显示=${canvas.clientWidth}x${canvas.clientHeight}`);
+      logInfo(`缩放比例：X=${canvas.clientWidth / canvas.width}, Y=${canvas.clientHeight / canvas.height}`);
 
       // 绘制原图
       ctx.drawImage(img, 0, 0);
@@ -363,21 +389,21 @@ export default function WikiDebugPage() {
 
         // 绘制时的详细日志（只记录选中的面板）
         if (isSelected) {
-          console.log(`\n========== [drawCanvas] 面板 ${i + 1} (${panel.title}) 坐标计算 ==========`);
-          console.log(`[LLM 识别的原始坐标]`);
-          console.log(`  panel.x = ${panel.x}`);
-          console.log(`  panel.y = ${panel.y}`);
-          console.log(`[扫描线检测结果]`);
-          console.log(`  panelStartYs[${i}] = ${panelStartYs[i]}`);
-          console.log(`  absolutePanelY = ${absolutePanelY}`);
-          console.log(`[面板左上角坐标]`);
-          console.log(`  panelX = panel.x + panelLeftOffset = ${panel.x} + ${params.panelLeftOffset} = ${panelX}`);
-          console.log(`  panelY = ${absolutePanelY}`);
-          console.log(`[首个图标预期位置]`);
+          logInfo(`\n========== [drawCanvas] 面板 ${i + 1} (${panel.title}) 坐标计算 ==========`);
+          logInfo(`[LLM 识别的原始坐标]`);
+          logInfo(`  panel.x = ${panel.x}`);
+          logInfo(`  panel.y = ${panel.y}`);
+          logInfo(`[扫描线检测结果]`);
+          logInfo(`  panelStartYs[${i}] = ${panelStartYs[i]}`);
+          logInfo(`  absolutePanelY = ${absolutePanelY}`);
+          logInfo(`[面板左上角坐标]`);
+          logInfo(`  panelX = panel.x + panelLeftOffset = ${panel.x} + ${params.panelLeftOffset} = ${panelX}`);
+          logInfo(`  panelY = ${absolutePanelY}`);
+          logInfo(`[首个图标预期位置]`);
           const firstIconX = panelX + params.gridStartX + params.iconCenterOffsetX - params.iconSize / 2;
           const firstIconY = panelY + params.gridStartY + params.iconCenterOffsetY - params.iconSize / 2;
-          console.log(`  firstIconX = panelX + gridStartX + iconCenterOffsetX - iconSize/2 = ${firstIconX}`);
-          console.log(`  firstIconY = panelY + gridStartY + iconCenterOffsetY - iconSize/2 = ${firstIconY}`);
+          logInfo(`  firstIconX = panelX + gridStartX + iconCenterOffsetX - iconSize/2 = ${firstIconX}`);
+          logInfo(`  firstIconY = panelY + gridStartY + iconCenterOffsetY - iconSize/2 = ${firstIconY}`);
         }
 
         // 计算图标区域的实际高度（基于实际使用的行数）
@@ -479,7 +505,7 @@ export default function WikiDebugPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    console.log('开始上传图片:', file.name, file.size, 'bytes');
+    logInfo('开始上传图片:', file.name, file.size, 'bytes');
 
     const formData = new FormData();
     formData.append('file', file);
@@ -489,21 +515,21 @@ export default function WikiDebugPage() {
 
     try {
       // 上传图片
-      console.log('步骤1: 上传图片到 /api/upload');
+      logInfo('步骤1: 上传图片到 /api/upload');
       const uploadRes = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       });
       const uploadData = await uploadRes.json();
 
-      console.log('上传响应:', uploadData);
+      logInfo('上传响应:', uploadData);
 
       if (uploadData.success) {
         const uploadedFilename = uploadData.filename;
-        console.log('✓ 上传成功，文件名:', uploadedFilename);
+        logInfo('✓ 上传成功，文件名:', uploadedFilename);
 
         // 调试模式处理
-        console.log('步骤2: 调用 /api/process-image-stream (debug模式)');
+        logInfo('步骤2: 调用 /api/process-image-stream (debug模式)');
         const processRes = await fetch('/api/process-image-stream', {
           method: 'POST',
           headers: {
@@ -515,7 +541,7 @@ export default function WikiDebugPage() {
           }),
         });
 
-        console.log('处理响应状态:', processRes.status, processRes.statusText);
+        logInfo('处理响应状态:', processRes.status, processRes.statusText);
 
         if (!processRes.ok) {
           const errorText = await processRes.text();
@@ -529,12 +555,12 @@ export default function WikiDebugPage() {
         const decoder = new TextDecoder();
         let eventCount = 0;
 
-        console.log('开始读取SSE流...');
+        logInfo('开始读取SSE流...');
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            console.log('SSE流读取完成，共收到', eventCount, '个事件');
+            logInfo('SSE流读取完成，共收到', eventCount, '个事件');
             break;
           }
 
@@ -549,14 +575,14 @@ export default function WikiDebugPage() {
                 try {
                   const data = JSON.parse(nextLine.slice(5));
                   eventCount++;
-                  console.log(`收到事件 ${eventCount}: ${event}`, data);
+                  logInfo(`收到事件 ${eventCount}: ${event}`, data);
 
                   if (event === 'debug_complete') {
-                    console.log('✓ Debug模式完成，面板数据:', data.debugPanels);
+                    logInfo('✓ Debug模式完成，面板数据:', data.debugPanels);
                     setDebugPanels(data.debugPanels);
                     // 设置图片URL - 使用正确的API路由
                     setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
-                    console.log('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
+                    logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
                   } else if (event === 'error') {
                     console.error('✗ 收到错误事件:', data);
                     throw new Error(data.message || '处理过程中发生错误');
@@ -702,30 +728,30 @@ export default function WikiDebugPage() {
         const panelY = absolutePanelY;
 
         // 详细日志：计算前的参数
-        console.log(`\n========== 面板 ${i + 1} (${panel.title}) 坐标分析 ==========`);
-        console.log(`[LLM 识别的原始坐标]`);
-        console.log(`  panel.x = ${panel.x}`);
-        console.log(`  panel.y = ${panel.y}`);
-        console.log(`[扫描线检测结果]`);
-        console.log(`  panelStartYs[${i}] = ${panelStartYs[i]}`);
-        console.log(`  absolutePanelY = ${absolutePanelY}`);
-        console.log(`[面板左上角坐标]`);
-        console.log(`  panelX = panel.x + panelLeftOffset = ${panel.x} + ${params.panelLeftOffset} = ${panelX}`);
-        console.log(`  panelY = ${absolutePanelY}`);
-        console.log(`[参数说明]`);
-        console.log(`  panelLeftOffset = ${params.panelLeftOffset}`);
-        console.log(`  gridStartX = ${params.gridStartX}`);
-        console.log(`  gridStartY = ${params.gridStartY}`);
-        console.log(`  iconCenterOffsetX = ${params.iconCenterOffsetX}`);
-        console.log(`  iconCenterOffsetY = ${params.iconCenterOffsetY}`);
-        console.log(`  iconSize = ${params.iconSize}`);
+        logInfo(`\n========== 面板 ${i + 1} (${panel.title}) 坐标分析 ==========`);
+        logInfo(`[LLM 识别的原始坐标]`);
+        logInfo(`  panel.x = ${panel.x}`);
+        logInfo(`  panel.y = ${panel.y}`);
+        logInfo(`[扫描线检测结果]`);
+        logInfo(`  panelStartYs[${i}] = ${panelStartYs[i]}`);
+        logInfo(`  absolutePanelY = ${absolutePanelY}`);
+        logInfo(`[面板左上角坐标]`);
+        logInfo(`  panelX = panel.x + panelLeftOffset = ${panel.x} + ${params.panelLeftOffset} = ${panelX}`);
+        logInfo(`  panelY = ${absolutePanelY}`);
+        logInfo(`[参数说明]`);
+        logInfo(`  panelLeftOffset = ${params.panelLeftOffset}`);
+        logInfo(`  gridStartX = ${params.gridStartX}`);
+        logInfo(`  gridStartY = ${params.gridStartY}`);
+        logInfo(`  iconCenterOffsetX = ${params.iconCenterOffsetX}`);
+        logInfo(`  iconCenterOffsetY = ${params.iconCenterOffsetY}`);
+        logInfo(`  iconSize = ${params.iconSize}`);
 
         // 计算图标位置
         const positions = calculateIconPositions(panel, panelY, ctx);
-        console.log(`  calculateIconPositions 返回了 ${positions.length} 个位置:`);
+        logInfo(`  calculateIconPositions 返回了 ${positions.length} 个位置:`);
         positions.forEach((pos, idx) => {
           if (idx < 3 || idx === positions.length - 1) { // 只显示前3个和最后一个
-            console.log(`    Icon #${idx + 1}: x=${pos.x}, y=${pos.y}, w=${pos.width}, h=${pos.height}`);
+            logInfo(`    Icon #${idx + 1}: x=${pos.x}, y=${pos.y}, w=${pos.width}, h=${pos.height}`);
           }
         });
 
@@ -763,10 +789,10 @@ export default function WikiDebugPage() {
           height: pos.height,
         }));
 
-        console.log(`  最终坐标:`);
-        console.log(`    BlueBox: x=${Math.round(blueBox.x)}, y=${Math.round(blueBox.y)}, w=${Math.round(blueBox.width)}, h=${Math.round(blueBox.height)}`);
-        console.log(`    GreenBox: x=${Math.round(greenBox.x)}, y=${Math.round(greenBox.y)}, w=${Math.round(greenBox.width)}, h=${Math.round(greenBox.height)}`);
-        console.log(`    RedBox Count: ${redBoxes.length}`);
+        logInfo(`  最终坐标:`);
+        logInfo(`    BlueBox: x=${Math.round(blueBox.x)}, y=${Math.round(blueBox.y)}, w=${Math.round(blueBox.width)}, h=${Math.round(blueBox.height)}`);
+        logInfo(`    GreenBox: x=${Math.round(greenBox.x)}, y=${Math.round(greenBox.y)}, w=${Math.round(greenBox.width)}, h=${Math.round(greenBox.height)}`);
+        logInfo(`    RedBox Count: ${redBoxes.length}`);
 
         return {
           title: panel.title,
@@ -789,7 +815,7 @@ export default function WikiDebugPage() {
         `面板${i + 1}: x=${p.x}, y=${p.y}, w=${p.width}, h=${p.height}, icons=${p.redBoxes?.length || 0}`
       ).join('\n');
       
-      console.log('=== 裁切坐标信息 ===\n' + debugInfo);
+      logInfo('=== 裁切坐标信息 ===\n' + debugInfo);
       alert(`即将裁切，请确认坐标是否正确：\n\n${debugInfo}\n\n点击"确定"继续裁切，点击"取消"取消`);
 
       // 调用API进行裁切
@@ -812,14 +838,14 @@ export default function WikiDebugPage() {
       if (result.success) {
         setCropResults(result.results);
         alert(`裁切成功！共裁切 ${result.total} 个icon\n\n结果已保存到 public/wiki-cropped/travel-town/`);
-        console.log('裁切结果:', result.results);
+        logInfo('裁切结果:', result.results);
       } else {
         throw new Error(result.error || '裁切失败');
       }
     } catch (error) {
       if (error instanceof Error && error.message === '用户取消') {
         // 用户点击了取消
-        console.log('用户取消裁切');
+        logInfo('用户取消裁切');
       } else {
         console.error('裁切失败:', error);
         alert('裁切失败：' + (error instanceof Error ? error.message : '未知错误'));
@@ -1277,6 +1303,36 @@ export default function WikiDebugPage() {
                   {cropResults.length > 0 && (
                     <div className="mt-2 text-sm text-green-600">
                       ✓ 已裁切 {cropResults.length} 个icon
+                    </div>
+                  )}
+                </div>
+
+                {/* 调试日志 */}
+                <div className="pt-4 border-t">
+                  <Label className="text-sm font-semibold mb-3 block">调试日志</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={copyLogs}
+                      disabled={debugLogs.length === 0}
+                      className="flex-1"
+                    >
+                      📋 复制日志 ({debugLogs.length})
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={clearLogs}
+                      disabled={debugLogs.length === 0}
+                      className="flex-1"
+                    >
+                      🗑️ 清空日志
+                    </Button>
+                  </div>
+                  {debugLogs.length > 0 && (
+                    <div className="mt-2 text-xs text-gray-500">
+                      点击"复制日志"后，将内容粘贴到对话框中发送给我
                     </div>
                   )}
                 </div>
