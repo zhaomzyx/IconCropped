@@ -33,9 +33,10 @@ export default function WikiDebugPage() {
   const [selectedPanelIndex, setSelectedPanelIndex] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 调试参数
-  const [params, setParams] = useState({
+  // 默认参数常量
+  const DEFAULT_PARAMS = {
     panelLeftOffset: 0,
     panelTopOffset: 0,
     gridStartX: 30,
@@ -43,7 +44,36 @@ export default function WikiDebugPage() {
     iconSize: 130,
     gapX: 15,
     gapY: 15,
-  });
+  };
+
+  // LocalStorage 键名
+  const STORAGE_KEY = 'wiki_slice_config';
+
+  // 从 LocalStorage 加载参数
+  const loadParamsFromStorage = useCallback((): typeof DEFAULT_PARAMS => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ...DEFAULT_PARAMS, ...parsed };
+      }
+    } catch (error) {
+      console.error('Failed to load params from localStorage:', error);
+    }
+    return DEFAULT_PARAMS;
+  }, []);
+
+  // 保存参数到 LocalStorage
+  const saveParamsToStorage = useCallback((params: typeof DEFAULT_PARAMS) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(params));
+    } catch (error) {
+      console.error('Failed to save params to localStorage:', error);
+    }
+  }, []);
+
+  // 调试参数
+  const [params, setParams] = useState<typeof DEFAULT_PARAMS>(() => loadParamsFromStorage());
 
   // 计算图标位置
   const calculateIconPositions = useCallback((panel: DebugPanel): IconPosition[] => {
@@ -213,8 +243,77 @@ export default function WikiDebugPage() {
   };
 
   // 调试参数变更处理
-  const handleParamChange = (key: string, value: number) => {
-    setParams(prev => ({ ...prev, [key]: value }));
+  const handleParamChange = (key: keyof typeof DEFAULT_PARAMS, value: number) => {
+    const newParams = { ...params, [key]: value };
+    setParams(newParams);
+    // 实时保存到 localStorage
+    saveParamsToStorage(newParams);
+  };
+
+  // 恢复默认值
+  const handleResetToDefault = () => {
+    if (window.confirm('确定要恢复所有参数为默认值吗？')) {
+      setParams(DEFAULT_PARAMS);
+      // 清除 localStorage
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  };
+
+  // 导出配置
+  const handleExportConfig = () => {
+    const config = {
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      params: params,
+    };
+
+    const jsonStr = JSON.stringify(config, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'slice_config.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // 导入配置
+  const handleImportConfig = () => {
+    fileInputRef.current?.click();
+  };
+
+  // 处理文件选择
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const parsed = JSON.parse(content);
+
+        // 检查是否是有效的配置文件
+        if (parsed.params && typeof parsed.params === 'object') {
+          const newParams = { ...DEFAULT_PARAMS, ...parsed.params };
+          setParams(newParams);
+          // 保存到 localStorage
+          saveParamsToStorage(newParams);
+          alert('配置导入成功！');
+        } else {
+          throw new Error('配置格式无效');
+        }
+      } catch (error) {
+        console.error('Failed to import config:', error);
+        alert('导入失败：配置文件格式无效');
+      }
+      // 清空 input，允许重复选择同一文件
+      e.target.value = '';
+    };
+    reader.readAsText(file);
   };
 
   return (
@@ -420,6 +519,44 @@ export default function WikiDebugPage() {
                       className="w-20 text-center"
                     />
                   </div>
+                </div>
+
+                {/* 预设管理 */}
+                <div className="pt-4 border-t">
+                  <Label className="text-sm font-semibold mb-3 block">预设管理</Label>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleResetToDefault}
+                      className="flex-1 min-w-[120px]"
+                    >
+                      恢复默认值
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportConfig}
+                      className="flex-1 min-w-[120px]"
+                    >
+                      导出配置 (JSON)
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleImportConfig}
+                      className="flex-1 min-w-[120px]"
+                    >
+                      导入配置
+                    </Button>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
                 </div>
               </CardContent>
             </Card>
