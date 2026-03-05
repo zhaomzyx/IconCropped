@@ -409,21 +409,35 @@ async function detectPanelsWithLLM(
       temperature: 0.3
     });
 
+    console.log(`  LLM response for panel detection:`, response.content.substring(0, 500));
+
     // 解析LLM返回的JSON
-    let jsonMatch = response.content.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    let jsonText = response.content.trim();
+
+    // 尝试多种JSON提取方式
+    let jsonMatch = jsonText.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
       // 尝试去掉markdown代码块标记
-      jsonMatch = response.content.match(/```(?:json)?\s*\[\s*\{[\s\S]*\}\s*\]\s*```/);
-      if (jsonMatch) {
-        jsonMatch = [jsonMatch[0].replace(/```(?:json)?\s*/, '').replace(/\s*```/, '')];
+      const codeBlockMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (codeBlockMatch) {
+        jsonText = codeBlockMatch[1].trim();
+        jsonMatch = jsonText.match(/\[[\s\S]*\]/);
       }
     }
 
     if (!jsonMatch) {
-      throw new Error('无法解析LLM返回的JSON');
+      console.error(`  Failed to parse LLM response for panel detection:`, response.content);
+      throw new Error('无法解析LLM返回的JSON，返回内容不符合预期格式');
     }
 
-    const panels = JSON.parse(jsonMatch[0]);
+    let panels;
+    try {
+      panels = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      console.error(`  JSON parse error for panel detection:`, parseError);
+      console.error(`  JSON text:`, jsonMatch[0]);
+      throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
+    }
 
     console.log(`  LLM detected ${panels.length} panels:`, panels.map((p: any) => p.title).join(', '));
 
@@ -509,21 +523,35 @@ async function detectIconBasesWithLLM(
       temperature: 0.3
     });
 
+    console.log(`  LLM response for panel "${panel.title}":`, response.content.substring(0, 500));
+
     // 解析LLM返回的JSON
-    let jsonMatch = response.content.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    let jsonText = response.content.trim();
+
+    // 尝试多种JSON提取方式
+    let jsonMatch = jsonText.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
       // 尝试去掉markdown代码块标记
-      jsonMatch = response.content.match(/```(?:json)?\s*\[\s*\{[\s\S]*\}\s*\]\s*```/);
-      if (jsonMatch) {
-        jsonMatch = [jsonMatch[0].replace(/```(?:json)?\s*/, '').replace(/\s*```/, '')];
+      const codeBlockMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (codeBlockMatch) {
+        jsonText = codeBlockMatch[1].trim();
+        jsonMatch = jsonText.match(/\[[\s\S]*\]/);
       }
     }
 
     if (!jsonMatch) {
-      throw new Error('无法解析LLM返回的JSON');
+      console.error(`  Failed to parse LLM response for panel "${panel.title}":`, response.content);
+      throw new Error('无法解析LLM返回的JSON，返回内容不符合预期格式');
     }
 
-    const iconBases = JSON.parse(jsonMatch[0]);
+    let iconBases;
+    try {
+      iconBases = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      console.error(`  JSON parse error for panel "${panel.title}":`, parseError);
+      console.error(`  JSON text:`, jsonMatch[0]);
+      throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
+    }
 
     console.log(`  LLM detected ${iconBases.length} icon bases for panel "${panel.title}"`);
 
