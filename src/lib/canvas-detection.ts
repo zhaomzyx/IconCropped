@@ -36,7 +36,7 @@ export interface DetectedPanel {
   redBoxes: IconPosition[];
 }
 
-// 默认检测参数
+// 默认检测参数（与调试台一致）
 export const DEFAULT_PARAMS = {
   panelLeftOffset: -28,
   panelTopOffset: 0,
@@ -58,7 +58,7 @@ export const DEFAULT_PARAMS = {
   iconLineOffset: 107,
   iconLineGap: 144,
   minIconsPerLine: 5,
-  varianceThreshold: 300,
+  varianceThreshold: 50,
 };
 
 // 计算颜色差异
@@ -247,40 +247,28 @@ export function scanHorizontalLine(
   return { startX: panelStartX, endX: panelEndX, icons };
 }
 
-// 空位探测器：基于方差检测空底座
+// 空位探测器：基于方差检测空底座（与调试台一致）
 function checkIconExists(
   imageData: ImageData,
   x: number,
   y: number,
   width: number,
   height: number,
-  varianceThreshold: number = 300
+  varianceThreshold: number = 50
 ): boolean {
   const { data, width: imageWidth, height: imageHeight } = imageData;
 
-  // 只取中心 30% 到 70% 的核心区域
-  const startX = Math.floor(x + width * 0.3);
-  const startY = Math.floor(y + height * 0.3);
-  const endX = Math.floor(x + width * 0.7);
-  const endY = Math.floor(y + height * 0.7);
-
-  // 边界保护
-  if (startX < 0 || startY < 0 || endX >= imageWidth || endY >= imageHeight) return true;
-
   let rSum = 0, gSum = 0, bSum = 0;
   let count = 0;
-  const pixels = [];
 
-  for (let py = startY; py < endY; py++) {
-    for (let px = startX; px < endX; px++) {
+  // 计算平均值
+  for (let py = y; py < y + height; py++) {
+    for (let px = x; px < x + width; px++) {
+      if (px < 0 || py < 0 || px >= imageWidth || py >= imageHeight) continue;
       const idx = (py * imageWidth + px) * 4;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-      pixels.push({ r, g, b });
-      rSum += r;
-      gSum += g;
-      bSum += b;
+      rSum += data[idx];
+      gSum += data[idx + 1];
+      bSum += data[idx + 2];
       count++;
     }
   }
@@ -291,13 +279,21 @@ function checkIconExists(
   const gAvg = gSum / count;
   const bAvg = bSum / count;
 
+  // 计算方差
   let variance = 0;
-  for (const p of pixels) {
-    variance += Math.pow(p.r - rAvg, 2) + Math.pow(p.g - gAvg, 2) + Math.pow(p.b - bAvg, 2);
+  for (let py = y; py < y + height; py++) {
+    for (let px = x; px < x + width; px++) {
+      if (px < 0 || py < 0 || px >= imageWidth || py >= imageHeight) continue;
+      const idx = (py * imageWidth + px) * 4;
+      variance += Math.pow(data[idx] - rAvg, 2);
+      variance += Math.pow(data[idx + 1] - gAvg, 2);
+      variance += Math.pow(data[idx + 2] - bAvg, 2);
+    }
   }
-  variance = variance / count;
 
-  return variance > varianceThreshold;
+  variance = variance / (count * 3); // 返回平均方差
+
+  return variance >= varianceThreshold;
 }
 
 // 计算图标位置（使用中心点间距 + 空位探测器）
@@ -308,22 +304,29 @@ export function calculateIconPositions(
   imageData: ImageData,
   panelRange: PanelHorizontalRange
 ): IconPosition[] {
-  const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset, varianceThreshold } = params;
+  const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY, varianceThreshold } = params;
 
   // 终极解法：给一个允许的最大行数，让空位探测器自动停止
   const rows = panel.rows || 10;
   const cols = panel.cols || 5;
   const maxCount = panel.total || (rows * cols);
 
-  const startX = panel.x + panelLeftOffset + gridStartX;
-  const startY = panelY + gridStartY;
+  // 计算面板的左上角坐标（与调试台一致）
+  const panelX = panel.x + panelLeftOffset;
+
+  // 首个中心点坐标（与调试台一致）
+  const firstCenterX = panelX + gridStartX + iconCenterOffsetX;
+  const firstCenterY = panelY + gridStartY + iconCenterOffsetY;
+
+  const coreSize = 30; // 核心区域大小（正方形）
 
   const positions = [];
   let count = 0;
 
   console.log(`[图标定位] 开始计算图标位置（带空位探测器）`);
   console.log(`  panel.x=${panel.x}, panel.y=${panel.y}`);
-  console.log(`  startX=${startX}, startY=${startY}`);
+  console.log(`  panelX=${panelX}, panelY=${panelY}`);
+  console.log(`  firstCenterX=${firstCenterX}, firstCenterY=${firstCenterY}`);
   console.log(`  rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
   console.log(`  centerGapX=${centerGapX}, centerGapY=${centerGapY}`);
 
@@ -331,17 +334,26 @@ export function calculateIconPositions(
     for (let col = 0; col < cols; col++) {
       if (count >= maxCount) break;
 
-      const rectX = Math.round(startX + col * centerGapX);
-      const rectY = Math.round(startY + row * centerGapY);
+      // 计算中心点坐标
+      const centerX = Math.round(firstCenterX + col * centerGapX);
+      const centerY = Math.round(firstCenterY + row * centerGapY);
+
+      // 从中心点计算左上角坐标（用于红框绘制）
+      const rectX = centerX - Math.round(iconSize / 2);
+      const rectY = centerY - Math.round(iconSize / 2);
+
+      // 计算中心区域的颜色方差（与调试台一致）
+      const coreX = centerX - Math.floor(coreSize / 2);
+      const coreY = centerY - Math.floor(coreSize / 2);
 
       // 呼叫空位探测器！
       const hasIcon = checkIconExists(
         imageData,
-        rectX,
-        rectY,
-        iconSize,
-        iconSize,
-        varianceThreshold || 300
+        coreX,
+        coreY,
+        coreSize,
+        coreSize,
+        varianceThreshold || 50  // 与调试台一致，默认 50
       );
 
       if (!hasIcon) {
