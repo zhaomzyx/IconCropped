@@ -28,6 +28,14 @@ interface IconPosition {
   col: number;
 }
 
+// 保存 Canvas 上绘制的框体坐标
+interface DetectedPanel {
+  title: string;
+  blueBox: { x: number; y: number; width: number; height: number };
+  greenBox: { x: number; y: number; width: number; height: number };
+  redBoxes: Array<{ x: number; y: number; width: number; height: number }>;
+}
+
 export default function WikiDebugPage() {
   const [imageUrl, setImageUrl] = useState<string>('');
   const [debugPanels, setDebugPanels] = useState<DebugPanel[]>([]);
@@ -35,6 +43,7 @@ export default function WikiDebugPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [cropResults, setCropResults] = useState<any[]>([]); // 裁切结果
   const [debugLogs, setDebugLogs] = useState<string[]>([]); // 调试日志
+  const [detectedPanels, setDetectedPanels] = useState<DetectedPanel[]>([]); // Canvas 上绘制的框体坐标
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -63,7 +72,7 @@ export default function WikiDebugPage() {
     centerGapX: 146,         // 中心点横向间距（默认 iconSize + gap）
     centerGapY: 144,         // 中心点纵向间距（默认 iconSize + gap）
     scanLineX: 49,           // 扫描线 X 坐标（调整到面板左边界附近）
-    scanStartY: 0,           // 扫描起始 Y 坐标（从图片顶部开始，确保能检测到第一个面板）
+    scanStartY: 200,         // 扫描起始 Y 坐标
     colorTolerance: 30,      // 颜色容差值（降低以提高灵敏度）
     sustainedPixels: 5,      // 连续判定高度（减少以提高灵敏度）
     panelWidth: 876,         // 蓝框宽度（Panel外边缘）
@@ -631,6 +640,8 @@ export default function WikiDebugPage() {
       });
 
       // 3. 遍历所有panel，使用检测到的坐标绘制
+      const currentDetectedPanels: DetectedPanel[] = []; // 保存当前绘制的框体坐标
+
       for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
         const panel = debugPanels[i];
         const range = panelRanges[i];
@@ -696,6 +707,35 @@ export default function WikiDebugPage() {
           range.startY,
           ctx
         );
+
+        // 保存框体坐标
+        const blueBox = {
+          x: range.startX,
+          y: range.startY,
+          width: range.width,
+          height: range.height,
+        };
+
+        const greenBox = {
+          x: range.startX,
+          y: range.startY,
+          width: range.width,
+          height: params.gridStartY,
+        };
+
+        const redBoxes = iconPositions.map((pos) => ({
+          x: pos.x,
+          y: pos.y,
+          width: pos.width,
+          height: pos.height,
+        }));
+
+        currentDetectedPanels.push({
+          title: panel.title,
+          blueBox,
+          greenBox,
+          redBoxes,
+        });
 
         // 绘制红色框（使用中心点间距计算的图标位置）
         iconPositions.forEach((pos) => {
@@ -767,6 +807,10 @@ export default function WikiDebugPage() {
           ctx.fillText(`X=${params.scanLineX}, T=${params.colorTolerance}, S=${params.sustainedPixels}`, params.scanLineX + 5, params.scanStartY - 10);
         }
       }
+
+      // 保存所有框体坐标到状态
+      setDetectedPanels(currentDetectedPanels);
+      console.log(`[drawCanvas] 已保存 ${currentDetectedPanels.length} 个面板的框体坐标`);
 
       // 绘制扫描起始线（水平黄色虚线）
       ctx.strokeStyle = '#FFD700'; // 金黄色
@@ -984,9 +1028,15 @@ export default function WikiDebugPage() {
   const handleExportToWorkbench = async () => {
     console.log('[导出函数] 开始执行');
     console.log(`[导出函数] imageUrl=${imageUrl}, debugPanels.length=${debugPanels.length}`);
+    console.log(`[导出函数] detectedPanels.length=${detectedPanels.length}`);
 
     if (!imageUrl || debugPanels.length === 0) {
       alert('请先上传图片并完成面板调试');
+      return;
+    }
+
+    if (detectedPanels.length === 0) {
+      alert('未检测到任何框体坐标，请调整参数或重新上传图片');
       return;
     }
 
@@ -994,139 +1044,50 @@ export default function WikiDebugPage() {
     setIsProcessing(true);
 
     try {
-      // 从Canvas获取面板坐标数据
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        throw new Error('Canvas not found');
-      }
-
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        throw new Error('Canvas context not found');
-      }
-
-      // 获取像素数据
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      console.log(`[导出函数] Canvas尺寸: ${canvas.width}x${canvas.height}`);
-
-      logInfo('\n========== 开始面板检测 ==========');
-      logInfo(`Canvas 尺寸: ${canvas.width}x${canvas.height}`);
-      logInfo(`参数: scanLineX=${params.scanLineX}, scanStartY=${params.scanStartY}`);
-
-      // 1. Y轴检测：获得每个panel的Y坐标范围
-      const panelVerticalRanges = scanVerticalLine(
-        imageData,
-        params.scanLineX,
-        params.scanStartY,
-        params.colorTolerance,
-        params.sustainedPixels,
-        canvas.width,
-        canvas.height
-      );
-
-      logInfo(`Y轴检测完成，检测到 ${panelVerticalRanges.length} 个panel`);
-
-      if (panelVerticalRanges.length === 0) {
-        throw new Error('Y轴检测失败：未检测到任何面板，请调整扫描参数');
-      }
-
-      // 2. X轴检测：对每个panel检测X坐标范围（不检测icon位置，只检测Panel边界）
-      const panelRanges = panelVerticalRanges.map((vRange, index) => {
-        const panel = debugPanels[index];
-        const midY = Math.round((vRange.startY + vRange.endY) / 2);
-
-        // 在Panel中间横线上扫描，检测Panel的左右边界
-        const hRange = scanHorizontalLine(
-          imageData,
-          midY,
-          params.colorToleranceX,
-          params.sustainedPixelsX,
-          canvas.width
-        );
-
-        return {
-          startY: vRange.startY,
-          endY: vRange.endY,
-          startX: hRange?.startX ?? 0,
-          endX: hRange?.endX ?? 0,
-          width: hRange ? hRange.endX - hRange.startX : 0,
-          height: vRange.endY - vRange.startY,
-        };
-      });
-
-      logInfo(`X轴检测完成`);
+      // 直接使用 Canvas 上保存的框体坐标
+      logInfo('\n========== 使用保存的框体坐标 ==========');
+      logInfo(`已保存 ${detectedPanels.length} 个面板的框体坐标`);
 
       // 收集所有面板的坐标数据
-      const exportPanels = panelRanges.map((range, i) => {
+      const exportPanels = detectedPanels.map((detectedPanel, i) => {
         const panel = debugPanels[i];
 
-        // 详细日志：计算前的参数
-        logInfo(`\n========== 面板 ${i + 1} (${panel.title}) 坐标分析 ==========`);
-        logInfo(`[Y轴检测结果]`);
-        logInfo(`  startY = ${range.startY}, endY = ${range.endY}, height = ${range.height}`);
-        logInfo(`[X轴检测结果]`);
-        logInfo(`  startX = ${range.startX}, endX = ${range.endX}, width = ${range.width}`);
-
-        // 蓝框坐标（一级裁切区域）
-        const blueBox = {
-          x: range.startX,
-          y: range.startY,
-          width: range.width,
-          height: range.height,
-        };
-
-        // 绿框坐标（标题区域）
-        const greenBox = {
-          x: range.startX,
-          y: range.startY,
-          width: range.width,
-          height: params.gridStartY,
-        };
-
-        // 使用中心点间距计算红框坐标（icon区域）
-        const iconPositions = calculateIconPositions(
-          panel,
-          range.startY,
-          ctx
-        );
-
-        const redBoxes = iconPositions.map((pos) => {
-          return {
-            x: pos.x,
-            y: pos.y,
-            width: pos.width,
-            height: pos.height,
-          };
-        });
-
-        logInfo(`[图标检测结果]`);
-        logInfo(`  检测到 ${iconPositions.length} 个有效图标`);
+        // 详细日志
+        logInfo(`\n========== 面板 ${i + 1} (${panel.title}) 坐标信息 ==========`);
+        logInfo(`[蓝框坐标]`);
+        logInfo(`  x=${detectedPanel.blueBox.x}, y=${detectedPanel.blueBox.y}`);
+        logInfo(`  width=${detectedPanel.blueBox.width}, height=${detectedPanel.blueBox.height}`);
+        logInfo(`[绿框坐标]`);
+        logInfo(`  x=${detectedPanel.greenBox.x}, y=${detectedPanel.greenBox.y}`);
+        logInfo(`  width=${detectedPanel.greenBox.width}, height=${detectedPanel.greenBox.height}`);
+        logInfo(`[红框坐标]`);
+        logInfo(`  检测到 ${detectedPanel.redBoxes.length} 个图标`);
         logInfo(`  最终坐标:`);
-        logInfo(`    BlueBox: x=${Math.round(blueBox.x)}, y=${Math.round(blueBox.y)}, w=${Math.round(blueBox.width)}, h=${Math.round(blueBox.height)}`);
-        logInfo(`    GreenBox: x=${Math.round(greenBox.x)}, y=${Math.round(greenBox.y)}, w=${Math.round(greenBox.width)}, h=${Math.round(greenBox.height)}`);
-        logInfo(`    RedBox Count: ${redBoxes.length}`);
+        logInfo(`    BlueBox: x=${Math.round(detectedPanel.blueBox.x)}, y=${Math.round(detectedPanel.blueBox.y)}, w=${Math.round(detectedPanel.blueBox.width)}, h=${Math.round(detectedPanel.blueBox.height)}`);
+        logInfo(`    GreenBox: x=${Math.round(detectedPanel.greenBox.x)}, y=${Math.round(detectedPanel.greenBox.y)}, w=${Math.round(detectedPanel.greenBox.width)}, h=${Math.round(detectedPanel.greenBox.height)}`);
+        logInfo(`    RedBox Count: ${detectedPanel.redBoxes.length}`);
 
         return {
           title: panel.title,
-          x: range.startX,
-          y: range.startY,
-          width: range.width,
-          height: range.height,
+          x: detectedPanel.blueBox.x,
+          y: detectedPanel.blueBox.y,
+          width: detectedPanel.blueBox.width,
+          height: detectedPanel.blueBox.height,
           rows: panel.rows,
           cols: panel.cols,
           total: panel.total,
           imageUrl: imageUrl,
-          blueBox,
-          greenBox,
-          redBoxes,
+          blueBox: detectedPanel.blueBox,
+          greenBox: detectedPanel.greenBox,
+          redBoxes: detectedPanel.redBoxes,
         };
       });
 
       // 显示调试信息
-      const debugInfo = exportPanels.map((p, i) => 
+      const debugInfo = exportPanels.map((p, i) =>
         `面板${i + 1}: x=${p.x}, y=${p.y}, w=${p.width}, h=${p.height}, icons=${p.redBoxes?.length || 0}`
       ).join('\n');
-      
+
       logInfo('=== 裁切坐标信息 ===\n' + debugInfo);
       alert(`即将裁切，请确认坐标是否正确：\n\n${debugInfo}\n\n点击"确定"继续裁切，点击"取消"取消`);
 
