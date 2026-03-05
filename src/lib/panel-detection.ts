@@ -311,7 +311,7 @@ export async function scanHorizontalLine(
   return { startX: panelStartX, endX: panelEndX, icons };
 }
 
-// 计算图标位置（使用中心点间距 + 空位探测器）- 与调试台一致
+// 计算图标位置（基于颜色差异的智能扫描）
 export function calculateIconPositions(
   panel: any,
   panelY: number,
@@ -320,89 +320,183 @@ export function calculateIconPositions(
   imageWidth: number,
   imageHeight: number
 ): IconPosition[] {
-  const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY, varianceThreshold } = params;
+  const { panelLeftOffset, gridStartX, gridStartY, iconSize, colorTolerance, sustainedPixels, varianceThreshold } = params;
 
-  // 终极解法：我们不再死板相信 LLM 的 rows！
-  // 给他一个允许的最大行数（比如 10 行），让我们的"空位探测器"自动去喊停！
-  const rows = panel.rows || 10;
-  const cols = panel.cols || 5;
-  const maxCount = panel.total || (rows * cols);
-
-  // 计算面板的左上角坐标（与调试台一致）
+  // 计算面板的左上角坐标
   const panelX = panel.x + panelLeftOffset;
+  const panelWidth = panel.width;
+  const panelHeight = panel.height;
 
-  // 首个中心点坐标（与调试台一致）
-  const firstCenterX = panelX + gridStartX + iconCenterOffsetX;
-  const firstCenterY = panelY + gridStartY + iconCenterOffsetY;
+  console.log(`[图标定位] 开始智能扫描图标位置`);
+  console.log(`  panel: x=${panelX}, y=${panelY}, width=${panelWidth}, height=${panelHeight}`);
 
-  const coreSize = 30; // 核心区域大小（正方形）
+  // 获取像素颜色的辅助函数
+  const getPixelColor = (x: number, y: number): [number, number, number] => {
+    if (x < 0 || x >= imageWidth || y < 0 || y >= imageHeight) {
+      return [255, 255, 255]; // 边界外返回白色
+    }
+    const index = (y * imageWidth + x) * 4;
+    return [pixelData[index], pixelData[index + 1], pixelData[index + 2]];
+  };
 
-  const positions = [];
-  let count = 0;
+  const colorDiff = (c1: [number, number, number], c2: [number, number, number]): number => {
+    return Math.max(
+      Math.abs(c1[0] - c2[0]),
+      Math.abs(c1[1] - c2[1]),
+      Math.abs(c1[2] - c2[2])
+    );
+  };
 
-  console.log(`[图标定位] 开始计算图标位置（带空位探测器）`);
-  console.log(`  panel.x=${panel.x}, panel.y=${panel.y}`);
-  console.log(`  panelX=${panelX}, panelY=${panelY}`);
-  console.log(`  firstCenterX=${firstCenterX}, firstCenterY=${firstCenterY}`);
-  console.log(`  rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
-  console.log(`  centerGapX=${centerGapX}, centerGapY=${centerGapY}`);
-  console.log(`  varianceThreshold=${varianceThreshold}`);
-  console.log(`  coreSize=${coreSize}`);
+  // 获取面板背景色（从面板左上角开始）
+  const backgroundColor = getPixelColor(panelX, panelY);
+  console.log(`  背景色: (${backgroundColor.join(', ')})`);
 
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      if (count >= maxCount) break;
+  // Y轴扫描：检测行边界
+  const rowBoundaries: number[] = [];
+  const scanLineX = panelX + Math.floor(panelWidth / 2); // 扫描面板中心线
 
-      // 计算中心点坐标（与调试台一致）
-      const centerX = Math.round(firstCenterX + col * centerGapX);
-      const centerY = Math.round(firstCenterY + row * centerGapY);
+  console.log(`  Y轴扫描: scanLineX=${scanLineX}, scanStartY=${panelY + gridStartY}, scanEndY=${panelY + panelHeight}`);
 
-      // 从中心点计算左上角坐标（用于红框绘制）
-      const rectX = centerX - Math.round(iconSize / 2);
-      const rectY = centerY - Math.round(iconSize / 2);
+  let inIconRow = false;
+  let consecutiveBg = 0;
+  let consecutiveIcon = 0;
+  let currentRowStart = 0;
 
-      // 计算中心区域的坐标（与调试台一致）
-      const coreX = centerX - Math.floor(coreSize / 2);
-      const coreY = centerY - Math.floor(coreSize / 2);
+  for (let y = panelY + gridStartY; y < panelY + panelHeight; y++) {
+    const currentColor = getPixelColor(scanLineX, y);
+    const diff = colorDiff(currentColor, backgroundColor);
 
-      console.log(`  [${row}, ${col}] 坐标计算:`);
-      console.log(`    中心点: (${centerX}, ${centerY})`);
-      console.log(`    左上角: (${rectX}, ${rectY})`);
-      console.log(`    核心区域: (${coreX}, ${coreY}, ${coreSize}×${coreSize})`);
+    if (diff > colorTolerance) {
+      // 进入图标区域（背景→图标）
+      consecutiveIcon++;
+      consecutiveBg = 0;
 
-      // 呼叫后端空位探测器！
+      if (!inIconRow && consecutiveIcon >= sustainedPixels) {
+        inIconRow = true;
+        currentRowStart = y - sustainedPixels + 1;
+        console.log(`  检测到行边界: startY=${currentRowStart} (Y=${y})`);
+      }
+    } else {
+      // 离开图标区域（图标→背景）
+      consecutiveBg++;
+      consecutiveIcon = 0;
+
+      if (inIconRow && consecutiveBg >= sustainedPixels) {
+        inIconRow = false;
+        const rowEndY = y - sustainedPixels + 1;
+        const rowHeight = rowEndY - currentRowStart;
+        console.log(`  检测到行结束: endY=${rowEndY}, height=${rowHeight}`);
+        
+        if (rowHeight >= iconSize * 0.8) { // 过滤掉太小的行
+          rowBoundaries.push(currentRowStart);
+        }
+      }
+    }
+  }
+
+  // 如果最后还在图标区域，添加最后一个行
+  if (inIconRow) {
+    rowBoundaries.push(currentRowStart);
+  }
+
+  console.log(`  检测到 ${rowBoundaries.length} 行`);
+
+  const positions: IconPosition[] = [];
+
+  // 对每一行进行X轴扫描
+  for (let rowIndex = 0; rowIndex < rowBoundaries.length; rowIndex++) {
+    const rowY = rowBoundaries[rowIndex];
+    console.log(`\n  处理第 ${rowIndex + 1} 行: Y=${rowY}`);
+
+    // X轴扫描：检测列边界
+    const colBoundaries: number[] = [];
+    const scanLineY = rowY + Math.floor(iconSize / 2); // 扫描行中心线
+
+    inIconRow = false;
+    consecutiveBg = 0;
+    consecutiveIcon = 0;
+    let currentIconStart = 0;
+
+    for (let x = panelX + gridStartX; x < panelX + panelWidth; x++) {
+      const currentColor = getPixelColor(x, scanLineY);
+      const diff = colorDiff(currentColor, backgroundColor);
+
+      if (diff > colorTolerance) {
+        // 进入图标区域（背景→图标）
+        consecutiveIcon++;
+        consecutiveBg = 0;
+
+        if (!inIconRow && consecutiveIcon >= sustainedPixels) {
+          inIconRow = true;
+          currentIconStart = x - sustainedPixels + 1;
+        }
+      } else {
+        // 离开图标区域（图标→背景）
+        consecutiveBg++;
+        consecutiveIcon = 0;
+
+        if (inIconRow && consecutiveBg >= sustainedPixels) {
+          inIconRow = false;
+          const iconEndX = x - sustainedPixels + 1;
+          const iconWidth = iconEndX - currentIconStart;
+
+          console.log(`    检测到图标: startX=${currentIconStart}, endX=${iconEndX}, width=${iconWidth}`);
+
+          if (iconWidth >= iconSize * 0.8) { // 过滤掉太小的图标
+            colBoundaries.push(currentIconStart);
+          }
+        }
+      }
+    }
+
+    // 如果最后还在图标区域，添加最后一个图标
+    if (inIconRow) {
+      colBoundaries.push(currentIconStart);
+    }
+
+    console.log(`    检测到 ${colBoundaries.length} 个图标`);
+
+    // 为每个检测到的图标创建位置
+    for (let colIndex = 0; colIndex < colBoundaries.length; colIndex++) {
+      const iconX = colBoundaries[colIndex];
+      
+      // 尝试向右查找图标边界
+      const nextIconX = colIndex < colBoundaries.length - 1 ? colBoundaries[colIndex + 1] : panelX + panelWidth;
+      const estimatedIconWidth = Math.min(iconSize, nextIconX - iconX);
+
+      // 使用空位探测器过滤
+      const centerX = iconX + Math.floor(estimatedIconWidth / 2);
+      const centerY = rowY + Math.floor(iconSize / 2);
+      const coreX = centerX - Math.floor(iconSize / 2);
+      const coreY = centerY - Math.floor(iconSize / 2);
+
       const hasIcon = checkIconExists(
         pixelData,
         imageWidth,
         imageHeight,
         coreX,
         coreY,
-        coreSize,
-        coreSize,
-        varianceThreshold || 300
+        iconSize,
+        iconSize,
+        varianceThreshold || 50
       );
 
-      console.log(`    空位检测结果: ${hasIcon ? '✓ 有图标' : '✗ 空底座'}`);
+      console.log(`      [${rowIndex}, ${colIndex}] x=${iconX}, y=${rowY}, ${hasIcon ? '✓' : '✗'}`);
 
-      if (!hasIcon) {
-        console.log(`[A计划后端] 探测到位置 [${row}, ${col}] 为空底座，终止当前面板识别！`);
-        return positions; // 探测到空的，直接停止识别该面板！
+      if (hasIcon) {
+        positions.push({
+          x: iconX,
+          y: rowY,
+          width: estimatedIconWidth,
+          height: iconSize,
+          row: rowIndex,
+          col: colIndex,
+        });
       }
-
-      positions.push({
-        x: rectX,
-        y: rectY,
-        width: iconSize,
-        height: iconSize,
-        row,
-        col,
-      });
-      count++;
     }
-    if (count >= maxCount) break;
   }
 
-  console.log(`[图标定位] 计算完成，共 ${positions.length} 个图标`);
+  console.log(`\n[图标定位] 完成，共检测到 ${positions.length} 个图标`);
 
   return positions;
 }

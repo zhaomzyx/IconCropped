@@ -77,6 +77,7 @@ export default function WikiDebugPage() {
     sustainedPixels: 5,      // 连续判定高度（减少以提高灵敏度）
     panelWidth: 876,         // 蓝框宽度（Panel外边缘）
     greenBoxWidth: 876,      // 绿框宽度（标题区域）
+    varianceThreshold: 50,   // 方差阈值（空位检测）
     // X轴检测参数（用于检测panel宽度和小panel位置）
     colorToleranceX: 30,     // X轴颜色容差值
     sustainedPixelsX: 5,     // X轴连续判定宽度
@@ -184,99 +185,173 @@ export default function WikiDebugPage() {
     return variance / (count * 3); // 返回平均方差
   };
 
-  // 计算图标位置（支持 total 限制 + 空图标过滤）- 使用中心点定位
+  // 计算图标位置（基于颜色差异的智能扫描）
   const calculateIconPositions = useCallback((
     panel: DebugPanel,
     panelY: number,
     ctx: CanvasRenderingContext2D
   ): IconPosition[] => {
     const { width, rows, cols, total } = panel;
-    const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY } = params;
+    const { panelLeftOffset, gridStartX, gridStartY, iconSize, colorTolerance, sustainedPixels, varianceThreshold } = params;
 
-    // 计算面板的左上角坐标（X 和 Y 都使用相同的基准）
+    // 计算面板的左上角坐标
     const panelX = panel.x + panelLeftOffset;
 
-    // 首个中心点坐标（都基于调整后的 panelX 和 panelY）
-    const firstCenterX = panelX + gridStartX + iconCenterOffsetX;
-    const firstCenterY = panelY + gridStartY + iconCenterOffsetY;
-
-    const positions: IconPosition[] = [];
-    let count = 0;
-    const maxCount = total ?? (rows * cols); // 如果没有 total，则使用 rows * cols
-    const coreSize = 30; // 核心区域大小（正方形）
-    const varianceThreshold = 50; // 方差阈值，小于此值判定为空图标（降低阈值以提高灵敏度）
+    console.log(`  [智能扫描]`);
+    console.log(`    panel: x=${panelX}, y=${panelY}, width=${panel.width}`);
 
     // 获取完整的像素数据
     const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-    console.log(`  [详细坐标分析]`);
-    console.log(`    输入参数:`);
-    console.log(`      panel.x=${panel.x}, panel.y=${panel.y}`);
-    console.log(`      panelLeftOffset=${panelLeftOffset}`);
-    console.log(`      gridStartX=${gridStartX}, gridStartY=${gridStartY}`);
-    console.log(`      iconCenterOffsetX=${iconCenterOffsetX}, iconCenterOffsetY=${iconCenterOffsetY}`);
-    console.log(`    计算过程:`);
-    console.log(`      panelX = panel.x + panelLeftOffset = ${panel.x} + ${panelLeftOffset} = ${panelX}`);
-    console.log(`      panelY = ${panelY}`);
-    console.log(`      firstCenterX = panelX + gridStartX + iconCenterOffsetX = ${panelX} + ${gridStartX} + ${iconCenterOffsetX} = ${firstCenterX}`);
-    console.log(`      firstCenterY = panelY + gridStartY + iconCenterOffsetY = ${panelY} + ${gridStartY} + ${iconCenterOffsetY} = ${firstCenterY}`);
-    console.log(`    首个图标左上角:`);
-    console.log(`      x = firstCenterX - iconSize/2 = ${firstCenterX} - ${iconSize/2} = ${firstCenterX - iconSize/2}`);
-    console.log(`      y = firstCenterY - iconSize/2 = ${firstCenterY} - ${iconSize/2} = ${firstCenterY - iconSize/2}`);
-
-    console.log(`  开始扫描图标位置，rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
-    console.log(`  方差阈值: ${varianceThreshold}, 核心区域大小: ${coreSize}x${coreSize}`);
-    console.log(`  首个中心点: (${firstCenterX}, ${firstCenterY}), 中心点间距: X=${centerGapX}, Y=${centerGapY}`);
-
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        // 检查是否超过总数
-        if (count >= maxCount) {
-          break;
-        }
-
-        // 计算中心点坐标
-        const centerX = Math.round(firstCenterX + col * centerGapX);
-        const centerY = Math.round(firstCenterY + row * centerGapY);
-
-        // 从中心点计算左上角坐标（用于红框绘制）
-        const x = centerX - Math.round(iconSize / 2);
-        const y = centerY - Math.round(iconSize / 2);
-
-        // 获取icon中心区域的像素（用于检测空图标）
-        const coreX = centerX - Math.floor(coreSize / 2);
-        const coreY = centerY - Math.floor(coreSize / 2);
-
-        // 计算中心区域的颜色方差
-        const variance = calculateColorVariance(imageData, coreX, coreY, coreSize, coreSize);
-
-        const hasIcon = variance >= varianceThreshold;
-
-        console.log(`  [${row}, ${col}] 中心点: center(${centerX}, ${centerY}), 左上角: x=${x}, y=${y}, 方差=${variance.toFixed(2)}, ${hasIcon ? '✓ 有图标' : '✗ 空图标'}`);
-
-        if (hasIcon) {
-          positions.push({
-            x,  // 左上角 X
-            y,  // 左上角 Y
-            width: iconSize,
-            height: iconSize,
-            row,
-            col,
-          });
-          count++;
-        } else {
-          // 遇到空图标，直接结束当前面板的扫描
-          console.log(`  遇到空图标，结束面板扫描。共找到 ${positions.length} 个有效图标`);
-          return positions;
-        }
+    // 获取像素颜色的辅助函数
+    const getPixelColor = (x: number, y: number): [number, number, number] => {
+      if (x < 0 || x >= ctx.canvas.width || y < 0 || y >= ctx.canvas.height) {
+        return [255, 255, 255];
       }
-      // 外层循环也需要检查，避免不必要的行
-      if (count >= maxCount) {
-        break;
+      const index = (y * ctx.canvas.width + x) * 4;
+      return [imageData.data[index], imageData.data[index + 1], imageData.data[index + 2]];
+    };
+
+    const colorDiff = (c1: [number, number, number], c2: [number, number, number]): number => {
+      return Math.max(
+        Math.abs(c1[0] - c2[0]),
+        Math.abs(c1[1] - c2[1]),
+        Math.abs(c1[2] - c2[2])
+      );
+    };
+
+    // 获取面板背景色（从面板左上角开始）
+    const backgroundColor = getPixelColor(panelX, panelY);
+    console.log(`    背景色: (${backgroundColor.join(', ')})`);
+
+    // Y轴扫描：检测行边界
+    const rowBoundaries: number[] = [];
+    const scanLineX = panelX + Math.floor(panel.width / 2);
+
+    console.log(`    Y轴扫描: scanLineX=${scanLineX}, scanStartY=${panelY + gridStartY}`);
+
+    let inIconRow = false;
+    let consecutiveBg = 0;
+    let consecutiveIcon = 0;
+    let currentRowStart = 0;
+
+    for (let y = panelY + gridStartY; y < panelY + panel.height; y++) {
+      const currentColor = getPixelColor(scanLineX, y);
+      const diff = colorDiff(currentColor, backgroundColor);
+
+      if (diff > colorTolerance) {
+        consecutiveIcon++;
+        consecutiveBg = 0;
+
+        if (!inIconRow && consecutiveIcon >= sustainedPixels) {
+          inIconRow = true;
+          currentRowStart = y - sustainedPixels + 1;
+          console.log(`    检测到行边界: startY=${currentRowStart} (Y=${y})`);
+        }
+      } else {
+        consecutiveBg++;
+        consecutiveIcon = 0;
+
+        if (inIconRow && consecutiveBg >= sustainedPixels) {
+          inIconRow = false;
+          const rowEndY = y - sustainedPixels + 1;
+          const rowHeight = rowEndY - currentRowStart;
+
+          if (rowHeight >= iconSize * 0.8) {
+            rowBoundaries.push(currentRowStart);
+          }
+        }
       }
     }
 
-    console.log(`  扫描完成，共找到 ${positions.length} 个有效图标`);
+    if (inIconRow) {
+      rowBoundaries.push(currentRowStart);
+    }
+
+    console.log(`    检测到 ${rowBoundaries.length} 行`);
+
+    const positions: IconPosition[] = [];
+
+    // 对每一行进行X轴扫描
+    for (let rowIndex = 0; rowIndex < rowBoundaries.length; rowIndex++) {
+      const rowY = rowBoundaries[rowIndex];
+      console.log(`\n    处理第 ${rowIndex + 1} 行: Y=${rowY}`);
+
+      // X轴扫描：检测列边界
+      const colBoundaries: number[] = [];
+      const scanLineY = rowY + Math.floor(iconSize / 2);
+
+      inIconRow = false;
+      consecutiveBg = 0;
+      consecutiveIcon = 0;
+      let currentIconStart = 0;
+
+      for (let x = panelX + gridStartX; x < panelX + panel.width; x++) {
+        const currentColor = getPixelColor(x, scanLineY);
+        const diff = colorDiff(currentColor, backgroundColor);
+
+        if (diff > colorTolerance) {
+          consecutiveIcon++;
+          consecutiveBg = 0;
+
+          if (!inIconRow && consecutiveIcon >= sustainedPixels) {
+            inIconRow = true;
+            currentIconStart = x - sustainedPixels + 1;
+          }
+        } else {
+          consecutiveBg++;
+          consecutiveIcon = 0;
+
+          if (inIconRow && consecutiveBg >= sustainedPixels) {
+            inIconRow = false;
+            const iconEndX = x - sustainedPixels + 1;
+            const iconWidth = iconEndX - currentIconStart;
+
+            if (iconWidth >= iconSize * 0.8) {
+              colBoundaries.push(currentIconStart);
+            }
+          }
+        }
+      }
+
+      if (inIconRow) {
+        colBoundaries.push(currentIconStart);
+      }
+
+      console.log(`      检测到 ${colBoundaries.length} 个图标`);
+
+      // 为每个检测到的图标创建位置
+      for (let colIndex = 0; colIndex < colBoundaries.length; colIndex++) {
+        const iconX = colBoundaries[colIndex];
+        
+        const nextIconX = colIndex < colBoundaries.length - 1 ? colBoundaries[colIndex + 1] : panelX + panel.width;
+        const estimatedIconWidth = Math.min(iconSize, nextIconX - iconX);
+
+        // 使用空位探测器过滤
+        const centerX = iconX + Math.floor(estimatedIconWidth / 2);
+        const centerY = rowY + Math.floor(iconSize / 2);
+        const coreX = centerX - Math.floor(iconSize / 2);
+        const coreY = centerY - Math.floor(iconSize / 2);
+
+        const variance = calculateColorVariance(imageData, coreX, coreY, iconSize, iconSize);
+        const hasIcon = variance >= varianceThreshold;
+
+        console.log(`        [${rowIndex}, ${colIndex}] x=${iconX}, y=${rowY}, 方差=${variance.toFixed(2)}, ${hasIcon ? '✓' : '✗'}`);
+
+        if (hasIcon) {
+          positions.push({
+            x: iconX,
+            y: rowY,
+            width: estimatedIconWidth,
+            height: iconSize,
+            row: rowIndex,
+            col: colIndex,
+          });
+        }
+      }
+    }
+
+    console.log(`\n    完成，共检测到 ${positions.length} 个图标`);
     return positions;
   }, [params]);
 
@@ -1562,6 +1637,27 @@ export default function WikiDebugPage() {
                           className="w-20 text-center text-sm"
                         />
                       </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">方差阈值 (Variance Threshold)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.varianceThreshold]}
+                          onValueChange={([v]) => handleParamChange('varianceThreshold', v)}
+                          min={10}
+                          max={200}
+                          step={10}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.varianceThreshold}
+                          onChange={(e) => handleParamChange('varianceThreshold', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">用于检测空图标位置（颜色方差低于此值判定为空）</p>
                     </div>
 
                     <div className="border-t pt-4 mt-4">
