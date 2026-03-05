@@ -653,8 +653,24 @@ export default function WorkbenchPage() {
             setWikiProcessingStep(`✓ 图片 ${i + 1}/${wikiFilenames.length} 处理完成，已切割 ${cropData.crops.length} 个图标`);
           } catch (error) {
             console.error(`处理图片 ${filename} 失败:`, error);
+            
+            // 构造详细的错误信息
+            let errorMessage = `❌ 图片 ${i + 1}/${wikiFilenames.length} 处理失败\n\n`;
+            errorMessage += `文件名: ${filename}\n`;
+            
+            if (error instanceof Error) {
+              errorMessage += `错误原因: ${error.message}\n`;
+              errorMessage += `\n详细堆栈:\n${error.stack}`;
+            } else {
+              errorMessage += `错误原因: 未知错误\n`;
+            }
+            
+            // 显示详细的错误弹窗
+            alert(errorMessage);
+            
             // 不中断整个流程，只记录失败的图片
             setWikiProcessingStep(`⚠️ 图片 ${i + 1}/${wikiFilenames.length} 处理失败，跳过...`);
+            failedCount++;
             continue;
           }
         }
