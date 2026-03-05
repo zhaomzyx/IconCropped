@@ -193,24 +193,24 @@ export default function WikiDebugPage() {
     // 获取完整的像素数据
     const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-    logInfo(`  [详细坐标分析]`);
-    logInfo(`    输入参数:`);
-    logInfo(`      panel.x=${panel.x}, panel.y=${panel.y}`);
-    logInfo(`      panelLeftOffset=${panelLeftOffset}`);
-    logInfo(`      gridStartX=${gridStartX}, gridStartY=${gridStartY}`);
-    logInfo(`      iconCenterOffsetX=${iconCenterOffsetX}, iconCenterOffsetY=${iconCenterOffsetY}`);
-    logInfo(`    计算过程:`);
-    logInfo(`      panelX = panel.x + panelLeftOffset = ${panel.x} + ${panelLeftOffset} = ${panelX}`);
-    logInfo(`      panelY = ${panelY}`);
-    logInfo(`      firstCenterX = panelX + gridStartX + iconCenterOffsetX = ${panelX} + ${gridStartX} + ${iconCenterOffsetX} = ${firstCenterX}`);
-    logInfo(`      firstCenterY = panelY + gridStartY + iconCenterOffsetY = ${panelY} + ${gridStartY} + ${iconCenterOffsetY} = ${firstCenterY}`);
-    logInfo(`    首个图标左上角:`);
-    logInfo(`      x = firstCenterX - iconSize/2 = ${firstCenterX} - ${iconSize/2} = ${firstCenterX - iconSize/2}`);
-    logInfo(`      y = firstCenterY - iconSize/2 = ${firstCenterY} - ${iconSize/2} = ${firstCenterY - iconSize/2}`);
+    console.log(`  [详细坐标分析]`);
+    console.log(`    输入参数:`);
+    console.log(`      panel.x=${panel.x}, panel.y=${panel.y}`);
+    console.log(`      panelLeftOffset=${panelLeftOffset}`);
+    console.log(`      gridStartX=${gridStartX}, gridStartY=${gridStartY}`);
+    console.log(`      iconCenterOffsetX=${iconCenterOffsetX}, iconCenterOffsetY=${iconCenterOffsetY}`);
+    console.log(`    计算过程:`);
+    console.log(`      panelX = panel.x + panelLeftOffset = ${panel.x} + ${panelLeftOffset} = ${panelX}`);
+    console.log(`      panelY = ${panelY}`);
+    console.log(`      firstCenterX = panelX + gridStartX + iconCenterOffsetX = ${panelX} + ${gridStartX} + ${iconCenterOffsetX} = ${firstCenterX}`);
+    console.log(`      firstCenterY = panelY + gridStartY + iconCenterOffsetY = ${panelY} + ${gridStartY} + ${iconCenterOffsetY} = ${firstCenterY}`);
+    console.log(`    首个图标左上角:`);
+    console.log(`      x = firstCenterX - iconSize/2 = ${firstCenterX} - ${iconSize/2} = ${firstCenterX - iconSize/2}`);
+    console.log(`      y = firstCenterY - iconSize/2 = ${firstCenterY} - ${iconSize/2} = ${firstCenterY - iconSize/2}`);
 
-    logInfo(`  开始扫描图标位置，rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
-    logInfo(`  方差阈值: ${varianceThreshold}, 核心区域大小: ${coreSize}x${coreSize}`);
-    logInfo(`  首个中心点: (${firstCenterX}, ${firstCenterY}), 中心点间距: X=${centerGapX}, Y=${centerGapY}`);
+    console.log(`  开始扫描图标位置，rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
+    console.log(`  方差阈值: ${varianceThreshold}, 核心区域大小: ${coreSize}x${coreSize}`);
+    console.log(`  首个中心点: (${firstCenterX}, ${firstCenterY}), 中心点间距: X=${centerGapX}, Y=${centerGapY}`);
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -236,7 +236,7 @@ export default function WikiDebugPage() {
 
         const hasIcon = variance >= varianceThreshold;
 
-        logInfo(`  [${row}, ${col}] 中心点: center(${centerX}, ${centerY}), 左上角: x=${x}, y=${y}, 方差=${variance.toFixed(2)}, ${hasIcon ? '✓ 有图标' : '✗ 空图标'}`);
+        console.log(`  [${row}, ${col}] 中心点: center(${centerX}, ${centerY}), 左上角: x=${x}, y=${y}, 方差=${variance.toFixed(2)}, ${hasIcon ? '✓ 有图标' : '✗ 空图标'}`);
 
         if (hasIcon) {
           positions.push({
@@ -250,7 +250,7 @@ export default function WikiDebugPage() {
           count++;
         } else {
           // 遇到空图标，直接结束当前面板的扫描
-          logInfo(`  遇到空图标，结束面板扫描。共找到 ${positions.length} 个有效图标`);
+          console.log(`  遇到空图标，结束面板扫描。共找到 ${positions.length} 个有效图标`);
           return positions;
         }
       }
@@ -260,9 +260,9 @@ export default function WikiDebugPage() {
       }
     }
 
-    logInfo(`  扫描完成，共找到 ${positions.length} 个有效图标`);
+    console.log(`  扫描完成，共找到 ${positions.length} 个有效图标`);
     return positions;
-  }, [params, logInfo]);
+  }, [params]);
 
   // 计算颜色差异
   const colorDiff = (color1: [number, number, number], color2: [number, number, number]): number => {
@@ -327,7 +327,7 @@ export default function WikiDebugPage() {
           panelStartYs.push(actualStartY);
           isPanel = true;
 
-          logInfo(`Panel started at Y=${actualStartY} (detected at Y=${y})`);
+          console.log(`Panel started at Y=${actualStartY} (detected at Y=${y})`);
         }
       } else {
         // 识别为深色背景区域
@@ -337,12 +337,12 @@ export default function WikiDebugPage() {
         if (isPanel && consecutiveBg >= requiredPixels) {
           // 面板结束
           isPanel = false;
-          logInfo(`Panel ended at Y=${y - requiredPixels + 1} (detected at Y=${y})`);
+          console.log(`Panel ended at Y=${y - requiredPixels + 1} (detected at Y=${y})`);
         }
       }
     }
 
-    logInfo(`Scanned ${panelStartYs.length} panel start positions from Y=${scanStartY} (sustained=${requiredPixels}):`, panelStartYs);
+    console.log(`Scanned ${panelStartYs.length} panel start positions from Y=${scanStartY} (sustained=${requiredPixels}):`, panelStartYs);
     return panelStartYs;
   }, []);
 
