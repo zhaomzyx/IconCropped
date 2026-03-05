@@ -147,8 +147,11 @@ export default function WikiDebugPage() {
     const { width, rows, cols, total } = panel;
     const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY } = params;
 
-    // 首个中心点坐标
-    const firstCenterX = panel.x + panelLeftOffset + gridStartX + iconCenterOffsetX;
+    // 计算面板的左上角坐标（X 和 Y 都使用相同的基准）
+    const panelX = panel.x + panelLeftOffset;
+
+    // 首个中心点坐标（都基于调整后的 panelX 和 panelY）
+    const firstCenterX = panelX + gridStartX + iconCenterOffsetX;
     const firstCenterY = panelY + gridStartY + iconCenterOffsetY;
 
     const positions: IconPosition[] = [];
