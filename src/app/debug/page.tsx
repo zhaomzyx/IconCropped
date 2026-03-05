@@ -333,7 +333,7 @@ export default function WikiDebugPage() {
 
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('folder', 'wiki');
+    formData.append('type', 'wiki');
 
     setIsProcessing(true);
 
