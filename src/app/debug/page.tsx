@@ -805,306 +805,331 @@ export default function WikiDebugPage() {
               <CardHeader>
                 <CardTitle>调试参数</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-5">
-                <div>
-                  <Label className="text-sm font-medium">大框 X 起点 (Left Offset)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.panelLeftOffset]}
-                      onValueChange={([v]) => handleParamChange('panelLeftOffset', v)}
-                      min={-200}
-                      max={2000}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.panelLeftOffset}
-                      onChange={(e) => handleParamChange('panelLeftOffset', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
+              <CardContent className="space-y-6">
+                {/* 蓝框相关 */}
+                <div className="border-l-4 border-blue-500 pl-4">
+                  <Label className="text-sm font-semibold text-blue-600 mb-3 block">蓝框相关 (Panel)</Label>
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">大框 X 起点 (Left Offset)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.panelLeftOffset]}
+                          onValueChange={([v]) => handleParamChange('panelLeftOffset', v)}
+                          min={-200}
+                          max={2000}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.panelLeftOffset}
+                          onChange={(e) => handleParamChange('panelLeftOffset', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">大框 Y 起点 (Top Offset)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.panelTopOffset]}
+                          onValueChange={([v]) => handleParamChange('panelTopOffset', v)}
+                          min={-200}
+                          max={2000}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.panelTopOffset}
+                          onChange={(e) => handleParamChange('panelTopOffset', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">蓝框宽度 (Panel Width)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.panelWidth]}
+                          onValueChange={([v]) => handleParamChange('panelWidth', v)}
+                          min={100}
+                          max={2000}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.panelWidth}
+                          onChange={(e) => handleParamChange('panelWidth', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div>
-                  <Label className="text-sm font-medium">大框 Y 起点 (Top Offset)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.panelTopOffset]}
-                      onValueChange={([v]) => handleParamChange('panelTopOffset', v)}
-                      min={-200}
-                      max={2000}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.panelTopOffset}
-                      onChange={(e) => handleParamChange('panelTopOffset', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
+                {/* 绿框相关 */}
+                <div className="border-l-4 border-green-500 pl-4">
+                  <Label className="text-sm font-semibold text-green-600 mb-3 block">绿框相关 (Title)</Label>
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">绿框宽度 (Green Box Width)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.greenBoxWidth]}
+                          onValueChange={([v]) => handleParamChange('greenBoxWidth', v)}
+                          min={100}
+                          max={2000}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.greenBoxWidth}
+                          onChange={(e) => handleParamChange('greenBoxWidth', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">首个图标上边距 (Grid Start Y)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.gridStartY]}
+                          onValueChange={([v]) => handleParamChange('gridStartY', v)}
+                          min={-200}
+                          max={2000}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.gridStartY}
+                          onChange={(e) => handleParamChange('gridStartY', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">绿框的高度（标题区域高度）</p>
+                    </div>
                   </div>
                 </div>
 
-                <div>
-                  <Label className="text-sm font-medium">首个图标左边距 (Grid Start X)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.gridStartX]}
-                      onValueChange={([v]) => handleParamChange('gridStartX', v)}
-                      min={-200}
-                      max={2000}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.gridStartX}
-                      onChange={(e) => handleParamChange('gridStartX', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
+                {/* 红框相关 */}
+                <div className="border-l-4 border-red-500 pl-4">
+                  <Label className="text-sm font-semibold text-red-600 mb-3 block">红框相关 (Icon)</Label>
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">首个图标左边距 (Grid Start X)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.gridStartX]}
+                          onValueChange={([v]) => handleParamChange('gridStartX', v)}
+                          min={-200}
+                          max={2000}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.gridStartX}
+                          onChange={(e) => handleParamChange('gridStartX', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">图标边长尺寸 (Icon Size)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.iconSize]}
+                          onValueChange={([v]) => handleParamChange('iconSize', v)}
+                          min={10}
+                          max={500}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.iconSize}
+                          onChange={(e) => handleParamChange('iconSize', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">中心点 X 偏移 (Center Offset X)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.iconCenterOffsetX]}
+                          onValueChange={([v]) => handleParamChange('iconCenterOffsetX', v)}
+                          min={-200}
+                          max={500}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.iconCenterOffsetX}
+                          onChange={(e) => handleParamChange('iconCenterOffsetX', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">图标中心点相对于 gridStartX 的 X 偏移</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">中心点 Y 偏移 (Center Offset Y)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.iconCenterOffsetY]}
+                          onValueChange={([v]) => handleParamChange('iconCenterOffsetY', v)}
+                          min={-200}
+                          max={500}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.iconCenterOffsetY}
+                          onChange={(e) => handleParamChange('iconCenterOffsetY', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">图标中心点相对于 gridStartY 的 Y 偏移</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">横向间距 (Gap X)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.gapX]}
+                          onValueChange={([v]) => handleParamChange('gapX', v)}
+                          min={0}
+                          max={500}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.gapX}
+                          onChange={(e) => handleParamChange('gapX', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">纵向间距 (Gap Y)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.gapY]}
+                          onValueChange={([v]) => handleParamChange('gapY', v)}
+                          min={0}
+                          max={500}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.gapY}
+                          onChange={(e) => handleParamChange('gapY', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div>
-                  <Label className="text-sm font-medium">首个图标上边距 (Grid Start Y)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.gridStartY]}
-                      onValueChange={([v]) => handleParamChange('gridStartY', v)}
-                      min={-200}
-                      max={2000}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.gridStartY}
-                      onChange={(e) => handleParamChange('gridStartY', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
-                  </div>
-                </div>
+                {/* 扫描线相关 */}
+                <div className="border-l-4 border-orange-500 pl-4">
+                  <Label className="text-sm font-semibold text-orange-600 mb-3 block">扫描线相关 (Scan)</Label>
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">扫描线 X 坐标 (Scan Line X)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.scanLineX]}
+                          onValueChange={([v]) => handleParamChange('scanLineX', v)}
+                          min={0}
+                          max={100}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.scanLineX}
+                          onChange={(e) => handleParamChange('scanLineX', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
 
-                <div>
-                  <Label className="text-sm font-medium">中心点 X 偏移 (Center Offset X)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.iconCenterOffsetX]}
-                      onValueChange={([v]) => handleParamChange('iconCenterOffsetX', v)}
-                      min={-200}
-                      max={500}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.iconCenterOffsetX}
-                      onChange={(e) => handleParamChange('iconCenterOffsetX', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">图标中心点相对于 gridStartX 的 X 偏移</p>
-                </div>
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">扫描起始 Y 坐标 (Scan Start Y)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.scanStartY]}
+                          onValueChange={([v]) => handleParamChange('scanStartY', v)}
+                          min={0}
+                          max={500}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.scanStartY}
+                          onChange={(e) => handleParamChange('scanStartY', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
 
-                <div>
-                  <Label className="text-sm font-medium">中心点 Y 偏移 (Center Offset Y)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.iconCenterOffsetY]}
-                      onValueChange={([v]) => handleParamChange('iconCenterOffsetY', v)}
-                      min={-200}
-                      max={500}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.iconCenterOffsetY}
-                      onChange={(e) => handleParamChange('iconCenterOffsetY', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">图标中心点相对于 gridStartY 的 Y 偏移</p>
-                </div>
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">颜色容差值 (Color Tolerance)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.colorTolerance]}
+                          onValueChange={([v]) => handleParamChange('colorTolerance', v)}
+                          min={5}
+                          max={50}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.colorTolerance}
+                          onChange={(e) => handleParamChange('colorTolerance', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
 
-                <div>
-                  <Label className="text-sm font-medium">图标边长尺寸 (Icon Size)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.iconSize]}
-                      onValueChange={([v]) => handleParamChange('iconSize', v)}
-                      min={10}
-                      max={500}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.iconSize}
-                      onChange={(e) => handleParamChange('iconSize', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium">横向间距 (Gap X)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.gapX]}
-                      onValueChange={([v]) => handleParamChange('gapX', v)}
-                      min={0}
-                      max={500}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.gapX}
-                      onChange={(e) => handleParamChange('gapX', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium">纵向间距 (Gap Y)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.gapY]}
-                      onValueChange={([v]) => handleParamChange('gapY', v)}
-                      min={0}
-                      max={500}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.gapY}
-                      onChange={(e) => handleParamChange('gapY', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium">蓝框宽度 (Panel Width)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.panelWidth]}
-                      onValueChange={([v]) => handleParamChange('panelWidth', v)}
-                      min={100}
-                      max={2000}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.panelWidth}
-                      onChange={(e) => handleParamChange('panelWidth', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium">绿框宽度 (Green Box Width)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.greenBoxWidth]}
-                      onValueChange={([v]) => handleParamChange('greenBoxWidth', v)}
-                      min={100}
-                      max={2000}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.greenBoxWidth}
-                      onChange={(e) => handleParamChange('greenBoxWidth', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium">扫描线 X 坐标 (Scan Line X)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.scanLineX]}
-                      onValueChange={([v]) => handleParamChange('scanLineX', v)}
-                      min={0}
-                      max={100}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.scanLineX}
-                      onChange={(e) => handleParamChange('scanLineX', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium">扫描起始 Y 坐标 (Scan Start Y)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.scanStartY]}
-                      onValueChange={([v]) => handleParamChange('scanStartY', v)}
-                      min={0}
-                      max={500}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.scanStartY}
-                      onChange={(e) => handleParamChange('scanStartY', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium">颜色容差值 (Color Tolerance)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.colorTolerance]}
-                      onValueChange={([v]) => handleParamChange('colorTolerance', v)}
-                      min={5}
-                      max={50}
-                      step={1}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.colorTolerance}
-                      onChange={(e) => handleParamChange('colorTolerance', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
-                  </div>
-                </div>
-                {/* 滑动窗口连续判定高度 */}
-                <div>
-                  <Label className="text-sm font-medium">连续判定高度 (Sustained Pixels)</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider
-                      value={[params.sustainedPixels]}
-                      onValueChange={([v]) => handleParamChange('sustainedPixels', v)}
-                      min={5}
-                      max={100}
-                      step={5}
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      value={params.sustainedPixels}
-                      onChange={(e) => handleParamChange('sustainedPixels', parseInt(e.target.value) || 0)}
-                      className="w-20 text-center"
-                    />
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">连续判定高度 (Sustained Pixels)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.sustainedPixels]}
+                          onValueChange={([v]) => handleParamChange('sustainedPixels', v)}
+                          min={5}
+                          max={100}
+                          step={5}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.sustainedPixels}
+                          onChange={(e) => handleParamChange('sustainedPixels', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
