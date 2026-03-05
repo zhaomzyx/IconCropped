@@ -52,6 +52,32 @@ interface GridItem {
   box: BoundingBox;
 }
 
+// Panel 信息（包含坐标和标题）
+interface PanelInfo {
+  title?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rows?: number;
+  cols?: number;
+}
+
+// 裁切参数（基于用户调试优化）
+const SLICE_PARAMS = {
+  panelLeftOffset: -20,
+  panelTopOffset: 238,
+  gridStartX: 73,
+  gridStartY: 121,
+  iconSize: 135,
+  gapX: 22,
+  gapY: 24,
+  scanLineX: 86,          // 扫描线 X 坐标
+  scanStartY: 200,        // 扫描起始 Y 坐标
+  colorTolerance: 50,     // 颜色容差值
+  sustainedPixels: 10,    // 连续判定高度（滑动窗口）
+};
+
 // SSE版本的process-image API
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -138,18 +164,35 @@ export async function POST(request: NextRequest) {
 
             const image = sharp(imageBuffer);
 
-            // 阶段3：一级裁切（使用LLM识别大板块）
+            // 阶段3：一级裁切（滑动窗口算法检测大板块）
             sendEvent(controller, 'progress', {
               step: 'detecting_panels',
-              message: `🔍 图片 ${i + 1}/${filenames.length} - 一级裁切：正在识别大板块（LLM视觉识别）...`,
+              message: `🔍 图片 ${i + 1}/${filenames.length} - 一级裁切：正在识别大板块（滑动窗口算法）...`,
               currentImage: i + 1,
               totalImages: filenames.length,
               filename: filename,
               subStep: 'panel_detection'
             });
 
-            const panelData = await detectPanelsWithLLM(imageBuffer, metadata, filename);
-            console.log(`  LLM detected ${panelData.panels.length} panels`);
+            // 步骤 3.1：使用滑动窗口算法扫描面板起始位置
+            const panelStartYs = await scanVerticalLine(imageBuffer, metadata);
+            console.log(`  Detected ${panelStartYs.length} panel start positions`);
+
+            // 步骤 3.2：构建面板信息
+            const panels = await buildPanelInfo(imageBuffer, metadata, panelStartYs);
+
+            // 步骤 3.3：使用 LLM 识别每个面板的标题
+            sendEvent(controller, 'progress', {
+              step: 'recognizing_titles',
+              message: `🏷️ 图片 ${i + 1}/${filenames.length} - 正在识别面板标题（LLM视觉识别）...`,
+              currentImage: i + 1,
+              totalImages: filenames.length,
+              filename: filename,
+              subStep: 'title_recognition'
+            });
+
+            const panelData = await recognizeAllPanelTitles(imageBuffer, metadata, panels);
+            console.log(`  Recognized titles for ${panelData.length} panels`);
 
             // 创建大panel缓存目录
             const bigPanelDir = path.join(cwd(), 'public', 'wiki-big-cropped', actualWikiName);
@@ -161,8 +204,8 @@ export async function POST(request: NextRequest) {
             await fs.mkdir(bigPanelDir, { recursive: true });
 
             // 保存一级裁切的大panel图片（用于调试）
-            for (let j = 0; j < panelData.panels.length; j++) {
-              const panel = panelData.panels[j];
+            for (let j = 0; j < panelData.length; j++) {
+              const panel = panelData[j];
               const title = panel.title || `板块_${j + 1}`;
 
               // 边界检查和修正
@@ -186,7 +229,7 @@ export async function POST(request: NextRequest) {
 
             // Debug模式：返回Panel坐标信息，跳过裁切
             if (debug) {
-              const debugPanels = panelData.panels.map((panel, idx) => {
+              const debugPanels = panelData.map((panel, idx) => {
                 // 边界检查和修正
                 const correctedX = Math.max(0, Math.min(panel.x, metadata.width! - 1));
                 const correctedY = Math.max(0, Math.min(panel.y, metadata.height! - 1));
@@ -199,9 +242,8 @@ export async function POST(request: NextRequest) {
                   y: correctedY,
                   width: correctedWidth,
                   height: correctedHeight,
-                  rows: panel.rows,
-                  cols: panel.cols,
-                  total: panel.total ?? (panel.rows * panel.cols), // 如果没有 total，则使用 rows * cols
+                  rows: panel.rows || 0,
+                  cols: panel.cols || 0,
                   imageUrl: `/wiki-big-cropped/${actualWikiName}/${panel.title || '板块_' + (idx + 1)}.png`
                 };
               });
@@ -221,39 +263,41 @@ export async function POST(request: NextRequest) {
             // 阶段4：二级裁切（使用数学网格计算切图）
             sendEvent(controller, 'progress', {
               step: 'cutting_icons',
-              message: `✂️ 图片 ${i + 1}/${filenames.length} - 二级裁切：正在处理 ${panelData.panels.length} 个板块...`,
+              message: `✂️ 图片 ${i + 1}/${filenames.length} - 二级裁切：正在处理 ${panelData.length} 个板块...`,
               currentImage: i + 1,
               totalImages: filenames.length,
-              totalPanels: panelData.panels.length,
+              totalPanels: panelData.length,
               filename: filename,
               subStep: 'icon_cutting'
             });
 
-            // UI布局常量（可调整）
+            // UI布局常量（基于用户调试优化）
             const UI_LAYOUT = {
-              COLS: 5,              // 固定为5列
-              TOP_PADDING: 60,      // 顶部标题区域高度（减小以适应小高度Panel）
-              BOTTOM_PADDING: 20,   // 底部留白
-              SIDE_PADDING: 30,     // 左右两侧的总留白
-              GAP: 15               // 图标之间的间距
+              COLS: 5,                        // 固定为5列
+              TOP_PADDING: SLICE_PARAMS.gridStartY,  // 顶部标题区域高度
+              BOTTOM_PADDING: 20,             // 底部留白
+              SIDE_PADDING: SLICE_PARAMS.gridStartX, // 左右两侧的总留白
+              GAP: SLICE_PARAMS.gapX,          // 图标之间的间距（X）
+              GAP_Y: SLICE_PARAMS.gapY,        // 图标之间的间距（Y）
+              ICON_SIZE: SLICE_PARAMS.iconSize // 图标尺寸
             };
 
-            console.log(`  UI Layout: COLS=${UI_LAYOUT.COLS}, TOP_PADDING=${UI_LAYOUT.TOP_PADDING}, BOTTOM_PADDING=${UI_LAYOUT.BOTTOM_PADDING}, SIDE_PADDING=${UI_LAYOUT.SIDE_PADDING}, GAP=${UI_LAYOUT.GAP}`);
+            console.log(`  UI Layout: COLS=${UI_LAYOUT.COLS}, TOP_PADDING=${UI_LAYOUT.TOP_PADDING}, BOTTOM_PADDING=${UI_LAYOUT.BOTTOM_PADDING}, SIDE_PADDING=${UI_LAYOUT.SIDE_PADDING}, GAP_X=${UI_LAYOUT.GAP}, GAP_Y=${UI_LAYOUT.GAP_Y}, ICON_SIZE=${UI_LAYOUT.ICON_SIZE}`);
 
             // 处理每个板块
             const crops: WikiCroppedImage[] = [];
 
-            for (let j = 0; j < panelData.panels.length; j++) {
-              const panel = panelData.panels[j];
+            for (let j = 0; j < panelData.length; j++) {
+              const panel = panelData[j];
               const title = panel.title || `板块_${j + 1}`;
 
               sendEvent(controller, 'progress', {
                 step: 'processing_panel',
-                message: `🎨 图片 ${i + 1}/${filenames.length} - 板块 ${j + 1}/${panelData.panels.length}：${title}`,
+                message: `🎨 图片 ${i + 1}/${filenames.length} - 板块 ${j + 1}/${panelData.length}：${title}`,
                 currentImage: i + 1,
                 totalImages: filenames.length,
                 currentPanel: j + 1,
-                totalPanels: panelData.panels.length,
+                totalPanels: panelData.length,
                 panelTitle: title,
                 filename: filename,
                 subStep: 'panel_processing'
@@ -388,22 +432,6 @@ export async function POST(request: NextRequest) {
 
 // ========== LLM视觉识别函数 ==========
 
-// 使用LLM识别Wiki图中的所有大板块
-interface PanelInfo {
-  title: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rows: number;
-  cols: number;
-  total?: number; // 实际图标总数
-}
-
-interface PanelDetectionResult {
-  panels: PanelInfo[];
-}
-
 async function detectPanelsWithLLM(
   imageBuffer: Buffer,
   metadata: sharp.Metadata,
@@ -532,8 +560,8 @@ async function detectIconBasesWithLLM(
   }
 
   // 检查修正后的尺寸是否太小（如果小于预期的一半，可能LLM识别有误）
-  const expectedMinWidth = panel.cols * 100; // 每列至少100像素
-  const expectedMinHeight = 50 + panel.rows * 100; // 标题50像素 + 每行至少100像素
+  const expectedMinWidth = (panel.cols || 5) * 100; // 每列至少100像素
+  const expectedMinHeight = 50 + (panel.rows || 3) * 100; // 标题50像素 + 每行至少100像素
 
   if (correctedWidth < expectedMinWidth / 2 || correctedHeight < expectedMinHeight / 2) {
     console.warn(`  Panel "${panel.title}" size after correction is too small: ${correctedWidth}x${correctedHeight}`);
@@ -942,6 +970,8 @@ interface UILayout {
   BOTTOM_PADDING: number;
   SIDE_PADDING: number;
   GAP: number;
+  GAP_Y: number;
+  ICON_SIZE: number;
 }
 
 interface IconPosition {
@@ -969,7 +999,7 @@ function calculateIconPositions(
 ): IconPositionsResult {
   console.log(`  Calculating icon positions for panel at (${panelX}, ${panelY}), size ${panelWidth}x${panelHeight}`);
 
-  const { COLS, TOP_PADDING, BOTTOM_PADDING, SIDE_PADDING, GAP } = layout;
+  const { COLS, TOP_PADDING, BOTTOM_PADDING, SIDE_PADDING, GAP, GAP_Y, ICON_SIZE } = layout;
 
   // 计算图标可用区域
   const availableWidth = panelWidth - SIDE_PADDING;
@@ -988,16 +1018,10 @@ function calculateIconPositions(
     return { positions: [], rows: 0, cols: COLS };
   }
 
-  // 计算单个图标的宽度和高度
-  const iconWidth = (availableWidth - (COLS - 1) * GAP) / COLS;
+  // 计算行数（基于固定的图标尺寸和 Y 轴间距）
+  const rows = Math.floor(availableHeight / (ICON_SIZE + GAP_Y));
 
-  // 估算单个图标的高度（假设图标是正方形）
-  const estimatedIconHeight = iconWidth;
-
-  // 计算行数
-  const rows = Math.round(availableHeight / (estimatedIconHeight + GAP));
-
-  console.log(`  Estimated icon size: ${iconWidth.toFixed(1)}x${estimatedIconHeight.toFixed(1)}`);
+  console.log(`  Fixed icon size: ${ICON_SIZE}x${ICON_SIZE}`);
   console.log(`  Calculated rows: ${rows}`);
 
   // 边界检查：如果行数为0，返回空数组
@@ -1005,11 +1029,6 @@ function calculateIconPositions(
     console.warn(`  Calculated rows (${rows}) is too small, skipping panel`);
     return { positions: [], rows: 0, cols: COLS };
   }
-
-  // 重新计算实际图标高度（基于行数）
-  const actualIconHeight = (availableHeight - (rows - 1) * GAP) / rows;
-
-  console.log(`  Actual icon size: ${iconWidth.toFixed(1)}x${actualIconHeight.toFixed(1)}`);
 
   // 计算起始位置（居中对齐）
   const startX = panelX + SIDE_PADDING / 2;
@@ -1020,14 +1039,14 @@ function calculateIconPositions(
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < COLS; col++) {
-      const x = startX + col * (iconWidth + GAP);
-      const y = startY + row * (actualIconHeight + GAP);
+      const x = startX + col * (ICON_SIZE + GAP);
+      const y = startY + row * (ICON_SIZE + GAP_Y);
 
       positions.push({
         x: Math.round(x),
         y: Math.round(y),
-        width: Math.round(iconWidth),
-        height: Math.round(actualIconHeight),
+        width: ICON_SIZE,
+        height: ICON_SIZE,
         row,
         col
       });
@@ -1041,4 +1060,230 @@ function calculateIconPositions(
     rows,
     cols: COLS
   };
+}
+
+// ============================================
+// 滑动窗口算法（从 debug 页面移植）
+// ============================================
+
+// 计算颜色差异
+function colorDiff(color1: [number, number, number], color2: [number, number, number]): number {
+  return Math.max(
+    Math.abs(color1[0] - color2[0]),
+    Math.abs(color1[1] - color2[1]),
+    Math.abs(color1[2] - color2[2])
+  );
+}
+
+// 垂直像素扫描（滑动窗口算法），找出所有面板的起始 Y 坐标
+async function scanVerticalLine(
+  imageBuffer: Buffer,
+  metadata: sharp.Metadata
+): Promise<number[]> {
+  const { data } = await sharp(imageBuffer)
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+    .then(({ data }) => ({ data }));
+
+  const width = metadata.width!;
+  const height = metadata.height!;
+  const panelStartYs: number[] = [];
+
+  const {
+    scanLineX,
+    scanStartY,
+    colorTolerance,
+    sustainedPixels
+  } = SLICE_PARAMS;
+
+  // 边界检查
+  if (scanLineX < 0 || scanLineX >= width) {
+    console.warn(`Scan line X (${scanLineX}) is out of image bounds (${width})`);
+    return panelStartYs;
+  }
+
+  if (scanStartY < 0 || scanStartY >= height) {
+    console.warn(`Scan start Y (${scanStartY}) is out of image bounds (${height})`);
+    return panelStartYs;
+  }
+
+  // 获取主背景色（从起始坐标开始）
+  const getPixelColor = (x: number, y: number): [number, number, number] => {
+    const index = (y * width + x) * 4;
+    return [data[index], data[index + 1], data[index + 2]];
+  };
+
+  const backgroundColor = getPixelColor(scanLineX, scanStartY);
+  console.log(`  Background color at (${scanLineX}, ${scanStartY}): RGB[${backgroundColor.join(', ')}]`);
+
+  // 滑动窗口算法
+  let isPanel = false;
+  let consecutiveBg = 0;    // 连续背景色计数器
+  let consecutivePanel = 0; // 连续面板色计数器
+  const requiredPixels = sustainedPixels;
+
+  // 从 Y=scanStartY 扫描到底部（跳过顶部杂乱区域）
+  for (let y = scanStartY; y < height; y++) {
+    const currentColor = getPixelColor(scanLineX, y);
+    const diff = colorDiff(currentColor, backgroundColor);
+
+    if (diff > colorTolerance) {
+      // 识别为浅色面板区域
+      consecutivePanel++;
+      consecutiveBg = 0;
+
+      if (!isPanel && consecutivePanel >= requiredPixels) {
+        // 真正的起点是几十个像素之前突变的那个点
+        const actualStartY = y - requiredPixels + 1;
+        panelStartYs.push(actualStartY);
+        isPanel = true;
+
+        console.log(`  Panel started at Y=${actualStartY} (detected at Y=${y})`);
+      }
+    } else {
+      // 识别为深色背景区域
+      consecutiveBg++;
+      consecutivePanel = 0;
+
+      if (isPanel && consecutiveBg >= requiredPixels) {
+        // 面板结束
+        isPanel = false;
+        console.log(`  Panel ended at Y=${y - requiredPixels + 1} (detected at Y=${y})`);
+      }
+    }
+  }
+
+  console.log(`  Scanned ${panelStartYs.length} panel start positions from Y=${scanStartY}:`, panelStartYs);
+  return panelStartYs;
+}
+
+// 根据面板起始 Y 坐标构建完整面板信息
+async function buildPanelInfo(
+  imageBuffer: Buffer,
+  metadata: sharp.Metadata,
+  panelStartYs: number[]
+): Promise<PanelInfo[]> {
+  const { width, height } = metadata;
+  const {
+    panelLeftOffset,
+    panelTopOffset
+  } = SLICE_PARAMS;
+
+  const panels: PanelInfo[] = [];
+
+  for (let i = 0; i < panelStartYs.length; i++) {
+    const startY = panelStartYs[i];
+    const endY = (i < panelStartYs.length - 1) ? panelStartYs[i + 1] : height;
+    const panelHeight = endY - startY;
+
+    // 面板宽度：从左边界（考虑偏移）到右边界（图片宽度）
+    const panelWidth = width - (panelLeftOffset > 0 ? panelLeftOffset : 0);
+
+    panels.push({
+      x: Math.max(0, panelLeftOffset),
+      y: startY + panelTopOffset,
+      width: panelWidth,
+      height: panelHeight - panelTopOffset,
+    });
+
+    console.log(`  Panel ${i + 1}: x=${panels[i].x}, y=${panels[i].y}, width=${panelWidth}, height=${panels[i].height}`);
+  }
+
+  console.log(`  Built ${panels.length} panels`);
+  return panels;
+}
+
+// ============================================
+// LLM 标题识别
+// ============================================
+
+// 使用 LLM 识别单个面板的标题
+async function recognizePanelTitle(panelBuffer: Buffer): Promise<string> {
+  try {
+    // 转换为 base64
+    const base64Image = panelBuffer.toString('base64');
+    const dataUri = `data:image/png;base64,${base64Image}`;
+
+    // LLM 提示词（识别标题）
+    const prompt = `识别图片顶部的英文标题（例如 "Bag"、"Decoration" 等）。只返回标题文本，不要包含其他内容。如果没有标题，返回 "Unknown"。`;
+
+    // 调用 LLM API
+    const config = new Config();
+    const client = new LLMClient(config);
+    const messages = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: prompt },
+          {
+            type: "image_url" as const,
+            image_url: {
+              url: dataUri,
+              detail: "high" as const
+            }
+          }
+        ]
+      }
+    ];
+
+    const response = await client.invoke(messages, {
+      model: "doubao-seed-1-6-vision-250815",
+      temperature: 0.3
+    });
+
+    const title = response.content.trim();
+    console.log(`  LLM recognized title: ${title}`);
+    return title;
+  } catch (error) {
+    console.error(`  Failed to recognize panel title:`, error);
+    return "Unknown";
+  }
+}
+
+// 批量识别所有面板的标题
+async function recognizeAllPanelTitles(
+  imageBuffer: Buffer,
+  metadata: sharp.Metadata,
+  panels: PanelInfo[]
+): Promise<PanelInfo[]> {
+  const titledPanels: PanelInfo[] = [];
+
+  for (let i = 0; i < panels.length; i++) {
+    const panel = panels[i];
+
+    // 边界检查和修正
+    const correctedX = Math.max(0, Math.min(panel.x, metadata.width! - 1));
+    const correctedY = Math.max(0, Math.min(panel.y, metadata.height! - 1));
+    const correctedWidth = Math.max(1, Math.min(panel.width, metadata.width! - correctedX));
+    const correctedHeight = Math.max(1, Math.min(panel.height, metadata.height! - correctedY));
+
+    // 裁切面板顶部区域（用于识别标题）
+    const titleRegionHeight = Math.min(120, correctedHeight);
+    const titleBuffer = await sharp(imageBuffer)
+      .extract({
+        left: correctedX,
+        top: correctedY,
+        width: correctedWidth,
+        height: titleRegionHeight
+      })
+      .png()
+      .toBuffer();
+
+    // 识别标题
+    const title = await recognizePanelTitle(titleBuffer);
+
+    titledPanels.push({
+      ...panel,
+      title: title || `Panel_${i + 1}`
+    });
+
+    console.log(`  Panel ${i + 1}: "${title}" at (${correctedX}, ${correctedY})`);
+  }
+
+  return titledPanels;
+}
+
+// 面板检测结果接口
+interface PanelDetectionResult {
+  panels: PanelInfo[];
 }
