@@ -198,6 +198,11 @@ export async function POST(request: NextRequest) {
               total: panel.total ?? (panel.rows * panel.cols),
             }));
 
+            console.log(`准备的面板元数据 (${debugPanels.length} 个):`);
+            debugPanels.forEach((panel, idx) => {
+              console.log(`  Panel ${idx + 1}: ${panel.title}, rows=${panel.rows}, cols=${panel.cols}, total=${panel.total}`);
+            });
+
             // 使用 A 计划检测面板坐标
             const detectedPanels = await detectPanels(image, debugPanels, DEFAULT_DETECTION_PARAMS);
 

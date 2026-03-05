@@ -352,10 +352,26 @@ export async function detectPanels(
   const panelRanges: any[] = [];
   for (let i = 0; i < panelVerticalRanges.length; i++) {
     const vRange = panelVerticalRanges[i];
+    // 使用安全访问，如果面板不存在则使用默认值
     const panel = debugPanels[i];
+    if (!panel) {
+      console.warn(`[Panel ${i + 1}] 警告：LLM 未返回此面板的元数据，使用默认值`);
+    }
+
+    const safePanel = panel || {
+      title: `Panel_${i + 1}`,
+      rows: 1,
+      cols: 5,
+      total: 5,
+      x: 0,
+      y: 0,
+      width: 815,
+      height: 200,
+    };
+
     const midY = Math.round((vRange.startY + vRange.endY) / 2);
 
-    console.log(`\n[Panel ${i + 1}] ${panel.title}`);
+    console.log(`\n[Panel ${i + 1}] ${safePanel.title}`);
     console.log(`中间检测线 Y: ${midY}`);
 
     // 在Panel中间横线上扫描
@@ -380,11 +396,27 @@ export async function detectPanels(
   // 3. 计算图标位置
   const detectedPanels: DetectedPanel[] = [];
 
-  for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
+  for (let i = 0; i < panelRanges.length; i++) {
+    // 使用安全访问，如果面板不存在则使用默认值
     const panel = debugPanels[i];
+    if (!panel) {
+      console.warn(`[Panel ${i + 1}] 警告：LLM 未返回此面板的元数据，使用默认值`);
+    }
+
+    const safePanel = panel || {
+      title: `Panel_${i + 1}`,
+      rows: 1,
+      cols: 5,
+      total: 5,
+      x: 0,
+      y: 0,
+      width: 815,
+      height: 200,
+    };
+
     const range = panelRanges[i];
 
-    console.log(`\n[Panel ${i + 1}] ${panel.title}`);
+    console.log(`\n[Panel ${i + 1}] ${safePanel.title}`);
     console.log(`  BlueBox: x=${range.startX}, y=${range.startY}, width=${range.width}, height=${range.height}`);
 
     // 蓝框坐标
@@ -405,7 +437,7 @@ export async function detectPanels(
 
     // 红框坐标
     const redBoxes = calculateIconPositions(
-      panel,
+      safePanel,
       range.startY,
       params,
       width,
@@ -416,7 +448,7 @@ export async function detectPanels(
     console.log(`  RedBox Count: ${redBoxes.length}`);
 
     detectedPanels.push({
-      title: panel.title,
+      title: safePanel.title,
       blueBox,
       greenBox,
       redBoxes,
