@@ -360,8 +360,8 @@ export default function WikiDebugPage() {
       canvas.width = img.width;
       canvas.height = img.height;
 
-      logInfo(`Canvas尺寸：实际=${img.width}x${img.height}, 显示=${canvas.clientWidth}x${canvas.clientHeight}`);
-      logInfo(`缩放比例：X=${canvas.clientWidth / canvas.width}, Y=${canvas.clientHeight / canvas.height}`);
+      console.log(`Canvas尺寸：实际=${img.width}x${img.height}, 显示=${canvas.clientWidth}x${canvas.clientHeight}`);
+      console.log(`缩放比例：X=${canvas.clientWidth / canvas.width}, Y=${canvas.clientHeight / canvas.height}`);
 
       // 绘制原图
       ctx.drawImage(img, 0, 0);
@@ -393,21 +393,21 @@ export default function WikiDebugPage() {
 
         // 绘制时的详细日志（只记录选中的面板）
         if (isSelected) {
-          logInfo(`\n========== [drawCanvas] 面板 ${i + 1} (${panel.title}) 坐标计算 ==========`);
-          logInfo(`[LLM 识别的原始坐标]`);
-          logInfo(`  panel.x = ${panel.x}`);
-          logInfo(`  panel.y = ${panel.y}`);
-          logInfo(`[扫描线检测结果]`);
-          logInfo(`  panelStartYs[${i}] = ${panelStartYs[i]}`);
-          logInfo(`  absolutePanelY = ${absolutePanelY}`);
-          logInfo(`[面板左上角坐标]`);
-          logInfo(`  panelX = panel.x + panelLeftOffset = ${panel.x} + ${params.panelLeftOffset} = ${panelX}`);
-          logInfo(`  panelY = ${absolutePanelY}`);
-          logInfo(`[首个图标预期位置]`);
+          console.log(`\n========== [drawCanvas] 面板 ${i + 1} (${panel.title}) 坐标计算 ==========`);
+          console.log(`[LLM 识别的原始坐标]`);
+          console.log(`  panel.x = ${panel.x}`);
+          console.log(`  panel.y = ${panel.y}`);
+          console.log(`[扫描线检测结果]`);
+          console.log(`  panelStartYs[${i}] = ${panelStartYs[i]}`);
+          console.log(`  absolutePanelY = ${absolutePanelY}`);
+          console.log(`[面板左上角坐标]`);
+          console.log(`  panelX = panel.x + panelLeftOffset = ${panel.x} + ${params.panelLeftOffset} = ${panelX}`);
+          console.log(`  panelY = ${absolutePanelY}`);
+          console.log(`[首个图标预期位置]`);
           const firstIconX = panelX + params.gridStartX + params.iconCenterOffsetX - params.iconSize / 2;
           const firstIconY = panelY + params.gridStartY + params.iconCenterOffsetY - params.iconSize / 2;
-          logInfo(`  firstIconX = panelX + gridStartX + iconCenterOffsetX - iconSize/2 = ${firstIconX}`);
-          logInfo(`  firstIconY = panelY + gridStartY + iconCenterOffsetY - iconSize/2 = ${firstIconY}`);
+          console.log(`  firstIconX = panelX + gridStartX + iconCenterOffsetX - iconSize/2 = ${firstIconX}`);
+          console.log(`  firstIconY = panelY + gridStartY + iconCenterOffsetY - iconSize/2 = ${firstIconY}`);
         }
 
         // 计算图标区域的实际高度（基于实际使用的行数）
@@ -497,7 +497,7 @@ export default function WikiDebugPage() {
       ctx.setLineDash([]);
     };
     img.src = imageUrl;
-  }, [imageUrl, debugPanels, selectedPanelIndex, params, calculateIconPositions, scanVerticalLine, logInfo]);
+  }, [imageUrl, debugPanels, selectedPanelIndex, params, calculateIconPositions, scanVerticalLine]);
 
   // 重新绘制Canvas
   useEffect(() => {
