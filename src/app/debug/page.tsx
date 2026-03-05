@@ -362,10 +362,28 @@ export default function WikiDebugPage() {
         ctx.lineWidth = isSelected ? 3 : 2;
         ctx.strokeRect(panelX, panelY, params.panelWidth, currentPanelHeight);
 
+        // 绘制蓝框坐标
+        ctx.fillStyle = isSelected ? '#3B82F6' : '#93C5FD';
+        ctx.font = '10px monospace';
+        ctx.fillText(
+          `(${Math.round(panelX)}, ${Math.round(panelY)}) ${Math.round(params.panelWidth)}x${Math.round(currentPanelHeight)}`,
+          panelX + 5,
+          panelY + 12
+        );
+
         // 绘制绿色框（标题区域）
         ctx.strokeStyle = '#22C55E';
         ctx.lineWidth = 2;
         ctx.strokeRect(panelX, panelY, params.greenBoxWidth, params.gridStartY);
+
+        // 绘制绿框坐标
+        ctx.fillStyle = '#22C55E';
+        ctx.font = '10px monospace';
+        ctx.fillText(
+          `(${Math.round(panelX)}, ${Math.round(panelY)})`,
+          panelX + 5,
+          panelY + 24
+        );
 
         // 绘制红色框（图标位置）
         positions.forEach((pos, index) => {
@@ -377,6 +395,15 @@ export default function WikiDebugPage() {
           ctx.fillStyle = '#EF4444';
           ctx.font = '12px Arial';
           ctx.fillText(`#${index + 1}`, pos.x + 3, pos.y + 15);
+
+          // 绘制红框坐标
+          ctx.fillStyle = '#EF4444';
+          ctx.font = '9px monospace';
+          ctx.fillText(
+            `(${Math.round(pos.x)}, ${Math.round(pos.y)})`,
+            pos.x + 3,
+            pos.y + pos.height - 3
+          );
         });
 
         // 绘制扫描线（用于调试）
