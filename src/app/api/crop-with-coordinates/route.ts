@@ -228,14 +228,31 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`开始裁切：共 ${debugPanels.length} 个面板`);
+    console.log(`图片URL: ${imageUrl}`);
 
-    // 下载原始图片
-    const imageResponse = await fetch(imageUrl);
-    if (!imageResponse.ok) {
-      throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
+    // 获取原始图片（支持URL或本地文件路径）
+    let imageBuffer: Buffer;
+    if (imageUrl.startsWith('/api/uploads/') || imageUrl.startsWith('/')) {
+      // 本地文件路径：将URL转换为文件系统路径
+      // 上传的文件保存在 /tmp/uploads/wiki/ 目录下
+      const filename = imageUrl.split('/').pop(); // 提取文件名
+      const filePath = path.join('/tmp/uploads/wiki', filename);
+      console.log(`读取本地文件: ${filePath}`);
+
+      try {
+        imageBuffer = await fs.readFile(filePath);
+      } catch (error) {
+        throw new Error(`无法读取本地文件: ${filePath}. 错误: ${error instanceof Error ? error.message : '未知错误'}`);
+      }
+    } else {
+      // 远程URL
+      const imageResponse = await fetch(imageUrl);
+      if (!imageResponse.ok) {
+        throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
+      }
+      imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
     }
 
-    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
     const metadata = await sharp(imageBuffer).metadata();
 
     console.log(`原始图片尺寸: ${metadata.width}x${metadata.height}`);
