@@ -228,6 +228,12 @@ export async function POST(request: NextRequest) {
               const detectedPanel = detectedPanels[j];
               const title = detectedPanel.title;
 
+              // 计算当前面板的实际行数和列数（从 redBoxes 中计算）
+              const maxRow = Math.max(...detectedPanel.redBoxes.map(b => b.row), 0);
+              const maxCol = Math.max(...detectedPanel.redBoxes.map(b => b.col), 0);
+              const totalRows = maxRow + 1;
+              const totalCols = maxCol + 1;
+
               sendEvent(controller, 'progress', {
                 step: 'processing_panel',
                 message: `🎨 图片 ${i + 1}/${filenames.length} - 板块 ${j + 1}/${detectedPanels.length}：${title}`,
@@ -244,10 +250,11 @@ export async function POST(request: NextRequest) {
               console.log(`    蓝框: x=${detectedPanel.blueBox.x}, y=${detectedPanel.blueBox.y}, w=${detectedPanel.blueBox.width}, h=${detectedPanel.blueBox.height}`);
               console.log(`    绿框: x=${detectedPanel.greenBox.x}, y=${detectedPanel.greenBox.y}, w=${detectedPanel.greenBox.width}, h=${detectedPanel.greenBox.height}`);
               console.log(`    红框数量: ${detectedPanel.redBoxes.length}`);
+              console.log(`    实际行数: ${totalRows}, 实际列数: ${totalCols}`);
 
               // 裁切图标（使用 A 计划检测到的坐标）
               for (const redBox of detectedPanel.redBoxes) {
-                const iconIndex = redBox.row * detectedPanel.redBoxes.length / detectedPanel.redBoxes.length + redBox.col;
+                const iconIndex = redBox.row * totalCols + redBox.col;
                 const iconFileName = `${title}_${redBox.row + 1}_${redBox.col + 1}.png`;
                 const iconPath = path.join(wikiDir, iconFileName);
 
@@ -273,8 +280,8 @@ export async function POST(request: NextRequest) {
                       name: `${title}_icon_${iconIndex}`,
                       row: redBox.row,
                       col: redBox.col,
-                      totalRows: debugPanels[j].rows,
-                      totalCols: debugPanels[j].cols,
+                      totalRows: totalRows,
+                      totalCols: totalCols,
                       x: redBox.x,
                       y: redBox.y,
                       width: redBox.width,
