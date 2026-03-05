@@ -45,8 +45,8 @@ export default function WikiDebugPage() {
     iconSize: 130,
     gapX: 15,
     gapY: 15,
-    bottomPadding: 50,      // 大框底部留白
-    panelSpacingY: 40,      // 面板间距
+    scanLineX: 20,         // 扫描线 X 坐标
+    colorTolerance: 15,    // 颜色容差值
   };
 
   // LocalStorage 键名
@@ -120,7 +120,62 @@ export default function WikiDebugPage() {
     return positions;
   }, [params]);
 
-  // 绘制Canvas（流式布局）
+  // 计算颜色差异
+  const colorDiff = (color1: [number, number, number], color2: [number, number, number]): number => {
+    return Math.max(
+      Math.abs(color1[0] - color2[0]),
+      Math.abs(color1[1] - color2[1]),
+      Math.abs(color1[2] - color2[2])
+    );
+  };
+
+  // 垂直像素扫描，找出所有面板的起始 Y 坐标
+  const scanVerticalLine = useCallback((
+    imageData: ImageData,
+    scanLineX: number,
+    colorTolerance: number,
+    width: number,
+    height: number
+  ): number[] => {
+    const { data } = imageData;
+    const panelStartYs: number[] = [];
+
+    // 边界检查
+    if (scanLineX < 0 || scanLineX >= width) {
+      console.warn(`Scan line X (${scanLineX}) is out of image bounds (${width})`);
+      return panelStartYs;
+    }
+
+    // 获取主背景色（从顶部开始）
+    const getPixelColor = (x: number, y: number): [number, number, number] => {
+      const index = (y * width + x) * 4;
+      return [data[index], data[index + 1], data[index + 2]];
+    };
+
+    const backgroundColor = getPixelColor(scanLineX, 0);
+
+    // 从 Y=0 扫描到底部
+    let inPanel = false;
+    for (let y = 0; y < height; y++) {
+      const currentColor = getPixelColor(scanLineX, y);
+      const diff = colorDiff(currentColor, backgroundColor);
+
+      // 检测是否进入或离开面板
+      if (!inPanel && diff > colorTolerance) {
+        // 进入面板，记录起始 Y
+        panelStartYs.push(y);
+        inPanel = true;
+      } else if (inPanel && diff <= colorTolerance) {
+        // 离开面板
+        inPanel = false;
+      }
+    }
+
+    console.log(`Scanned ${panelStartYs.length} panel start positions:`, panelStartYs);
+    return panelStartYs;
+  }, []);
+
+  // 绘制Canvas（使用绝对定位）
   const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !imageUrl) return;
@@ -137,16 +192,28 @@ export default function WikiDebugPage() {
       // 绘制原图
       ctx.drawImage(img, 0, 0);
 
-      // 初始 Y 起点
-      let currentY = params.panelTopOffset;
+      // 获取像素数据用于扫描
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-      // 遍历所有面板
+      // 垂直扫描找出所有面板的起始 Y 坐标
+      const panelStartYs = scanVerticalLine(
+        imageData,
+        params.scanLineX,
+        params.colorTolerance,
+        canvas.width,
+        canvas.height
+      );
+
+      // 遍历所有面板，使用扫描到的绝对坐标
       for (let i = 0; i < debugPanels.length; i++) {
         const panel = debugPanels[i];
         const isSelected = i === selectedPanelIndex;
 
+        // 使用扫描到的绝对坐标
+        const absolutePanelY = panelStartYs[i] ?? (params.panelTopOffset + i * 200); // 备用方案
+
         const panelX = panel.x + params.panelLeftOffset;
-        const panelY = currentY;
+        const panelY = absolutePanelY;
 
         // 计算图标区域的实际高度（基于实际使用的行数）
         const positions = calculateIconPositions(panel, panelY);
@@ -156,7 +223,7 @@ export default function WikiDebugPage() {
         const iconAreaHeight = usedRows * params.iconSize + (usedRows - 1) * params.gapY;
 
         // 计算当前大框的实际总高度
-        const currentPanelHeight = params.gridStartY + iconAreaHeight + params.bottomPadding;
+        const currentPanelHeight = params.gridStartY + iconAreaHeight;
 
         // 绘制蓝色框（Panel外边缘）
         ctx.strokeStyle = isSelected ? '#3B82F6' : '#93C5FD'; // 选中时深蓝，未选中时浅蓝
@@ -180,12 +247,21 @@ export default function WikiDebugPage() {
           ctx.fillText(`#${index + 1}`, pos.x + 3, pos.y + 15);
         });
 
-        // 累加 Y 坐标，为下一个 Panel 寻找起点
-        currentY = currentY + currentPanelHeight + params.panelSpacingY;
+        // 绘制扫描线（用于调试）
+        if (isSelected) {
+          ctx.strokeStyle = '#FFA500'; // 橙色扫描线
+          ctx.lineWidth = 1;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.moveTo(params.scanLineX, 0);
+          ctx.lineTo(params.scanLineX, canvas.height);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
       }
     };
     img.src = imageUrl;
-  }, [imageUrl, debugPanels, selectedPanelIndex, params, calculateIconPositions]);
+  }, [imageUrl, debugPanels, selectedPanelIndex, params, calculateIconPositions, scanVerticalLine]);
 
   // 重新绘制Canvas
   useEffect(() => {
@@ -558,40 +634,40 @@ export default function WikiDebugPage() {
                 </div>
 
                 <div>
-                  <Label className="text-sm font-medium">大框底部留白 (Bottom Padding)</Label>
+                  <Label className="text-sm font-medium">扫描线 X 坐标 (Scan Line X)</Label>
                   <div className="flex items-center gap-3 mt-2">
                     <Slider
-                      value={[params.bottomPadding]}
-                      onValueChange={([v]) => handleParamChange('bottomPadding', v)}
+                      value={[params.scanLineX]}
+                      onValueChange={([v]) => handleParamChange('scanLineX', v)}
                       min={0}
-                      max={200}
+                      max={100}
                       step={1}
                       className="flex-1"
                     />
                     <Input
                       type="number"
-                      value={params.bottomPadding}
-                      onChange={(e) => handleParamChange('bottomPadding', parseInt(e.target.value) || 0)}
+                      value={params.scanLineX}
+                      onChange={(e) => handleParamChange('scanLineX', parseInt(e.target.value) || 0)}
                       className="w-20 text-center"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <Label className="text-sm font-medium">面板间距 (Panel Spacing Y)</Label>
+                  <Label className="text-sm font-medium">颜色容差值 (Color Tolerance)</Label>
                   <div className="flex items-center gap-3 mt-2">
                     <Slider
-                      value={[params.panelSpacingY]}
-                      onValueChange={([v]) => handleParamChange('panelSpacingY', v)}
-                      min={0}
-                      max={200}
+                      value={[params.colorTolerance]}
+                      onValueChange={([v]) => handleParamChange('colorTolerance', v)}
+                      min={5}
+                      max={50}
                       step={1}
                       className="flex-1"
                     />
                     <Input
                       type="number"
-                      value={params.panelSpacingY}
-                      onChange={(e) => handleParamChange('panelSpacingY', parseInt(e.target.value) || 0)}
+                      value={params.colorTolerance}
+                      onChange={(e) => handleParamChange('colorTolerance', parseInt(e.target.value) || 0)}
                       className="w-20 text-center"
                     />
                   </div>
@@ -647,7 +723,7 @@ export default function WikiDebugPage() {
             <CardTitle>图例说明</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-6 text-sm">
+            <div className="flex gap-6 text-sm flex-wrap">
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-blue-500" />
                 <span>蓝色框：Panel外边缘</span>
@@ -659,6 +735,10 @@ export default function WikiDebugPage() {
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-red-500" />
                 <span>红色框：图标裁切区域</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-orange-500 border-dashed" />
+                <span>橙色虚线：扫描线</span>
               </div>
             </div>
           </CardContent>
