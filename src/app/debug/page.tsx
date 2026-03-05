@@ -63,7 +63,7 @@ export default function WikiDebugPage() {
     centerGapX: 146,         // 中心点横向间距（默认 iconSize + gap）
     centerGapY: 144,         // 中心点纵向间距（默认 iconSize + gap）
     scanLineX: 49,           // 扫描线 X 坐标（调整到面板左边界附近）
-    scanStartY: 50,          // 扫描起始 Y 坐标（从图片顶部开始，第一个面板在 Y=54）
+    scanStartY: 0,           // 扫描起始 Y 坐标（从图片顶部开始，确保能检测到第一个面板）
     colorTolerance: 30,      // 颜色容差值（降低以提高灵敏度）
     sustainedPixels: 5,      // 连续判定高度（减少以提高灵敏度）
     panelWidth: 876,         // 蓝框宽度（Panel外边缘）
