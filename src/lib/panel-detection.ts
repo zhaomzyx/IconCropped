@@ -27,7 +27,7 @@ export const DEFAULT_DETECTION_PARAMS = {
   iconLineOffset: 107,
   iconLineGap: 144,
   minIconsPerLine: 5,
-  varianceThreshold: 300,  // 空位探测器的方差阈值
+  varianceThreshold: 50,  // 空位探测器的方差阈值（与调试台一致）
 };
 
 // 面板垂直范围
@@ -83,7 +83,7 @@ function checkIconExists(
   y: number,
   width: number,
   height: number,
-  varianceThreshold: number = 300
+  varianceThreshold: number = 50  // 与调试台一致，默认 50
 ): boolean {
   // 只取中心 30% 到 70% 的核心区域
   const startX = Math.floor(x + width * 0.3);
