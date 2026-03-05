@@ -163,6 +163,21 @@ export default function WikiDebugPage() {
     // 获取完整的像素数据
     const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
 
+    console.log(`  [详细坐标分析]`);
+    console.log(`    输入参数:`);
+    console.log(`      panel.x=${panel.x}, panel.y=${panel.y}`);
+    console.log(`      panelLeftOffset=${panelLeftOffset}`);
+    console.log(`      gridStartX=${gridStartX}, gridStartY=${gridStartY}`);
+    console.log(`      iconCenterOffsetX=${iconCenterOffsetX}, iconCenterOffsetY=${iconCenterOffsetY}`);
+    console.log(`    计算过程:`);
+    console.log(`      panelX = panel.x + panelLeftOffset = ${panel.x} + ${panelLeftOffset} = ${panelX}`);
+    console.log(`      panelY = ${panelY}`);
+    console.log(`      firstCenterX = panelX + gridStartX + iconCenterOffsetX = ${panelX} + ${gridStartX} + ${iconCenterOffsetX} = ${firstCenterX}`);
+    console.log(`      firstCenterY = panelY + gridStartY + iconCenterOffsetY = ${panelY} + ${gridStartY} + ${iconCenterOffsetY} = ${firstCenterY}`);
+    console.log(`    首个图标左上角:`);
+    console.log(`      x = firstCenterX - iconSize/2 = ${firstCenterX} - ${iconSize/2} = ${firstCenterX - iconSize/2}`);
+    console.log(`      y = firstCenterY - iconSize/2 = ${firstCenterY} - ${iconSize/2} = ${firstCenterY - iconSize/2}`);
+
     console.log(`  开始扫描图标位置，rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
     console.log(`  方差阈值: ${varianceThreshold}, 核心区域大小: ${coreSize}x${coreSize}`);
     console.log(`  首个中心点: (${firstCenterX}, ${firstCenterY}), 中心点间距: X=${centerGapX}, Y=${centerGapY}`);
@@ -345,6 +360,25 @@ export default function WikiDebugPage() {
 
         const panelX = panel.x + params.panelLeftOffset;
         const panelY = absolutePanelY;
+
+        // 绘制时的详细日志（只记录选中的面板）
+        if (isSelected) {
+          console.log(`\n========== [drawCanvas] 面板 ${i + 1} (${panel.title}) 坐标计算 ==========`);
+          console.log(`[LLM 识别的原始坐标]`);
+          console.log(`  panel.x = ${panel.x}`);
+          console.log(`  panel.y = ${panel.y}`);
+          console.log(`[扫描线检测结果]`);
+          console.log(`  panelStartYs[${i}] = ${panelStartYs[i]}`);
+          console.log(`  absolutePanelY = ${absolutePanelY}`);
+          console.log(`[面板左上角坐标]`);
+          console.log(`  panelX = panel.x + panelLeftOffset = ${panel.x} + ${params.panelLeftOffset} = ${panelX}`);
+          console.log(`  panelY = ${absolutePanelY}`);
+          console.log(`[首个图标预期位置]`);
+          const firstIconX = panelX + params.gridStartX + params.iconCenterOffsetX - params.iconSize / 2;
+          const firstIconY = panelY + params.gridStartY + params.iconCenterOffsetY - params.iconSize / 2;
+          console.log(`  firstIconX = panelX + gridStartX + iconCenterOffsetX - iconSize/2 = ${firstIconX}`);
+          console.log(`  firstIconY = panelY + gridStartY + iconCenterOffsetY - iconSize/2 = ${firstIconY}`);
+        }
 
         // 计算图标区域的实际高度（基于实际使用的行数）
         const positions = calculateIconPositions(panel, panelY, ctx);
@@ -668,11 +702,23 @@ export default function WikiDebugPage() {
         const panelY = absolutePanelY;
 
         // 详细日志：计算前的参数
-        console.log(`\n面板 ${i + 1} (${panel.title}) 计算前的参数:`);
-        console.log(`  LLM识别: x=${panel.x}, y=${panel.y}, width=${panel.width}, rows=${panel.rows}, cols=${panel.cols}`);
-        console.log(`  滑动窗口: panelStartYs[${i}]=${panelStartYs[i]}`);
-        console.log(`  调试参数: panelLeftOffset=${params.panelLeftOffset}, gridStartX=${params.gridStartX}, gridStartY=${params.gridStartY}`);
-        console.log(`  计算后: panelX=${panelX}, panelY=${panelY}`);
+        console.log(`\n========== 面板 ${i + 1} (${panel.title}) 坐标分析 ==========`);
+        console.log(`[LLM 识别的原始坐标]`);
+        console.log(`  panel.x = ${panel.x}`);
+        console.log(`  panel.y = ${panel.y}`);
+        console.log(`[扫描线检测结果]`);
+        console.log(`  panelStartYs[${i}] = ${panelStartYs[i]}`);
+        console.log(`  absolutePanelY = ${absolutePanelY}`);
+        console.log(`[面板左上角坐标]`);
+        console.log(`  panelX = panel.x + panelLeftOffset = ${panel.x} + ${params.panelLeftOffset} = ${panelX}`);
+        console.log(`  panelY = ${absolutePanelY}`);
+        console.log(`[参数说明]`);
+        console.log(`  panelLeftOffset = ${params.panelLeftOffset}`);
+        console.log(`  gridStartX = ${params.gridStartX}`);
+        console.log(`  gridStartY = ${params.gridStartY}`);
+        console.log(`  iconCenterOffsetX = ${params.iconCenterOffsetX}`);
+        console.log(`  iconCenterOffsetY = ${params.iconCenterOffsetY}`);
+        console.log(`  iconSize = ${params.iconSize}`);
 
         // 计算图标位置
         const positions = calculateIconPositions(panel, panelY, ctx);
