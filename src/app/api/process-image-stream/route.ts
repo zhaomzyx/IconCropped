@@ -217,12 +217,11 @@ export async function POST(request: NextRequest) {
               const iconBases = await detectIconBasesWithLLM(imageBuffer, metadata, panel, filename);
               console.log(`  Panel ${j} (${title}): detected ${iconBases.length} icons`);
 
-              // LLM已经按顺序返回了图标，不需要再聚类
-              const gridItems = iconBases.map((box, index) => ({
-                row: Math.floor(index / panel.cols),
-                col: index % panel.cols,
-                box: box
-              }));
+              // 根据坐标对图标底座进行排序（从上到下，从左到右）
+              // 使用聚类算法将图标分配到网格位置
+              const gridItems = clusterIconBasesToGrid(iconBases, panel.rows, panel.cols);
+
+              console.log(`  Grid items: ${gridItems.length}, rows=${panel.rows}, cols=${panel.cols}`);
 
               // 计算总行数和总列数
               const totalRows = gridItems.length > 0 ? Math.max(...gridItems.map(g => g.row)) + 1 : 1;
@@ -619,4 +618,77 @@ async function detectIconBasesWithLLM(
     console.error('LLM icon base detection failed:', error);
     throw new Error(`LLM图标底座识别失败: ${error instanceof Error ? error.message : '未知错误'}`);
   }
+}
+
+// 将图标底座聚类到网格位置（从上到下，从左到右）
+function clusterIconBasesToGrid(
+  iconBases: BoundingBox[],
+  expectedRows: number,
+  expectedCols: number
+): GridItem[] {
+  console.log(`  Clustering ${iconBases.length} icon bases to ${expectedRows}x${expectedCols} grid...`);
+
+  if (iconBases.length === 0) {
+    return [];
+  }
+
+  // 计算每个底座的中心点
+  const centers = iconBases.map(base => ({
+    x: base.x + base.width / 2,
+    y: base.y + base.height / 2,
+    box: base
+  }));
+
+  console.log(`  Icon centers:`, centers.map((c, i) => `#${i}(${Math.round(c.x)},${Math.round(c.y)})`).join(', '));
+
+  // 按y坐标排序（从上到下）
+  centers.sort((a, b) => a.y - b.y);
+
+  // 根据y坐标聚类到行
+  const rows: Array<{ y: number; items: typeof centers }> = [];
+  const yTolerance = 50; // y坐标容差（像素）
+
+  for (const center of centers) {
+    // 查找是否有匹配的行
+    const matchingRow = rows.find(r => Math.abs(center.y - r.y) < yTolerance);
+
+    if (matchingRow) {
+      matchingRow.items.push(center);
+      // 更新行的平均y坐标
+      matchingRow.y = matchingRow.items.reduce((sum, item) => sum + item.y, 0) / matchingRow.items.length;
+    } else {
+      rows.push({ y: center.y, items: [center] });
+    }
+  }
+
+  console.log(`  Detected ${rows.length} rows`);
+
+  // 对每一行内的图标按x坐标排序（从左到右）
+  const gridItems: GridItem[] = [];
+  let globalIndex = 0;
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex];
+
+    // 按x坐标排序
+    row.items.sort((a, b) => a.x - b.x);
+
+    console.log(`  Row ${rowIndex}: ${row.items.length} items at y=${Math.round(row.y)}`);
+
+    for (let colIndex = 0; colIndex < row.items.length; colIndex++) {
+      const item = row.items[colIndex];
+      gridItems.push({
+        row: rowIndex,
+        col: colIndex,
+        box: item.box
+      });
+
+      console.log(`    [${rowIndex},${colIndex}] #${globalIndex} center=(${Math.round(item.x)},${Math.round(item.y)})`);
+      globalIndex++;
+    }
+  }
+
+  console.log(`  Total grid items: ${gridItems.length}`);
+
+  return gridItems;
 }
