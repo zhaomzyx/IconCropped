@@ -138,24 +138,7 @@ export async function POST(request: NextRequest) {
 
             const image = sharp(imageBuffer);
 
-            // 阶段3：检查是否为调试模式
-            if (debug) {
-              // Debug模式：只保存图片，不进行LLM识别，让前端自己扫描面板
-              console.log('  Debug模式：跳过LLM识别，只保存图片');
-
-              sendEvent(controller, 'debug_complete', {
-                debugPanels: [], // 返回空数组，让前端自己初始化
-                imageMetadata: {
-                  width: metadata.width,
-                  height: metadata.height
-                }
-              });
-
-              controller.close();
-              return;
-            }
-
-            // 生产模式：使用LLM识别大板块
+            // 阶段3：使用LLM识别大板块（职责：建表，提供元数据）
             sendEvent(controller, 'progress', {
               step: 'detecting_panels',
               message: `🔍 图片 ${i + 1}/${filenames.length} - 一级裁切：正在识别大板块（LLM视觉识别）...`,
@@ -168,6 +151,38 @@ export async function POST(request: NextRequest) {
             const panelData = await detectPanelsWithLLM(imageBuffer, metadata, filename);
             console.log(`  LLM detected ${panelData.panels.length} panels`);
 
+            // Debug模式：返回Panel元数据（职责：建表），让前端Canvas夺权覆盖坐标
+            if (debug) {
+              const debugPanels = panelData.panels.map((panel, idx) => {
+                return {
+                  title: panel.title || `板块_${idx + 1}`,
+                  x: 0,  // LLM的X不准，前端会覆盖
+                  y: 0,  // LLM的Y不准，前端会覆盖
+                  width: 0,  // LLM的width不准，前端会覆盖
+                  height: 0,  // LLM的height不准，前端会覆盖
+                  rows: panel.rows,  // 保留：用于前端双层for循环
+                  cols: panel.cols,  // 保留：用于前端双层for循环
+                  total: panel.total ?? (panel.rows * panel.cols),  // 保留：用于前端双层for循环
+                  imageUrl: ''  // 不需要保存大panel图片
+                };
+              });
+
+              console.log(`  Debug模式：返回 ${debugPanels.length} 个Panel的元数据（title, rows, cols）`);
+              console.log(`  前端Canvas将使用scanVerticalLine扫描覆盖Y坐标`);
+
+              sendEvent(controller, 'debug_complete', {
+                debugPanels: debugPanels,
+                imageMetadata: {
+                  width: metadata.width,
+                  height: metadata.height
+                }
+              });
+
+              controller.close();
+              return;
+            }
+
+            // 生产模式：继续执行裁切流程
             // 创建大panel缓存目录
             const bigPanelDir = path.join(cwd(), 'public', 'wiki-big-cropped', actualWikiName);
             try {
