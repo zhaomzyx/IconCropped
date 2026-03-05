@@ -312,6 +312,9 @@ export default function WikiDebugPage() {
       canvas.width = img.width;
       canvas.height = img.height;
 
+      console.log(`Canvas尺寸：实际=${img.width}x${img.height}, 显示=${canvas.clientWidth}x${canvas.clientHeight}`);
+      console.log(`缩放比例：X=${canvas.clientWidth / canvas.width}, Y=${canvas.clientHeight / canvas.height}`);
+
       // 绘制原图
       ctx.drawImage(img, 0, 0);
 
@@ -1205,6 +1208,57 @@ export default function WikiDebugPage() {
             </Card>
           </div>
         </div>
+      )}
+
+      {/* 调试信息 */}
+      {imageUrl && canvasRef.current && (
+        <Card className="mt-6 bg-yellow-50">
+          <CardHeader>
+            <CardTitle className="text-yellow-800">调试信息</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-yellow-900">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <strong>Canvas 实际尺寸：</strong>
+                <p>{canvasRef.current.width} x {canvasRef.current.height} 像素</p>
+              </div>
+              <div>
+                <strong>Canvas 显示尺寸：</strong>
+                <p>{canvasRef.current.clientWidth} x {canvasRef.current.clientHeight} 像素</p>
+              </div>
+              <div>
+                <strong>缩放比例：</strong>
+                <p>X: {(canvasRef.current.clientWidth / canvasRef.current.width * 100).toFixed(1)}%</p>
+                <p>Y: {(canvasRef.current.clientHeight / canvasRef.current.height * 100).toFixed(1)}%</p>
+              </div>
+              <div>
+                <strong>图片 URL：</strong>
+                <p className="text-xs break-all">{imageUrl}</p>
+              </div>
+            </div>
+            <div className="mt-4 p-3 bg-yellow-100 rounded">
+              <strong>红框坐标示例（选中面板的第一个图标）：</strong>
+              {selectedPanelIndex < debugPanels.length && (() => {
+                const positions = calculateIconPositions(
+                  debugPanels[selectedPanelIndex],
+                  0, // 只用于示例
+                  canvasRef.current.getContext('2d')!
+                );
+                if (positions.length > 0) {
+                  const pos = positions[0];
+                  return (
+                    <div className="mt-2 text-xs">
+                      <p>左上角：x={pos.x}, y={pos.y}</p>
+                      <p>中心点：x={pos.x + Math.round(pos.width / 2)}, y={pos.y + Math.round(pos.height / 2)}</p>
+                      <p>尺寸：{pos.width} x {pos.height}</p>
+                    </div>
+                  );
+                }
+                return <p className="mt-2">无图标</p>;
+              })()}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* 图例说明 */}

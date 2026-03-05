@@ -222,6 +222,9 @@ export async function POST(request: NextRequest) {
 
     console.log(`原始图片尺寸: ${metadata.width}x${metadata.height}`);
 
+    // 检查图片是否有旋转信息
+    console.log(`图片元数据: orientation=${metadata.orientation}, density=${metadata.density}`);
+
     const results: CropResult[] = [];
 
     // 遍历所有面板（蓝框）
