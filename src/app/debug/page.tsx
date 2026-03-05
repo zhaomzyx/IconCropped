@@ -44,6 +44,8 @@ export default function WikiDebugPage() {
     gridStartX: 69,
     gridStartY: 107,
     iconSize: 132,
+    iconCenterOffsetX: 66,   // 图标中心点 X 偏移（默认为 iconSize / 2）
+    iconCenterOffsetY: 66,   // 图标中心点 Y 偏移（默认为 iconSize / 2）
     gapX: 14,
     gapY: 12,
     scanLineX: 86,          // 扫描线 X 坐标
@@ -136,14 +138,14 @@ export default function WikiDebugPage() {
     return variance / (count * 3); // 返回平均方差
   };
 
-  // 计算图标位置（支持 total 限制 + 空图标过滤）
+  // 计算图标位置（支持 total 限制 + 空图标过滤）- 使用中心点定位
   const calculateIconPositions = useCallback((
     panel: DebugPanel,
     panelY: number,
     ctx: CanvasRenderingContext2D
   ): IconPosition[] => {
     const { width, rows, cols, total } = panel;
-    const { gridStartX, gridStartY, iconSize, gapX, gapY, panelLeftOffset } = params;
+    const { gridStartX, gridStartY, iconSize, gapX, gapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY } = params;
 
     const startX = panel.x + panelLeftOffset + gridStartX;
     const startY = panelY + gridStartY;
@@ -159,6 +161,7 @@ export default function WikiDebugPage() {
 
     console.log(`  开始扫描图标位置，rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
     console.log(`  方差阈值: ${varianceThreshold}, 核心区域大小: ${coreSize}x${coreSize}`);
+    console.log(`  中心点偏移: iconCenterOffsetX=${iconCenterOffsetX}, iconCenterOffsetY=${iconCenterOffsetY}`);
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -167,24 +170,29 @@ export default function WikiDebugPage() {
           break;
         }
 
-        const x = Math.round(startX + col * (iconSize + gapX));
-        const y = Math.round(startY + row * (iconSize + gapY));
+        // 计算中心点坐标
+        const centerX = Math.round(startX + col * (iconSize + gapX) + iconCenterOffsetX);
+        const centerY = Math.round(startY + row * (iconSize + gapY) + iconCenterOffsetY);
+
+        // 从中心点计算左上角坐标（用于红框绘制）
+        const x = centerX - Math.round(iconSize / 2);
+        const y = centerY - Math.round(iconSize / 2);
 
         // 获取icon中心区域的像素（用于检测空图标）
-        const coreX = x + Math.floor((iconSize - coreSize) / 2);
-        const coreY = y + Math.floor((iconSize - coreSize) / 2);
+        const coreX = centerX - Math.floor(coreSize / 2);
+        const coreY = centerY - Math.floor(coreSize / 2);
 
         // 计算中心区域的颜色方差
         const variance = calculateColorVariance(imageData, coreX, coreY, coreSize, coreSize);
 
         const hasIcon = variance >= varianceThreshold;
 
-        console.log(`  [${row}, ${col}] 位置: x=${x}, y=${y}, 方差=${variance.toFixed(2)}, ${hasIcon ? '✓ 有图标' : '✗ 空图标'}`);
+        console.log(`  [${row}, ${col}] 中心点: center(${centerX}, ${centerY}), 左上角: x=${x}, y=${y}, 方差=${variance.toFixed(2)}, ${hasIcon ? '✓ 有图标' : '✗ 空图标'}`);
 
         if (hasIcon) {
           positions.push({
-            x,
-            y,
+            x,  // 左上角 X
+            y,  // 左上角 Y
             width: iconSize,
             height: iconSize,
             row,
@@ -676,7 +684,7 @@ export default function WikiDebugPage() {
           title: panel.title,
           x: panelX,
           y: panelY,
-          width: panelWidth,
+          width: params.panelWidth,
           height: currentPanelHeight,
           rows: panel.rows,
           cols: panel.cols,
@@ -876,6 +884,48 @@ export default function WikiDebugPage() {
                       className="w-20 text-center"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium">中心点 X 偏移 (Center Offset X)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.iconCenterOffsetX]}
+                      onValueChange={([v]) => handleParamChange('iconCenterOffsetX', v)}
+                      min={-200}
+                      max={500}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.iconCenterOffsetX}
+                      onChange={(e) => handleParamChange('iconCenterOffsetX', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">图标中心点相对于 gridStartX 的 X 偏移</p>
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium">中心点 Y 偏移 (Center Offset Y)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.iconCenterOffsetY]}
+                      onValueChange={([v]) => handleParamChange('iconCenterOffsetY', v)}
+                      min={-200}
+                      max={500}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.iconCenterOffsetY}
+                      onChange={(e) => handleParamChange('iconCenterOffsetY', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">图标中心点相对于 gridStartY 的 Y 偏移</p>
                 </div>
 
                 <div>
