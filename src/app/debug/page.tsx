@@ -62,10 +62,10 @@ export default function WikiDebugPage() {
     iconCenterOffsetY: 66,   // 首个图标中心点 Y 偏移
     centerGapX: 146,         // 中心点横向间距（默认 iconSize + gap）
     centerGapY: 144,         // 中心点纵向间距（默认 iconSize + gap）
-    scanLineX: 86,           // 扫描线 X 坐标
+    scanLineX: 49,           // 扫描线 X 坐标（调整到面板左边界附近）
     scanStartY: 200,         // 扫描起始 Y 坐标
-    colorTolerance: 50,      // 颜色容差值
-    sustainedPixels: 10,     // 连续判定高度（滑动窗口）
+    colorTolerance: 30,      // 颜色容差值（降低以提高灵敏度）
+    sustainedPixels: 5,      // 连续判定高度（减少以提高灵敏度）
     panelWidth: 876,         // 蓝框宽度（Panel外边缘）
     greenBoxWidth: 876,      // 绿框宽度（标题区域）
   };
@@ -188,7 +188,7 @@ export default function WikiDebugPage() {
     let count = 0;
     const maxCount = total ?? (rows * cols); // 如果没有 total，则使用 rows * cols
     const coreSize = 30; // 核心区域大小（正方形）
-    const varianceThreshold = 100; // 方差阈值，小于此值判定为空图标
+    const varianceThreshold = 50; // 方差阈值，小于此值判定为空图标（降低阈值以提高灵敏度）
 
     // 获取完整的像素数据
     const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -304,12 +304,17 @@ export default function WikiDebugPage() {
     };
 
     const backgroundColor = getPixelColor(scanLineX, scanStartY);
+    console.log(`[扫描线检测] 背景色: (${backgroundColor.join(', ')})`);
+    console.log(`[扫描线检测] 参数: scanLineX=${scanLineX}, scanStartY=${scanStartY}, colorTolerance=${colorTolerance}, sustainedPixels=${sustainedPixels}`);
 
     // 滑动窗口算法
     let isPanel = false;
     let consecutiveBg = 0;    // 连续背景色计数器
     let consecutivePanel = 0; // 连续面板色计数器
     const requiredPixels = sustainedPixels;
+
+    // 检测所有颜色变化点（包括深色→浅色和浅色→深色）
+    const transitions: { y: number; toPanel: boolean }[] = [];
 
     // 从 Y=scanStartY 扫描到底部（跳过顶部杂乱区域）
     for (let y = scanStartY; y < height; y++) {
@@ -326,8 +331,9 @@ export default function WikiDebugPage() {
           const actualStartY = y - requiredPixels + 1;
           panelStartYs.push(actualStartY);
           isPanel = true;
+          transitions.push({ y: actualStartY, toPanel: true });
 
-          console.log(`Panel started at Y=${actualStartY} (detected at Y=${y})`);
+          console.log(`[扫描线检测] 面板 ${panelStartYs.length} 开始: Y=${actualStartY} (检测于 Y=${y})`);
         }
       } else {
         // 识别为深色背景区域
@@ -337,12 +343,15 @@ export default function WikiDebugPage() {
         if (isPanel && consecutiveBg >= requiredPixels) {
           // 面板结束
           isPanel = false;
-          console.log(`Panel ended at Y=${y - requiredPixels + 1} (detected at Y=${y})`);
+          transitions.push({ y: y - requiredPixels + 1, toPanel: false });
+          console.log(`[扫描线检测] 面板结束: Y=${y - requiredPixels + 1} (检测于 Y=${y})`);
         }
       }
     }
 
-    console.log(`Scanned ${panelStartYs.length} panel start positions from Y=${scanStartY} (sustained=${requiredPixels}):`, panelStartYs);
+    console.log(`[扫描线检测] 共检测到 ${panelStartYs.length} 个面板起始位置:`, panelStartYs);
+    console.log(`[扫描线检测] 检测到的转换点:`, transitions);
+
     return panelStartYs;
   }, []);
 
@@ -483,6 +492,31 @@ export default function WikiDebugPage() {
           ctx.lineTo(params.scanLineX, canvas.height);
           ctx.stroke();
           ctx.setLineDash([]);
+
+          // 在扫描线上显示颜色变化点（调试用）
+          const { data } = imageData;
+          const getPixelColor = (x: number, y: number): [number, number, number] => {
+            const index = (y * imageData.width + x) * 4;
+            return [data[index], data[index + 1], data[index + 2]];
+          };
+          const backgroundColor = getPixelColor(params.scanLineX, params.scanStartY);
+
+          // 每隔 20 像素显示一个颜色指示器
+          for (let y = params.scanStartY; y < canvas.height; y += 20) {
+            const currentColor = getPixelColor(params.scanLineX, y);
+            const diff = colorDiff(currentColor, backgroundColor);
+
+            // 如果颜色差异超过容差值，绘制红色标记
+            if (diff > params.colorTolerance) {
+              ctx.fillStyle = '#FF0000';
+              ctx.fillRect(params.scanLineX - 2, y, 4, 4);
+            }
+          }
+
+          // 在扫描线旁边标注参数
+          ctx.fillStyle = '#FFA500';
+          ctx.font = '12px monospace';
+          ctx.fillText(`X=${params.scanLineX}, T=${params.colorTolerance}, S=${params.sustainedPixels}`, params.scanLineX + 5, params.scanStartY - 10);
         }
       }
 
