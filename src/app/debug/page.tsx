@@ -552,8 +552,22 @@ export default function WikiDebugPage() {
         const panelX = panel.x + params.panelLeftOffset;
         const panelY = absolutePanelY;
 
+        // 详细日志：计算前的参数
+        console.log(`\n面板 ${i + 1} (${panel.title}) 计算前的参数:`);
+        console.log(`  LLM识别: x=${panel.x}, y=${panel.y}, width=${panel.width}, rows=${panel.rows}, cols=${panel.cols}`);
+        console.log(`  滑动窗口: panelStartYs[${i}]=${panelStartYs[i]}`);
+        console.log(`  调试参数: panelLeftOffset=${params.panelLeftOffset}, gridStartX=${params.gridStartX}, gridStartY=${params.gridStartY}`);
+        console.log(`  计算后: panelX=${panelX}, panelY=${panelY}`);
+
         // 计算图标位置
         const positions = calculateIconPositions(panel, panelY);
+        console.log(`  calculateIconPositions 返回了 ${positions.length} 个位置:`);
+        positions.forEach((pos, idx) => {
+          if (idx < 3 || idx === positions.length - 1) { // 只显示前3个和最后一个
+            console.log(`    Icon #${idx + 1}: x=${pos.x}, y=${pos.y}, w=${pos.width}, h=${pos.height}`);
+          }
+        });
+
         const usedRows = positions.length > 0
           ? Math.ceil(positions[positions.length - 1].row + 1)
           : 1;
@@ -586,16 +600,10 @@ export default function WikiDebugPage() {
           height: pos.height,
         }));
 
-        console.log(`面板 ${i + 1} 坐标:`, {
-          title: panel.title,
-          panelX: Math.round(panelX),
-          panelY: Math.round(panelY),
-          panelWidth: Math.round(panelWidth),
-          panelHeight: Math.round(currentPanelHeight),
-          blueBox: { x: Math.round(blueBox.x), y: Math.round(blueBox.y), w: Math.round(blueBox.width), h: Math.round(blueBox.height) },
-          firstIcon: redBoxes[0] ? { x: Math.round(redBoxes[0].x), y: Math.round(redBoxes[0].y) } : null,
-          redBoxCount: redBoxes.length,
-        });
+        console.log(`  最终坐标:`);
+        console.log(`    BlueBox: x=${Math.round(blueBox.x)}, y=${Math.round(blueBox.y)}, w=${Math.round(blueBox.width)}, h=${Math.round(blueBox.height)}`);
+        console.log(`    GreenBox: x=${Math.round(greenBox.x)}, y=${Math.round(greenBox.y)}, w=${Math.round(greenBox.width)}, h=${Math.round(greenBox.height)}`);
+        console.log(`    RedBox Count: ${redBoxes.length}`);
 
         return {
           title: panel.title,

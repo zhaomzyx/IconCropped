@@ -229,6 +229,21 @@ export async function POST(request: NextRequest) {
 
     console.log(`开始裁切：共 ${debugPanels.length} 个面板`);
     console.log(`图片URL: ${imageUrl}`);
+    console.log(`\n接收到的调试面板数据:`);
+    debugPanels.forEach((panel, i) => {
+      console.log(`\n面板 ${i + 1}: ${panel.title}`);
+      console.log(`  坐标: x=${panel.x}, y=${panel.y}, width=${panel.width}, height=${panel.height}`);
+      console.log(`  网格: rows=${panel.rows}, cols=${panel.cols}, total=${panel.total}`);
+      if (panel.blueBox) {
+        console.log(`  蓝框: x=${panel.blueBox.x}, y=${panel.blueBox.y}, w=${panel.blueBox.width}, h=${panel.blueBox.height}`);
+      }
+      if (panel.redBoxes && panel.redBoxes.length > 0) {
+        console.log(`  红框数量: ${panel.redBoxes.length}`);
+        panel.redBoxes.slice(0, 3).forEach((box, idx) => { // 只显示前3个
+          console.log(`    红框 #${idx + 1}: x=${box.x}, y=${box.y}, w=${box.width}, h=${box.height}`);
+        });
+      }
+    });
 
     // 获取原始图片（支持URL或本地文件路径）
     let imageBuffer: Buffer;
@@ -324,6 +339,11 @@ export async function POST(request: NextRequest) {
           // 计算行列号
           const row = Math.floor(iconIndex / panel.cols);
           const col = iconIndex % panel.cols;
+
+          // 详细日志：裁切坐标
+          if (iconIndex < 3 || iconIndex === panel.redBoxes.length - 1) { // 只显示前3个和最后一个
+            console.log(`    裁切 Icon #${iconIndex + 1}: x=${Math.round(redBox.x)}, y=${Math.round(redBox.y)}, w=${Math.round(redBox.width)}, h=${Math.round(redBox.height)}, row=${row}, col=${col}`);
+          }
 
           const result = await cropIconFromRedBox(
             imageBuffer,
