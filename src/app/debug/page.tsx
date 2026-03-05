@@ -622,8 +622,6 @@ export default function WikiDebugPage() {
           height: vRange.endY - vRange.startY,
         };
       });
-        };
-      });
 
       // 3. 遍历所有panel，使用检测到的坐标绘制
       for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
@@ -772,8 +770,8 @@ export default function WikiDebugPage() {
       ctx.lineTo(canvas.width, params.scanStartY);
       ctx.stroke();
       ctx.setLineDash([]);
-    };
-    img.src = imageUrl;
+      img.src = imageUrl;
+  };
   }, [imageUrl, debugPanels, selectedPanelIndex, params, scanVerticalLine, scanHorizontalLine, calculateIconPositions]);
 
   // 重新绘制Canvas
