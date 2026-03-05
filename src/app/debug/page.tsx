@@ -68,6 +68,9 @@ export default function WikiDebugPage() {
     sustainedPixels: 5,      // 连续判定高度（减少以提高灵敏度）
     panelWidth: 876,         // 蓝框宽度（Panel外边缘）
     greenBoxWidth: 876,      // 绿框宽度（标题区域）
+    // X轴检测参数（用于检测panel宽度和小panel位置）
+    colorToleranceX: 30,     // X轴颜色容差值
+    sustainedPixelsX: 5,     // X轴连续判定宽度
   };
 
   // 复制日志到剪贴板
@@ -273,7 +276,12 @@ export default function WikiDebugPage() {
     );
   };
 
-  // 垂直像素扫描（滑动窗口算法），找出所有面板的起始 Y 坐标
+  // 垂直像素扫描（滑动窗口算法），找出所有面板的 Y 坐标范围
+  interface PanelVerticalRange {
+    startY: number;
+    endY: number;
+  }
+
   const scanVerticalLine = useCallback((
     imageData: ImageData,
     scanLineX: number,
@@ -282,19 +290,19 @@ export default function WikiDebugPage() {
     sustainedPixels: number,
     width: number,
     height: number
-  ): number[] => {
+  ): PanelVerticalRange[] => {
     const { data } = imageData;
-    const panelStartYs: number[] = [];
+    const panels: PanelVerticalRange[] = [];
 
     // 边界检查
     if (scanLineX < 0 || scanLineX >= width) {
       console.warn(`Scan line X (${scanLineX}) is out of image bounds (${width})`);
-      return panelStartYs;
+      return panels;
     }
 
     if (scanStartY < 0 || scanStartY >= height) {
       console.warn(`Scan start Y (${scanStartY}) is out of image bounds (${height})`);
-      return panelStartYs;
+      return panels;
     }
 
     // 获取主背景色（从起始坐标开始）
@@ -304,17 +312,14 @@ export default function WikiDebugPage() {
     };
 
     const backgroundColor = getPixelColor(scanLineX, scanStartY);
-    console.log(`[扫描线检测] 背景色: (${backgroundColor.join(', ')})`);
-    console.log(`[扫描线检测] 参数: scanLineX=${scanLineX}, scanStartY=${scanStartY}, colorTolerance=${colorTolerance}, sustainedPixels=${sustainedPixels}`);
+    console.log(`[Y轴检测] 背景色: (${backgroundColor.join(', ')})`);
+    console.log(`[Y轴检测] 参数: scanLineX=${scanLineX}, scanStartY=${scanStartY}, colorTolerance=${colorTolerance}, sustainedPixels=${sustainedPixels}`);
 
     // 滑动窗口算法
-    let isPanel = false;
+    let inPanel = false;
     let consecutiveBg = 0;    // 连续背景色计数器
     let consecutivePanel = 0; // 连续面板色计数器
-    const requiredPixels = sustainedPixels;
-
-    // 检测所有颜色变化点（包括深色→浅色和浅色→深色）
-    const transitions: { y: number; toPanel: boolean }[] = [];
+    let currentStartY = 0;
 
     // 从 Y=scanStartY 扫描到底部（跳过顶部杂乱区域）
     for (let y = scanStartY; y < height; y++) {
@@ -322,37 +327,134 @@ export default function WikiDebugPage() {
       const diff = colorDiff(currentColor, backgroundColor);
 
       if (diff > colorTolerance) {
-        // 识别为浅色面板区域
+        // 进入panel区域（背景→面板）
         consecutivePanel++;
         consecutiveBg = 0;
 
-        if (!isPanel && consecutivePanel >= requiredPixels) {
-          // 真正的起点是几十个像素之前突变的那个点
-          const actualStartY = y - requiredPixels + 1;
-          panelStartYs.push(actualStartY);
-          isPanel = true;
-          transitions.push({ y: actualStartY, toPanel: true });
-
-          console.log(`[扫描线检测] 面板 ${panelStartYs.length} 开始: Y=${actualStartY} (检测于 Y=${y})`);
+        if (!inPanel && consecutivePanel >= sustainedPixels) {
+          inPanel = true;
+          currentStartY = y - sustainedPixels + 1;
+          console.log(`[Y轴检测] Panel ${panels.length + 1} 上Y轴: ${currentStartY} (检测于 Y=${y})`);
         }
       } else {
-        // 识别为深色背景区域
+        // 离开panel区域（面板→背景）
         consecutiveBg++;
         consecutivePanel = 0;
 
-        if (isPanel && consecutiveBg >= requiredPixels) {
-          // 面板结束
-          isPanel = false;
-          transitions.push({ y: y - requiredPixels + 1, toPanel: false });
-          console.log(`[扫描线检测] 面板结束: Y=${y - requiredPixels + 1} (检测于 Y=${y})`);
+        if (inPanel && consecutiveBg >= sustainedPixels) {
+          inPanel = false;
+          const endY = y - sustainedPixels + 1;
+          console.log(`[Y轴检测] Panel ${panels.length + 1} 下Y轴: ${endY}, 高度: ${endY - currentStartY}`);
+          panels.push({ startY: currentStartY, endY: endY });
         }
       }
     }
 
-    console.log(`[扫描线检测] 共检测到 ${panelStartYs.length} 个面板起始位置:`, panelStartYs);
-    console.log(`[扫描线检测] 检测到的转换点:`, transitions);
+    console.log(`[Y轴检测] 共检测到 ${panels.length} 个panel`);
+    return panels;
+  }, []);
 
-    return panelStartYs;
+  // 水平像素扫描（滑动窗口算法），检测panel宽度和小panel位置
+  interface PanelHorizontalRange {
+    startX: number;
+    endX: number;
+    iconCenters: number[]; // 每个小panel的中心X坐标
+  }
+
+  const scanHorizontalLine = useCallback((
+    imageData: ImageData,
+    midY: number,
+    colorTolerance: number,
+    sustainedPixels: number,
+    width: number
+  ): PanelHorizontalRange | null => {
+    const { data } = imageData;
+
+    // 获取背景色（从左边开始）
+    const getPixelColor = (x: number, y: number): [number, number, number] => {
+      const index = (y * width + x) * 4;
+      return [data[index], data[index + 1], data[index + 2]];
+    };
+
+    const backgroundColor = getPixelColor(0, midY);
+    console.log(`[X轴检测] 中间横线 Y: ${midY}, 背景色: (${backgroundColor.join(', ')})`);
+    console.log(`[X轴检测] 参数: colorTolerance=${colorTolerance}, sustainedPixels=${sustainedPixels}`);
+
+    // 滑动窗口算法
+    let inPanel = false;
+    let consecutiveBg = 0;
+    let consecutivePanel = 0;
+    let startX = 0;
+    let endX = 0;
+    let currentIconStart = 0;
+    const iconCenters: number[] = [];
+
+    for (let x = 0; x < width; x++) {
+      const currentColor = getPixelColor(x, midY);
+      const diff = colorDiff(currentColor, backgroundColor);
+
+      if (diff > colorTolerance) {
+        // 进入panel区域（背景→面板）
+        consecutivePanel++;
+        consecutiveBg = 0;
+
+        if (!inPanel && consecutivePanel >= sustainedPixels) {
+          inPanel = true;
+          const panelStartX = x - sustainedPixels + 1;
+          currentIconStart = panelStartX;
+          
+          // 第一次进入时，记录大panel的起始X
+          if (iconCenters.length === 0) {
+            startX = panelStartX;
+            console.log(`[X轴检测] 大panel左边界: ${startX}`);
+          } else {
+            // 不是第一次进入，说明是一个新的小panel
+            console.log(`[X轴检测] 小panel ${iconCenters.length + 1} 左边界: ${panelStartX}`);
+          }
+        }
+      } else {
+        // 离开panel区域（面板→背景）
+        consecutiveBg++;
+        consecutivePanel = 0;
+
+        if (inPanel && consecutiveBg >= sustainedPixels) {
+          inPanel = false;
+          const panelEndX = x - sustainedPixels + 1;
+          
+          // 计算当前小panel的中心点
+          const iconCenterX = (currentIconStart + panelEndX) / 2;
+          iconCenters.push(iconCenterX);
+          console.log(`[X轴检测] 小panel ${iconCenters.length} 右边界: ${panelEndX}, 中心点: ${iconCenterX.toFixed(1)}`);
+        }
+      }
+    }
+
+    // 如果扫描到右边还没有回到背景色，假设右边界是图片宽度
+    if (inPanel) {
+      endX = width;
+      const iconCenterX = (currentIconStart + endX) / 2;
+      iconCenters.push(iconCenterX);
+      console.log(`[X轴检测] 大panel右边界: ${endX} (到图片边界), 最后一个小panel中心点: ${iconCenterX.toFixed(1)}`);
+    } else {
+      // 使用最后一个icon的右边界
+      if (iconCenters.length > 0) {
+        const lastIconStart = currentIconStart;
+        endX = currentIconStart + (currentIconStart - (iconCenters.length > 1 ? iconCenters[iconCenters.length - 2] * 2 - lastIconStart : 0)) * 2;
+        // 简化：使用最后一个icon的右边界
+        endX = Math.round(iconCenters[iconCenters.length - 1] + (iconCenters[iconCenters.length - 1] - currentIconStart));
+        console.log(`[X轴检测] 大panel右边界: ${endX} (基于最后一个icon计算)`);
+      }
+    }
+
+    if (iconCenters.length === 0) {
+      console.warn(`[X轴检测] 未检测到任何小panel`);
+      return null;
+    }
+
+    console.log(`[X轴检测] 检测到 ${iconCenters.length} 个小panel, 宽度: ${endX - startX}`);
+    console.log(`[X轴检测] 所有小panel中心点: [${iconCenters.map(c => c.toFixed(1)).join(', ')}]`);
+
+    return { startX, endX, iconCenters };
   }, []);
 
   // 绘制Canvas（使用绝对定位）
@@ -378,8 +480,8 @@ export default function WikiDebugPage() {
       // 获取像素数据用于扫描
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-      // 垂直扫描找出所有面板的起始 Y 坐标
-      const panelStartYs = scanVerticalLine(
+      // 1. Y轴检测：获得每个panel的Y坐标范围
+      const panelVerticalRanges = scanVerticalLine(
         imageData,
         params.scanLineX,
         params.scanStartY,
@@ -389,16 +491,36 @@ export default function WikiDebugPage() {
         canvas.height
       );
 
-      // 遍历所有面板，使用扫描到的绝对坐标
-      for (let i = 0; i < debugPanels.length; i++) {
+      // 2. X轴检测：对每个panel检测X坐标范围和小panel位置
+      const panelRanges = panelVerticalRanges.map((vRange, index) => {
+        const midY = Math.round((vRange.startY + vRange.endY) / 2);
+        console.log(`\n[Panel ${index + 1}] 中间横线 Y: ${midY}`);
+        
+        const hRange = scanHorizontalLine(
+          imageData,
+          midY,
+          params.colorToleranceX,
+          params.sustainedPixelsX,
+          canvas.width
+        );
+        
+        return {
+          startY: vRange.startY,
+          endY: vRange.endY,
+          startX: hRange?.startX ?? 0,
+          endX: hRange?.endX ?? 0,
+          width: hRange ? hRange.endX - hRange.startX : 0,
+          height: vRange.endY - vRange.startY,
+          iconCenters: hRange?.iconCenters ?? [],
+          midY: midY
+        };
+      });
+
+      // 3. 遍历所有panel，使用检测到的坐标绘制
+      for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
         const panel = debugPanels[i];
+        const range = panelRanges[i];
         const isSelected = i === selectedPanelIndex;
-
-        // 使用扫描到的绝对坐标
-        const absolutePanelY = panelStartYs[i] ?? (params.panelTopOffset + i * 200); // 备用方案
-
-        const panelX = panel.x + params.panelLeftOffset;
-        const panelY = absolutePanelY;
 
         // 绘制时的详细日志（只记录选中的面板）
         if (isSelected) {
@@ -406,80 +528,91 @@ export default function WikiDebugPage() {
           console.log(`[LLM 识别的原始坐标]`);
           console.log(`  panel.x = ${panel.x}`);
           console.log(`  panel.y = ${panel.y}`);
-          console.log(`[扫描线检测结果]`);
-          console.log(`  panelStartYs[${i}] = ${panelStartYs[i]}`);
-          console.log(`  absolutePanelY = ${absolutePanelY}`);
+          console.log(`[Y轴检测结果]`);
+          console.log(`  startY = ${range.startY}, endY = ${range.endY}, height = ${range.height}`);
+          console.log(`[X轴检测结果]`);
+          console.log(`  startX = ${range.startX}, endX = ${range.endX}, width = ${range.width}`);
+          console.log(`  检测到 ${range.iconCenters.length} 个小panel`);
+          console.log(`  所有中心点: [${range.iconCenters.map(c => c.toFixed(1)).join(', ')}]`);
           console.log(`[面板左上角坐标]`);
-          console.log(`  panelX = panel.x + panelLeftOffset = ${panel.x} + ${params.panelLeftOffset} = ${panelX}`);
-          console.log(`  panelY = ${absolutePanelY}`);
-          console.log(`[首个图标预期位置]`);
-          const firstIconX = panelX + params.gridStartX + params.iconCenterOffsetX - params.iconSize / 2;
-          const firstIconY = panelY + params.gridStartY + params.iconCenterOffsetY - params.iconSize / 2;
-          console.log(`  firstIconX = panelX + gridStartX + iconCenterOffsetX - iconSize/2 = ${firstIconX}`);
-          console.log(`  firstIconY = panelY + gridStartY + iconCenterOffsetY - iconSize/2 = ${firstIconY}`);
+          console.log(`  x = ${range.startX}, y = ${range.startY}`);
+          console.log(`  尺寸 = ${range.width}x${range.height}`);
         }
-
-        // 计算图标区域的实际高度（基于实际使用的行数）
-        const positions = calculateIconPositions(panel, panelY, ctx);
-        const usedRows = positions.length > 0
-          ? Math.ceil(positions[positions.length - 1].row + 1)
-          : 1;
-        // 使用中心点间距计算高度：第一个图标顶部 + (行数-1) * 中心点间距 + 图标大小
-        const firstIconTop = panelY + params.gridStartY + params.iconCenterOffsetY - Math.round(params.iconSize / 2);
-        const iconAreaHeight = usedRows > 0 
-          ? firstIconTop + (usedRows - 1) * params.centerGapY + params.iconSize - firstIconTop
-          : params.iconSize;
-
-        // 计算当前大框的实际总高度
-        const currentPanelHeight = params.gridStartY + iconAreaHeight;
 
         // 绘制蓝色框（Panel外边缘）
         ctx.strokeStyle = isSelected ? '#3B82F6' : '#93C5FD'; // 选中时深蓝，未选中时浅蓝
         ctx.lineWidth = isSelected ? 3 : 2;
-        ctx.strokeRect(panelX, panelY, params.panelWidth, currentPanelHeight);
+        ctx.strokeRect(range.startX, range.startY, range.width, range.height);
 
         // 绘制蓝框坐标
         ctx.fillStyle = isSelected ? '#3B82F6' : '#93C5FD';
         ctx.font = '10px monospace';
         ctx.fillText(
-          `(${Math.round(panelX)}, ${Math.round(panelY)}) ${Math.round(params.panelWidth)}x${Math.round(currentPanelHeight)}`,
-          panelX + 5,
-          panelY + 12
+          `(${Math.round(range.startX)}, ${Math.round(range.startY)}) ${Math.round(range.width)}x${Math.round(range.height)}`,
+          range.startX + 5,
+          range.startY + 12
         );
 
         // 绘制绿色框（标题区域）
         ctx.strokeStyle = '#22C55E';
         ctx.lineWidth = 2;
-        ctx.strokeRect(panelX, panelY, params.greenBoxWidth, params.gridStartY);
+        ctx.strokeRect(range.startX, range.startY, range.width, params.gridStartY);
 
         // 绘制绿框坐标
         ctx.fillStyle = '#22C55E';
         ctx.font = '10px monospace';
         ctx.fillText(
-          `(${Math.round(panelX)}, ${Math.round(panelY)})`,
-          panelX + 5,
-          panelY + 24
+          `(${Math.round(range.startX)}, ${Math.round(range.startY)})`,
+          range.startX + 5,
+          range.startY + 24
         );
 
-        // 绘制红色框（图标位置）
-        positions.forEach((pos, index) => {
+        // 绘制中间横线（用于X轴检测）
+        if (isSelected) {
+          ctx.strokeStyle = '#00FF00'; // 绿色
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(range.startX, range.midY);
+          ctx.lineTo(range.endX, range.midY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.fillStyle = '#00FF00';
+          ctx.font = '10px monospace';
+          ctx.fillText(`midY=${range.midY}`, range.startX + 5, range.midY - 5);
+        }
+
+        // 绘制红色框（使用检测到的中心点）
+        range.iconCenters.forEach((centerX, index) => {
+          const iconX = centerX - params.iconSize / 2;
+          const iconY = range.startY + params.gridStartY + params.iconCenterOffsetY - params.iconSize / 2;
+
           ctx.strokeStyle = '#EF4444';
           ctx.lineWidth = 2;
-          ctx.strokeRect(pos.x, pos.y, pos.width, pos.height);
+          ctx.strokeRect(iconX, iconY, params.iconSize, params.iconSize);
 
           // 绘制序号
           ctx.fillStyle = '#EF4444';
           ctx.font = '12px Arial';
-          ctx.fillText(`#${index + 1}`, pos.x + 3, pos.y + 15);
+          ctx.fillText(`#${index + 1}`, iconX + 3, iconY + 15);
 
           // 绘制红框坐标
           ctx.fillStyle = '#EF4444';
           ctx.font = '9px monospace';
           ctx.fillText(
-            `(${Math.round(pos.x)}, ${Math.round(pos.y)})`,
-            pos.x + 3,
-            pos.y + pos.height - 3
+            `(${Math.round(iconX)}, ${Math.round(iconY)})`,
+            iconX + 3,
+            iconY + params.iconSize - 3
           );
+
+          // 绘制中心点标记
+          if (isSelected) {
+            ctx.fillStyle = '#FF00FF';
+            ctx.beginPath();
+            ctx.arc(centerX, iconY + params.iconSize / 2, 3, 0, 2 * Math.PI);
+            ctx.fill();
+          }
         });
 
         // 绘制扫描线（用于调试）
@@ -531,7 +664,7 @@ export default function WikiDebugPage() {
       ctx.setLineDash([]);
     };
     img.src = imageUrl;
-  }, [imageUrl, debugPanels, selectedPanelIndex, params, calculateIconPositions, scanVerticalLine]);
+  }, [imageUrl, debugPanels, selectedPanelIndex, params, scanVerticalLine, scanHorizontalLine]);
 
   // 重新绘制Canvas
   useEffect(() => {
@@ -748,8 +881,8 @@ export default function WikiDebugPage() {
       // 获取像素数据
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-      // 扫描面板起始位置
-      const panelStartYs = scanVerticalLine(
+      // 1. Y轴检测：获得每个panel的Y坐标范围
+      const panelVerticalRanges = scanVerticalLine(
         imageData,
         params.scanLineX,
         params.scanStartY,
@@ -759,73 +892,72 @@ export default function WikiDebugPage() {
         canvas.height
       );
 
+      // 2. X轴检测：对每个panel检测X坐标范围和小panel位置
+      const panelRanges = panelVerticalRanges.map((vRange, index) => {
+        const midY = Math.round((vRange.startY + vRange.endY) / 2);
+        
+        const hRange = scanHorizontalLine(
+          imageData,
+          midY,
+          params.colorToleranceX,
+          params.sustainedPixelsX,
+          canvas.width
+        );
+        
+        return {
+          startY: vRange.startY,
+          endY: vRange.endY,
+          startX: hRange?.startX ?? 0,
+          endX: hRange?.endX ?? 0,
+          width: hRange ? hRange.endX - hRange.startX : 0,
+          height: vRange.endY - vRange.startY,
+          iconCenters: hRange?.iconCenters ?? [],
+          midY: midY
+        };
+      });
+
       // 收集所有面板的坐标数据
-      const exportPanels = debugPanels.map((panel, i) => {
-        const absolutePanelY = panelStartYs[i] ?? (params.panelTopOffset + i * 200);
-        const panelX = panel.x + params.panelLeftOffset;
-        const panelY = absolutePanelY;
+      const exportPanels = panelRanges.map((range, i) => {
+        const panel = debugPanels[i];
+        const panelX = range.startX;
+        const panelY = range.startY;
 
         // 详细日志：计算前的参数
         logInfo(`\n========== 面板 ${i + 1} (${panel.title}) 坐标分析 ==========`);
-        logInfo(`[LLM 识别的原始坐标]`);
-        logInfo(`  panel.x = ${panel.x}`);
-        logInfo(`  panel.y = ${panel.y}`);
-        logInfo(`[扫描线检测结果]`);
-        logInfo(`  panelStartYs[${i}] = ${panelStartYs[i]}`);
-        logInfo(`  absolutePanelY = ${absolutePanelY}`);
-        logInfo(`[面板左上角坐标]`);
-        logInfo(`  panelX = panel.x + panelLeftOffset = ${panel.x} + ${params.panelLeftOffset} = ${panelX}`);
-        logInfo(`  panelY = ${absolutePanelY}`);
-        logInfo(`[参数说明]`);
-        logInfo(`  panelLeftOffset = ${params.panelLeftOffset}`);
-        logInfo(`  gridStartX = ${params.gridStartX}`);
-        logInfo(`  gridStartY = ${params.gridStartY}`);
-        logInfo(`  iconCenterOffsetX = ${params.iconCenterOffsetX}`);
-        logInfo(`  iconCenterOffsetY = ${params.iconCenterOffsetY}`);
-        logInfo(`  iconSize = ${params.iconSize}`);
-
-        // 计算图标位置
-        const positions = calculateIconPositions(panel, panelY, ctx);
-        logInfo(`  calculateIconPositions 返回了 ${positions.length} 个位置:`);
-        positions.forEach((pos, idx) => {
-          if (idx < 3 || idx === positions.length - 1) { // 只显示前3个和最后一个
-            logInfo(`    Icon #${idx + 1}: x=${pos.x}, y=${pos.y}, w=${pos.width}, h=${pos.height}`);
-          }
-        });
-
-        const usedRows = positions.length > 0
-          ? Math.ceil(positions[positions.length - 1].row + 1)
-          : 1;
-        // 使用中心点间距计算高度
-        const firstIconTop = panelY + params.gridStartY + params.iconCenterOffsetY - Math.round(params.iconSize / 2);
-        const iconAreaHeight = usedRows > 0 
-          ? firstIconTop + (usedRows - 1) * params.centerGapY + params.iconSize - firstIconTop
-          : params.iconSize;
-        const currentPanelHeight = params.gridStartY + iconAreaHeight;
+        logInfo(`[Y轴检测结果]`);
+        logInfo(`  startY = ${range.startY}, endY = ${range.endY}, height = ${range.height}`);
+        logInfo(`[X轴检测结果]`);
+        logInfo(`  startX = ${range.startX}, endX = ${range.endX}, width = ${range.width}`);
+        logInfo(`  检测到 ${range.iconCenters.length} 个小panel`);
+        logInfo(`  所有中心点: [${range.iconCenters.map(c => c.toFixed(1)).join(', ')}]`);
 
         // 蓝框坐标（一级裁切区域）
         const blueBox = {
-          x: panelX,
-          y: panelY,
-          width: params.panelWidth,
-          height: currentPanelHeight,
+          x: range.startX,
+          y: range.startY,
+          width: range.width,
+          height: range.height,
         };
 
         // 绿框坐标（标题区域）
         const greenBox = {
-          x: panelX,
-          y: panelY,
-          width: params.greenBoxWidth,
+          x: range.startX,
+          y: range.startY,
+          width: range.width,
           height: params.gridStartY,
         };
 
-        // 红框坐标（icon区域，二级裁切）
-        const redBoxes = positions.map(pos => ({
-          x: pos.x,
-          y: pos.y,
-          width: pos.width,
-          height: pos.height,
-        }));
+        // 红框坐标（icon区域，二级裁切）- 使用检测到的中心点
+        const redBoxes = range.iconCenters.map((centerX, iconIndex) => {
+          const iconX = centerX - params.iconSize / 2;
+          const iconY = range.startY + params.gridStartY + params.iconCenterOffsetY - params.iconSize / 2;
+          return {
+            x: iconX,
+            y: iconY,
+            width: params.iconSize,
+            height: params.iconSize,
+          };
+        });
 
         logInfo(`  最终坐标:`);
         logInfo(`    BlueBox: x=${Math.round(blueBox.x)}, y=${Math.round(blueBox.y)}, w=${Math.round(blueBox.width)}, h=${Math.round(blueBox.height)}`);
@@ -834,10 +966,10 @@ export default function WikiDebugPage() {
 
         return {
           title: panel.title,
-          x: panelX,
-          y: panelY,
-          width: params.panelWidth,
-          height: currentPanelHeight,
+          x: range.startX,
+          y: range.startY,
+          width: range.width,
+          height: range.height,
           rows: panel.rows,
           cols: panel.cols,
           total: panel.total,
@@ -1283,6 +1415,51 @@ export default function WikiDebugPage() {
                           onChange={(e) => handleParamChange('sustainedPixels', parseInt(e.target.value) || 0)}
                           className="w-20 text-center text-sm"
                         />
+                      </div>
+                    </div>
+
+                    <div className="border-t pt-4 mt-4">
+                      <Label className="text-xs font-semibold text-orange-600 mb-3 block">X轴检测参数 (Horizontal Scan)</Label>
+                      <div className="space-y-4">
+                        <div>
+                          <Label className="text-xs font-medium text-gray-600">X轴颜色容差值 (Color Tolerance X)</Label>
+                          <div className="flex items-center gap-3 mt-2">
+                            <Slider
+                              value={[params.colorToleranceX]}
+                              onValueChange={([v]) => handleParamChange('colorToleranceX', v)}
+                              min={5}
+                              max={50}
+                              step={1}
+                              className="flex-1"
+                            />
+                            <Input
+                              type="number"
+                              value={params.colorToleranceX}
+                              onChange={(e) => handleParamChange('colorToleranceX', parseInt(e.target.value) || 0)}
+                              className="w-20 text-center text-sm"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label className="text-xs font-medium text-gray-600">X轴连续判定宽度 (Sustained Pixels X)</Label>
+                          <div className="flex items-center gap-3 mt-2">
+                            <Slider
+                              value={[params.sustainedPixelsX]}
+                              onValueChange={([v]) => handleParamChange('sustainedPixelsX', v)}
+                              min={5}
+                              max={100}
+                              step={5}
+                              className="flex-1"
+                            />
+                            <Input
+                              type="number"
+                              value={params.sustainedPixelsX}
+                              onChange={(e) => handleParamChange('sustainedPixelsX', parseInt(e.target.value) || 0)}
+                              className="w-20 text-center text-sm"
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
