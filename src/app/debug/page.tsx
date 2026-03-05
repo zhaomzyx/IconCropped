@@ -33,6 +33,7 @@ export default function WikiDebugPage() {
   const [debugPanels, setDebugPanels] = useState<DebugPanel[]>([]);
   const [selectedPanelIndex, setSelectedPanelIndex] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [cropResults, setCropResults] = useState<any[]>([]); // 裁切结果
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -469,6 +470,126 @@ export default function WikiDebugPage() {
     reader.readAsText(file);
   };
 
+  // 导出到工作台（裁切icon）
+  const handleExportToWorkbench = async () => {
+    if (!imageUrl || debugPanels.length === 0) {
+      alert('请先上传图片并完成面板调试');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      // 从Canvas获取面板坐标数据
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        throw new Error('Canvas not found');
+      }
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Canvas context not found');
+      }
+
+      // 获取像素数据
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      // 扫描面板起始位置
+      const panelStartYs = scanVerticalLine(
+        imageData,
+        params.scanLineX,
+        params.scanStartY,
+        params.colorTolerance,
+        params.sustainedPixels,
+        canvas.width,
+        canvas.height
+      );
+
+      // 收集所有面板的坐标数据
+      const exportPanels = debugPanels.map((panel, i) => {
+        const absolutePanelY = panelStartYs[i] ?? (params.panelTopOffset + i * 200);
+        const panelX = panel.x + params.panelLeftOffset;
+        const panelY = absolutePanelY;
+
+        // 计算图标位置
+        const positions = calculateIconPositions(panel, panelY);
+        const usedRows = positions.length > 0
+          ? Math.ceil(positions[positions.length - 1].row + 1)
+          : 1;
+        const iconAreaHeight = usedRows * params.iconSize + (usedRows - 1) * params.gapY;
+        const currentPanelHeight = params.gridStartY + iconAreaHeight;
+
+        // 蓝框坐标
+        const blueBox = {
+          x: panelX,
+          y: panelY,
+          width: panel.width,
+          height: currentPanelHeight,
+        };
+
+        // 绿框坐标（标题区域）
+        const greenBox = {
+          x: panelX,
+          y: panelY,
+          width: panel.width,
+          height: params.gridStartY,
+        };
+
+        // 红框坐标（icon区域）
+        const redBoxes = positions.map(pos => ({
+          x: pos.x,
+          y: pos.y,
+          width: pos.width,
+          height: pos.height,
+        }));
+
+        return {
+          title: panel.title,
+          x: panelX,
+          y: panelY,
+          width: panel.width,
+          height: currentPanelHeight,
+          rows: panel.rows,
+          cols: panel.cols,
+          total: panel.total,
+          imageUrl: imageUrl,
+          blueBox,
+          greenBox,
+          redBoxes,
+        };
+      });
+
+      // 调用API进行裁切
+      const response = await fetch('/api/crop-with-coordinates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageUrl,
+          debugPanels: exportPanels,
+          wikiName: 'travel-town', // 可以从UI中获取或使用固定值
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        setCropResults(result.results);
+        alert(`裁切成功！共裁切 ${result.total} 个icon\n\n结果已保存，可在工作台查看`);
+        console.log('裁切结果:', result.results);
+      } else {
+        throw new Error(result.error || '裁切失败');
+      }
+    } catch (error) {
+      console.error('裁切失败:', error);
+      alert('裁切失败：' + (error instanceof Error ? error.message : '未知错误'));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <div className="container mx-auto p-6">
       <Card className="mb-6">
@@ -790,6 +911,25 @@ export default function WikiDebugPage() {
                     onChange={handleFileSelect}
                     className="hidden"
                   />
+                </div>
+
+                {/* 裁切功能 */}
+                <div className="pt-4 border-t">
+                  <Label className="text-sm font-semibold mb-3 block">裁切功能</Label>
+                  <Button
+                    variant="default"
+                    size="default"
+                    onClick={handleExportToWorkbench}
+                    disabled={isProcessing || !imageUrl || debugPanels.length === 0}
+                    className="w-full"
+                  >
+                    {isProcessing ? '裁切中...' : '导出到工作台'}
+                  </Button>
+                  {cropResults.length > 0 && (
+                    <div className="mt-2 text-sm text-green-600">
+                      已裁切 {cropResults.length} 个icon
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
