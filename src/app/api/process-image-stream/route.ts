@@ -150,6 +150,39 @@ export async function POST(request: NextRequest) {
             const panelData = await detectPanelsWithLLM(imageBuffer, metadata, filename);
             console.log(`  LLM detected ${panelData.panels.length} panels`);
 
+            // 创建大panel缓存目录
+            const bigPanelDir = path.join(cwd(), 'public', 'wiki-big-cropped', actualWikiName);
+            try {
+              await fs.rm(bigPanelDir, { recursive: true, force: true });
+            } catch (error) {
+              // 忽略错误
+            }
+            await fs.mkdir(bigPanelDir, { recursive: true });
+
+            // 保存一级裁切的大panel图片（用于调试）
+            for (let j = 0; j < panelData.panels.length; j++) {
+              const panel = panelData.panels[j];
+              const title = panel.title || `板块_${j + 1}`;
+
+              // 边界检查和修正
+              const correctedX = Math.max(0, Math.min(panel.x, metadata.width! - 1));
+              const correctedY = Math.max(0, Math.min(panel.y, metadata.height! - 1));
+              const correctedWidth = Math.max(1, Math.min(panel.width, metadata.width! - correctedX));
+              const correctedHeight = Math.max(1, Math.min(panel.height, metadata.height! - correctedY));
+
+              // 保存大panel图片
+              const panelImagePath = path.join(bigPanelDir, `${title}.png`);
+              try {
+                await sharp(imageBuffer)
+                  .extract({ left: correctedX, top: correctedY, width: correctedWidth, height: correctedHeight })
+                  .png()
+                  .toFile(panelImagePath);
+                console.log(`  Saved big panel: ${title}.png (${correctedWidth}x${correctedHeight})`);
+              } catch (e) {
+                console.error(`  Failed to save big panel ${title}:`, e);
+              }
+            }
+
             // 阶段4：二级裁切（使用LLM识别每个板块的图标底座）
             sendEvent(controller, 'progress', {
               step: 'cutting_icons',
