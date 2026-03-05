@@ -530,6 +530,8 @@ export default function WorkbenchPage() {
           console.warn('无法读取调试参数，使用默认值');
         }
 
+        console.log('🔧 使用的自定义检测参数:', customParams);
+
         let allWikiCrops: WikiCroppedImage[] = [];
 
         // 逐张处理 Wiki 图片
@@ -592,6 +594,7 @@ export default function WorkbenchPage() {
             }
 
             console.log(`获取到 ${debugPanels.length} 个面板的元数据`);
+            console.log('📋 调试台返回的面板元数据:', debugPanels);
 
             // 2. 使用前端 Canvas 进行检测
             setWikiProcessingStep(`🎨 图片 ${i + 1}/${wikiFilenames.length} - 正在检测面板坐标...`);
@@ -605,12 +608,16 @@ export default function WorkbenchPage() {
               ? `/WikiPic/${fetchedWikiName}/${filename}`
               : `/api/uploads/wiki/${filename}`;
 
+            console.log(`📷 加载图片: ${imageUrl}`);
+
             // 等待图片加载
             await new Promise((resolve, reject) => {
               imageElement.onload = resolve;
               imageElement.onerror = reject;
               imageElement.src = imageUrl;
             });
+
+            console.log(`✓ 图片加载成功: ${imageElement.naturalWidth}x${imageElement.naturalHeight}`);
 
             // 使用 Canvas 检测模块进行检测
             const detectedPanels = await detectPanelsWithCanvas(
@@ -619,10 +626,19 @@ export default function WorkbenchPage() {
               customParams
             );
 
-            console.log(`检测到 ${detectedPanels.length} 个面板`);
+            console.log(`✓ Canvas 检测完成，共检测到 ${detectedPanels.length} 个面板`);
+            console.log('🎨 Canvas 检测的面板坐标:', JSON.stringify(detectedPanels, null, 2));
 
             // 3. 将检测到的坐标传给后端接口进行裁切
             setWikiProcessingStep(`✂️ 图片 ${i + 1}/${wikiFilenames.length} - 正在裁切图标...`);
+
+            console.log(`📤 准备发送裁切请求到后端接口`);
+            console.log('📤 发送给后端的裁切坐标:', JSON.stringify({
+              filename: filename,
+              wikiName: fetchedWikiName,
+              detectedPanels: detectedPanels,
+              customParams: customParams,
+            }, null, 2));
 
             const cropResponse = await fetch('/api/crop-with-detected-coordinates', {
               method: 'POST',
