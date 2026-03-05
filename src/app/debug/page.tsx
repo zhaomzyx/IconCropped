@@ -39,13 +39,13 @@ export default function WikiDebugPage() {
 
   // 默认参数常量（基于用户调试优化）
   const DEFAULT_PARAMS = {
-    panelLeftOffset: -20,
-    panelTopOffset: 238,
-    gridStartX: 73,
-    gridStartY: 121,
-    iconSize: 135,
-    gapX: 22,
-    gapY: 24,
+    panelLeftOffset: -28,
+    panelTopOffset: 0,
+    gridStartX: 69,
+    gridStartY: 107,
+    iconSize: 132,
+    gapX: 14,
+    gapY: 12,
     scanLineX: 86,          // 扫描线 X 坐标
     scanStartY: 200,        // 扫描起始 Y 坐标
     colorTolerance: 50,     // 颜色容差值
@@ -678,9 +678,9 @@ export default function WikiDebugPage() {
       </Card>
 
       {imageUrl && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Canvas区域 */}
-          <div className="lg:col-span-2">
+        <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-200px)]">
+          {/* Canvas区域 - 可滚动 */}
+          <div className="flex-1 overflow-y-auto pr-2">
             <Card>
               <CardHeader>
                 <CardTitle>调试视图</CardTitle>
@@ -695,8 +695,8 @@ export default function WikiDebugPage() {
             </Card>
           </div>
 
-          {/* 参数控制区域 */}
-          <div>
+          {/* 参数控制区域 - 固定在右侧，不随图片滚动 */}
+          <div className="w-full lg:w-96 flex-shrink-0 sticky top-0 h-full overflow-y-auto">
             <Card className="mb-4">
               <CardHeader>
                 <CardTitle>Panel选择</CardTitle>

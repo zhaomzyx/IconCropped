@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-03-05T13:16:18.061Z",
+  "params": {
+    "panelLeftOffset": -28,
+    "panelTopOffset": 0,
+    "gridStartX": 69,
+    "gridStartY": 107,
+    "iconSize": 132,
+    "gapX": 14,
+    "gapY": 12,
+    "scanLineX": 86,
+    "scanStartY": 200,
+    "colorTolerance": 50,
+    "sustainedPixels": 10
+  }
+}
