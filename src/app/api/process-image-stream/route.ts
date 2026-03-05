@@ -261,7 +261,7 @@ export async function POST(request: NextRequest) {
               // 裁切图标（使用 A 计划检测到的坐标）
               for (const redBox of detectedPanel.redBoxes) {
                 const iconIndex = redBox.row * totalCols + redBox.col;
-                const iconFileName = `${title}_${redBox.row + 1}_${redBox.col + 1}.png`;
+                const iconFileName = `${title}_${redBox.row}_${redBox.col}.png`;
                 const iconPath = path.join(wikiDir, iconFileName);
 
                 console.log(`  裁切图标 [${redBox.row},${redBox.col}]: x=${redBox.x}, y=${redBox.y}, size=${redBox.width}x${redBox.height}`);
