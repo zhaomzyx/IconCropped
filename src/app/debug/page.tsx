@@ -146,7 +146,9 @@ export default function WikiDebugPage() {
       const uploadData = await uploadRes.json();
 
       if (uploadData.success) {
-        const uploadedFilename = uploadData.files[0].filename;
+        const uploadedFilename = uploadData.filename;
+
+        console.log('Uploaded filename:', uploadedFilename);
 
         // 调试模式处理
         const processRes = await fetch('/api/process-image-stream', {
@@ -159,6 +161,14 @@ export default function WikiDebugPage() {
             debug: true,
           }),
         });
+
+        console.log('Process response status:', processRes.status);
+
+        if (!processRes.ok) {
+          const errorText = await processRes.text();
+          console.error('Process API error:', errorText);
+          throw new Error(`处理失败: ${processRes.status} - ${errorText}`);
+        }
 
         const reader = processRes.body?.getReader();
         if (!reader) throw new Error('No reader');
@@ -182,8 +192,8 @@ export default function WikiDebugPage() {
 
                   if (event === 'debug_complete') {
                     setDebugPanels(data.debugPanels);
-                    // 设置图片URL
-                    setImageUrl(`/tmp/uploads/wiki/${uploadedFilename}`);
+                    // 设置图片URL - 使用正确的API路由
+                    setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
                   }
                 } catch (e) {
                   console.error('Failed to parse SSE data:', e);
@@ -195,7 +205,8 @@ export default function WikiDebugPage() {
       }
     } catch (error) {
       console.error('Failed to process image:', error);
-      alert('处理失败，请查看控制台');
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      alert(`处理失败：${errorMessage}\n\n请检查浏览器控制台获取详细信息。`);
     } finally {
       setIsProcessing(false);
     }
