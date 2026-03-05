@@ -565,6 +565,7 @@ export default function WorkbenchPage() {
             let debugPanels: any[] = [];
             let detectedPanels: any[] = [];
             let imageMetadata: any = null;
+            let currentEvent: string | null = null;
 
             while (true) {
               const { done, value } = await reader.read();
@@ -573,23 +574,30 @@ export default function WorkbenchPage() {
               const chunk = decoder.decode(value);
               const lines = chunk.split('\n');
 
-              for (const line of lines) {
+              for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+
                 if (line.startsWith('event:')) {
-                  const event = line.slice(6).trim();
-                  const nextLine = lines[lines.indexOf(line) + 1];
-                  if (nextLine?.startsWith('data:')) {
-                    try {
-                      const data = JSON.parse(nextLine.slice(5));
-                      if (event === 'debug_complete') {
-                        debugPanels = data.debugPanels;
-                        detectedPanels = data.detectedPanels;  // 获取裁切坐标
-                        imageMetadata = data.imageMetadata;
-                      } else if (event === 'error') {
-                        throw new Error(data.message || '处理失败');
-                      }
-                    } catch (e) {
-                      console.error('JSON解析失败:', e);
+                  currentEvent = line.slice(6).trim();
+                } else if (line.startsWith('data:') && currentEvent) {
+                  try {
+                    const data = JSON.parse(line.slice(5));
+                    console.log(`SSE 事件: ${currentEvent}, 数据:`, data);
+
+                    if (currentEvent === 'debug_complete') {
+                      debugPanels = data.debugPanels || [];
+                      detectedPanels = data.detectedPanels || [];
+                      imageMetadata = data.imageMetadata;
+                      console.log(`✓ 接收到 debug_complete 事件`);
+                      console.log(`  debugPanels 数量: ${debugPanels.length}`);
+                      console.log(`  detectedPanels 数量: ${detectedPanels.length}`);
+                    } else if (currentEvent === 'error') {
+                      throw new Error(data.message || '处理失败');
                     }
+                    currentEvent = null; // 重置事件
+                  } catch (e) {
+                    console.error('JSON解析失败:', e, '原始数据:', line);
+                    currentEvent = null;
                   }
                 }
               }
