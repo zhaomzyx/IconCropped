@@ -258,7 +258,7 @@ export default function WikiDebugPage() {
 
     logInfo(`  扫描完成，共找到 ${positions.length} 个有效图标`);
     return positions;
-  }, [params]);
+  }, [params, logInfo]);
 
   // 计算颜色差异
   const colorDiff = (color1: [number, number, number], color2: [number, number, number]): number => {
@@ -493,7 +493,7 @@ export default function WikiDebugPage() {
       ctx.setLineDash([]);
     };
     img.src = imageUrl;
-  }, [imageUrl, debugPanels, selectedPanelIndex, params, calculateIconPositions, scanVerticalLine]);
+  }, [imageUrl, debugPanels, selectedPanelIndex, params, calculateIconPositions, scanVerticalLine, logInfo]);
 
   // 重新绘制Canvas
   useEffect(() => {
