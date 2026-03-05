@@ -566,12 +566,21 @@ export default function WorkbenchPage() {
             let detectedPanels: any[] = [];
             let imageMetadata: any = null;
             let currentEvent: string | null = null;
+            let fullSSEContent = '';  // 收集完整的 SSE 内容
+
+            console.log('📡 开始读取 SSE 流...');
 
             while (true) {
               const { done, value } = await reader.read();
-              if (done) break;
+              if (done) {
+                console.log('📡 SSE 流读取完成');
+                break;
+              }
 
-              const chunk = decoder.decode(value);
+              const chunk = decoder.decode(value, { stream: true });
+              fullSSEContent += chunk;
+              console.log('📡 接收到 chunk:', chunk);
+
               const lines = chunk.split('\n');
 
               for (let i = 0; i < lines.length; i++) {
@@ -579,10 +588,12 @@ export default function WorkbenchPage() {
 
                 if (line.startsWith('event:')) {
                   currentEvent = line.slice(6).trim();
+                  console.log(`📡 检测到事件: ${currentEvent}`);
                 } else if (line.startsWith('data:') && currentEvent) {
                   try {
-                    const data = JSON.parse(line.slice(5));
-                    console.log(`SSE 事件: ${currentEvent}, 数据:`, data);
+                    const jsonData = line.slice(5);
+                    const data = JSON.parse(jsonData);
+                    console.log(`📡 SSE 事件: ${currentEvent}, 数据:`, data);
 
                     if (currentEvent === 'debug_complete') {
                       debugPanels = data.debugPanels || [];
@@ -602,6 +613,8 @@ export default function WorkbenchPage() {
                 }
               }
             }
+
+            console.log('📡 完整 SSE 内容:', fullSSEContent);
 
             console.log(`获取到 ${debugPanels.length} 个面板的元数据`);
             console.log('📋 调试台返回的面板元数据:', debugPanels);
