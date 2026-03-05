@@ -46,6 +46,7 @@ export default function WikiDebugPage() {
     gapX: 15,
     gapY: 15,
     scanLineX: 20,         // 扫描线 X 坐标
+    scanStartY: 200,       // 扫描起始 Y 坐标
     colorTolerance: 15,    // 颜色容差值
   };
 
@@ -133,6 +134,7 @@ export default function WikiDebugPage() {
   const scanVerticalLine = useCallback((
     imageData: ImageData,
     scanLineX: number,
+    scanStartY: number,
     colorTolerance: number,
     width: number,
     height: number
@@ -146,17 +148,22 @@ export default function WikiDebugPage() {
       return panelStartYs;
     }
 
-    // 获取主背景色（从顶部开始）
+    if (scanStartY < 0 || scanStartY >= height) {
+      console.warn(`Scan start Y (${scanStartY}) is out of image bounds (${height})`);
+      return panelStartYs;
+    }
+
+    // 获取主背景色（从起始坐标开始）
     const getPixelColor = (x: number, y: number): [number, number, number] => {
       const index = (y * width + x) * 4;
       return [data[index], data[index + 1], data[index + 2]];
     };
 
-    const backgroundColor = getPixelColor(scanLineX, 0);
+    const backgroundColor = getPixelColor(scanLineX, scanStartY);
 
-    // 从 Y=0 扫描到底部
+    // 从 Y=scanStartY 扫描到底部（跳过顶部杂乱区域）
     let inPanel = false;
-    for (let y = 0; y < height; y++) {
+    for (let y = scanStartY; y < height; y++) {
       const currentColor = getPixelColor(scanLineX, y);
       const diff = colorDiff(currentColor, backgroundColor);
 
@@ -171,7 +178,7 @@ export default function WikiDebugPage() {
       }
     }
 
-    console.log(`Scanned ${panelStartYs.length} panel start positions:`, panelStartYs);
+    console.log(`Scanned ${panelStartYs.length} panel start positions from Y=${scanStartY}:`, panelStartYs);
     return panelStartYs;
   }, []);
 
@@ -199,6 +206,7 @@ export default function WikiDebugPage() {
       const panelStartYs = scanVerticalLine(
         imageData,
         params.scanLineX,
+        params.scanStartY,
         params.colorTolerance,
         canvas.width,
         canvas.height
@@ -259,6 +267,16 @@ export default function WikiDebugPage() {
           ctx.setLineDash([]);
         }
       }
+
+      // 绘制扫描起始线（水平黄色虚线）
+      ctx.strokeStyle = '#FFD700'; // 金黄色
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath();
+      ctx.moveTo(0, params.scanStartY);
+      ctx.lineTo(canvas.width, params.scanStartY);
+      ctx.stroke();
+      ctx.setLineDash([]);
     };
     img.src = imageUrl;
   }, [imageUrl, debugPanels, selectedPanelIndex, params, calculateIconPositions, scanVerticalLine]);
@@ -654,6 +672,26 @@ export default function WikiDebugPage() {
                 </div>
 
                 <div>
+                  <Label className="text-sm font-medium">扫描起始 Y 坐标 (Scan Start Y)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.scanStartY]}
+                      onValueChange={([v]) => handleParamChange('scanStartY', v)}
+                      min={0}
+                      max={500}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.scanStartY}
+                      onChange={(e) => handleParamChange('scanStartY', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
+                </div>
+
+                <div>
                   <Label className="text-sm font-medium">颜色容差值 (Color Tolerance)</Label>
                   <div className="flex items-center gap-3 mt-2">
                     <Slider
@@ -739,6 +777,10 @@ export default function WikiDebugPage() {
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-orange-500 border-dashed" />
                 <span>橙色虚线：扫描线</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-yellow-500 border-dashed" />
+                <span>黄色虚线：扫描起始线</span>
               </div>
             </div>
           </CardContent>
