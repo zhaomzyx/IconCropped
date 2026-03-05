@@ -213,13 +213,25 @@ export async function POST(request: NextRequest) {
                 subStep: 'panel_processing'
               });
 
-              // 使用LLM识别板块内的图标底座
-              const iconBases = await detectIconBasesWithLLM(imageBuffer, metadata, panel, filename);
-              console.log(`  Panel ${j} (${title}): detected ${iconBases.length} icons`);
+              // 使用图像处理算法精确检测浅米色圆角矩形框
+              const panelRegion: BoundingBox = {
+                x: panel.x,
+                y: panel.y,
+                width: panel.width,
+                height: panel.height
+              };
 
-              // 根据坐标对图标底座进行排序（从上到下，从左到右）
-              // 使用聚类算法将图标分配到网格位置
-              const gridItems = clusterIconBasesToGrid(iconBases, panel.rows, panel.cols);
+              const beigeRectangles = await detectBeigeRectangles(imageBuffer, panelRegion);
+              console.log(`  Panel ${j} (${title}): detected ${beigeRectangles.length} beige rectangles`);
+
+              if (beigeRectangles.length === 0) {
+                console.warn(`  No beige rectangles found for panel "${title}", skipping...`);
+                continue;
+              }
+
+              // 根据坐标对浅米色矩形框进行排序（从上到下，从左到右）
+              // 使用聚类算法将矩形框分配到网格位置
+              const gridItems = clusterIconBasesToGrid(beigeRectangles, panel.rows, panel.cols);
 
               console.log(`  Grid items: ${gridItems.length}, rows=${panel.rows}, cols=${panel.cols}`);
 
@@ -228,9 +240,12 @@ export async function POST(request: NextRequest) {
               const totalCols = gridItems.length > 0 ? Math.max(...gridItems.map(g => g.col)) + 1 : 1;
 
               // 统一裁切尺寸：130x130
+              // 注意：这里使用矩形框的精确边界，而不是固定的130x130
+              // 如果矩形框接近130x130，就使用矩形框的边界
+              // 否则使用130x130并以矩形框中心为基准
               const targetSize = 130;
 
-              // 裁切图标（统一130x130）
+              // 裁切图标（使用矩形框的精确边界）
               for (const gridItem of gridItems) {
                 const base = gridItem.box;
 
@@ -239,22 +254,38 @@ export async function POST(request: NextRequest) {
                 const iconFileName = `${title}_icon_${iconIndex}.png`;
                 const iconPath = path.join(wikiDir, iconFileName);
 
-                // 以底座中心为基准，计算130x130裁切区域
-                const centerX = base.x + base.width / 2;
-                const centerY = base.y + base.height / 2;
+                // 使用矩形框的精确边界进行裁切
+                // 添加一点边距（2像素）以包含完整的圆角
+                const padding = 2;
+                let cropX = Math.max(0, Math.round(base.x - padding));
+                let cropY = Math.max(0, Math.round(base.y - padding));
+                let cropWidth = Math.min(base.width + padding * 2, metadata.width - cropX);
+                let cropHeight = Math.min(base.height + padding * 2, metadata.height - cropY);
 
-                const cropX = Math.round(centerX - targetSize / 2);
-                const cropY = Math.round(centerY - targetSize / 2);
+                // 如果矩形框尺寸接近130x130，直接使用矩形框边界
+                // 否则，以矩形框中心为基准，裁切130x130
+                const isNearTargetSize =
+                  Math.abs(base.width - targetSize) < 20 &&
+                  Math.abs(base.height - targetSize) < 20;
+
+                if (!isNearTargetSize) {
+                  // 使用固定尺寸130x130，以矩形框中心为基准
+                  const centerX = base.x + base.width / 2;
+                  const centerY = base.y + base.height / 2;
+
+                  cropX = Math.max(0, Math.round(centerX - targetSize / 2));
+                  cropY = Math.max(0, Math.round(centerY - targetSize / 2));
+                  cropWidth = Math.min(targetSize, metadata.width - cropX);
+                  cropHeight = Math.min(targetSize, metadata.height - cropY);
+                }
+
+                console.log(`  Icon ${iconIndex}: rect=(${Math.round(base.x)},${Math.round(base.y)},${Math.round(base.width)},${Math.round(base.height)}), crop=(${cropX},${cropY},${cropWidth},${cropHeight})`);
 
                 // 边界检查（确保裁切区域不超出原图）
-                const finalX = Math.max(0, Math.min(cropX, metadata.width - targetSize));
-                const finalY = Math.max(0, Math.min(cropY, metadata.height - targetSize));
-
-                // 检查是否有足够空间裁切
-                if (finalX >= 0 && finalY >= 0 && finalX + targetSize <= metadata.width && finalY + targetSize <= metadata.height) {
+                if (cropX >= 0 && cropY >= 0 && cropX + cropWidth <= metadata.width && cropY + cropHeight <= metadata.height) {
                   try {
                     await sharp(imageBuffer)
-                      .extract({ left: finalX, top: finalY, width: targetSize, height: targetSize })
+                      .extract({ left: cropX, top: cropY, width: cropWidth, height: cropHeight })
                       .png()
                       .toFile(iconPath);
 
@@ -265,10 +296,10 @@ export async function POST(request: NextRequest) {
                       col: gridItem.col,
                       totalRows: totalRows,
                       totalCols: totalCols,
-                      x: finalX,
-                      y: finalY,
-                      width: targetSize,
-                      height: targetSize,
+                      x: cropX,
+                      y: cropY,
+                      width: cropWidth,
+                      height: cropHeight,
                       panelName: title,
                       title: title,
                       wikiName: actualWikiName,
@@ -276,12 +307,12 @@ export async function POST(request: NextRequest) {
                       imageUrl: `/api/crops/${actualWikiName}/${iconFileName}`
                     });
 
-                    console.log(`  Saved icon: ${iconFileName} (row=${gridItem.row}, col=${gridItem.col}, size=${targetSize}x${targetSize})`);
+                    console.log(`  Saved icon: ${iconFileName} (row=${gridItem.row}, col=${gridItem.col}, size=${cropWidth}x${cropHeight})`);
                   } catch (e) {
                     console.error(`  Failed to save icon ${iconFileName}:`, e);
                   }
                 } else {
-                  console.warn(`  Icon ${iconIndex} at center=(${Math.round(centerX)},${Math.round(centerY)}) out of bounds, skipping`);
+                  console.warn(`  Icon ${iconIndex} out of bounds, skipping`);
                 }
               }
             }
@@ -691,4 +722,149 @@ function clusterIconBasesToGrid(
   console.log(`  Total grid items: ${gridItems.length}`);
 
   return gridItems;
+}
+
+// 检测浅米色矩形框的精确边界
+interface ColorThreshold {
+  rMin: number;
+  rMax: number;
+  gMin: number;
+  gMax: number;
+  bMin: number;
+  bMax: number;
+}
+
+async function detectBeigeRectangles(
+  imageBuffer: Buffer,
+  region: BoundingBox
+): Promise<BoundingBox[]> {
+  console.log(`  Detecting beige rectangles in region: x=${region.x}, y=${region.y}, width=${region.width}, height=${region.height}`);
+
+  // 裁切指定区域
+  const croppedBuffer = await sharp(imageBuffer)
+    .extract({
+      left: Math.round(region.x),
+      top: Math.round(region.y),
+      width: Math.round(region.width),
+      height: Math.round(region.height)
+    })
+    .raw()
+    .toBuffer();
+
+  const width = region.width;
+  const height = region.height;
+  const pixels = new Uint8ClampedArray(croppedBuffer);
+
+  console.log(`  Region size: ${width}x${height}, pixels: ${pixels.length}`);
+
+  // 浅米色阈值（根据实际图片调整）
+  const beigeThreshold: ColorThreshold = {
+    rMin: 200, rMax: 255,
+    gMin: 190, gMax: 245,
+    bMin: 170, bMax: 230
+  };
+
+  // 创建二值化图像（浅米色为1，其他为0）
+  const binaryImage = new Uint8Array(width * height);
+  for (let i = 0; i < pixels.length; i += 4) {
+    const r = pixels[i];
+    const g = pixels[i + 1];
+    const b = pixels[i + 2];
+
+    const isBeige =
+      r >= beigeThreshold.rMin && r <= beigeThreshold.rMax &&
+      g >= beigeThreshold.gMin && g <= beigeThreshold.gMax &&
+      b >= beigeThreshold.bMin && b <= beigeThreshold.bMax;
+
+    binaryImage[i / 4] = isBeige ? 1 : 0;
+  }
+
+  // 使用连通区域分析找到独立的矩形框
+  const rectangles = findConnectedComponentRectangles(binaryImage, width, height);
+
+  console.log(`  Found ${rectangles.length} beige rectangles`);
+
+  // 转换为全局坐标
+  return rectangles.map(rect => ({
+    x: region.x + rect.x,
+    y: region.y + rect.y,
+    width: rect.width,
+    height: rect.height
+  }));
+}
+
+// 使用连通区域分析找到矩形框
+function findConnectedComponentRectangles(
+  binaryImage: Uint8Array,
+  width: number,
+  height: number
+): BoundingBox[] {
+  const visited = new Set<number>();
+  const rectangles: BoundingBox[] = [];
+  const minArea = 2500; // 最小面积（50x50）
+  const maxArea = 50000; // 最大面积（200x250）
+
+  // 8方向偏移（包括对角线）
+  const directions = [
+    [-1, -1], [-1, 0], [-1, 1],
+    [0, -1],          [0, 1],
+    [1, -1],  [1, 0], [1, 1]
+  ];
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = y * width + x;
+
+      if (binaryImage[index] === 1 && !visited.has(index)) {
+        // 找到新的连通区域，使用BFS遍历
+        const queue: [number, number][] = [[x, y]];
+        visited.add(index);
+
+        let minX = x, maxX = x;
+        let minY = y, maxY = y;
+        let pixelCount = 0;
+
+        while (queue.length > 0) {
+          const [cx, cy] = queue.shift()!;
+          pixelCount++;
+
+          // 更新边界
+          minX = Math.min(minX, cx);
+          maxX = Math.max(maxX, cx);
+          minY = Math.min(minY, cy);
+          maxY = Math.max(maxY, cy);
+
+          // 检查8个邻居
+          for (const [dx, dy] of directions) {
+            const nx = cx + dx;
+            const ny = cy + dy;
+
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+              const nIndex = ny * width + nx;
+              if (binaryImage[nIndex] === 1 && !visited.has(nIndex)) {
+                visited.add(nIndex);
+                queue.push([nx, ny]);
+              }
+            }
+          }
+        }
+
+        // 计算面积
+        const area = (maxX - minX + 1) * (maxY - minY + 1);
+
+        // 过滤掉太小或太大的区域
+        if (area >= minArea && area <= maxArea) {
+          rectangles.push({
+            x: minX,
+            y: minY,
+            width: maxX - minX + 1,
+            height: maxY - minY + 1
+          });
+          console.log(`    Rectangle: (${minX},${minY}) size=${maxX - minX + 1}x${maxY - minY + 1}, area=${area}, pixels=${pixelCount}`);
+        }
+      }
+    }
+  }
+
+  return rectangles;
 }
