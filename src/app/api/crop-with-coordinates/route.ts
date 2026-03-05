@@ -125,45 +125,14 @@ async function cropIconFromRedBox(
   col: number,
   wikiName: string
 ): Promise<CropResult> {
-  // 裁切红框区域
-  let iconBuffer = await sharp(imageBuffer)
+  // 裁切红框区域（直接裁切，不添加坐标标注）
+  const iconBuffer = await sharp(imageBuffer)
     .extract({
       left: redBox.x,
       top: redBox.y,
       width: redBox.width,
       height: redBox.height,
     })
-    .png()
-    .toBuffer();
-
-  // 添加坐标信息到图片上
-  const text = `(${redBox.x}, ${redBox.y}) ${redBox.width}x${redBox.height}`;
-  
-  // 创建包含坐标文字的 SVG
-  const svgText = `
-    <svg width="${redBox.width}" height="${redBox.height}">
-      <text x="5" y="${redBox.height - 5}" 
-            font-family="monospace" 
-            font-size="12" 
-            fill="red" 
-            font-weight="bold"
-            opacity="0.8">
-        ${text}
-      </text>
-    </svg>
-  `;
-
-  const svgBuffer = Buffer.from(svgText);
-
-  // 将坐标文字合成到图片上
-  iconBuffer = await sharp(iconBuffer)
-    .composite([
-      {
-        input: svgBuffer,
-        top: 0,
-        left: 0,
-      }
-    ])
     .png()
     .toBuffer();
 
