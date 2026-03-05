@@ -133,6 +133,8 @@ export async function POST(request: NextRequest) {
               throw new Error(`Invalid image metadata`);
             }
 
+            console.log(`  Image metadata: ${metadata.width}x${metadata.height}, format=${metadata.format}`);
+
             const image = sharp(imageBuffer);
 
             // 阶段3：一级裁切（使用LLM识别大板块）
@@ -432,9 +434,43 @@ async function detectIconBasesWithLLM(
   panel: PanelInfo,
   filename: string
 ): Promise<BoundingBox[]> {
+  // 边界检查和修正
+  const imgWidth = metadata.width!;
+  const imgHeight = metadata.height!;
+
+  console.log(`  Image size: ${imgWidth}x${imgHeight}`);
+  console.log(`  Panel ${panel.title}: x=${panel.x}, y=${panel.y}, width=${panel.width}, height=${panel.height}`);
+
+  // 计算修正后的裁切区域（确保不超出图片边界）
+  const correctedX = Math.max(0, Math.min(panel.x, imgWidth - 1));
+  const correctedY = Math.max(0, Math.min(panel.y, imgHeight - 1));
+  const correctedWidth = Math.max(1, Math.min(panel.width, imgWidth - correctedX));
+  const correctedHeight = Math.max(1, Math.min(panel.height, imgHeight - correctedY));
+
+  console.log(`  Corrected panel: x=${correctedX}, y=${correctedY}, width=${correctedWidth}, height=${correctedHeight}`);
+
+  // 检查是否有大幅修正
+  if (correctedWidth !== panel.width || correctedHeight !== panel.height ||
+      correctedX !== panel.x || correctedY !== panel.y) {
+    console.warn(`  Panel "${panel.title}" coordinates were corrected to fit within image boundaries.`);
+    console.warn(`  Original: x=${panel.x}, y=${panel.y}, w=${panel.width}, h=${panel.height}`);
+    console.warn(`  Corrected: x=${correctedX}, y=${correctedY}, w=${correctedWidth}, h=${correctedHeight}`);
+  }
+
+  // 检查修正后的尺寸是否太小（如果小于预期的一半，可能LLM识别有误）
+  const expectedMinWidth = panel.cols * 100; // 每列至少100像素
+  const expectedMinHeight = 50 + panel.rows * 100; // 标题50像素 + 每行至少100像素
+
+  if (correctedWidth < expectedMinWidth / 2 || correctedHeight < expectedMinHeight / 2) {
+    console.warn(`  Panel "${panel.title}" size after correction is too small: ${correctedWidth}x${correctedHeight}`);
+    console.warn(`  Expected at least: ${expectedMinWidth / 2}x${expectedMinHeight / 2}`);
+    console.warn(`  This panel may have been incorrectly detected. Skipping...`);
+    return [];
+  }
+
   // 提取板块区域
   const panelBuffer = await sharp(imageBuffer)
-    .extract({ left: panel.x, top: panel.y, width: panel.width, height: panel.height })
+    .extract({ left: correctedX, top: correctedY, width: correctedWidth, height: correctedHeight })
     .jpeg({ quality: 80 })
     .toBuffer();
 
