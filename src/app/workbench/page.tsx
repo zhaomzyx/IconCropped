@@ -532,6 +532,7 @@ export default function WorkbenchPage() {
         console.log('🔧 使用的自定义检测参数:', customParams);
 
         let allWikiCrops: WikiCroppedImage[] = [];
+        let failedCount = 0;
 
         // 逐张处理 Wiki 图片
         for (let i = 0; i < wikiFilenames.length; i++) {
@@ -652,7 +653,9 @@ export default function WorkbenchPage() {
             setWikiProcessingStep(`✓ 图片 ${i + 1}/${wikiFilenames.length} 处理完成，已切割 ${cropData.crops.length} 个图标`);
           } catch (error) {
             console.error(`处理图片 ${filename} 失败:`, error);
-            throw new Error(`处理图片 ${filename} 失败: ${error instanceof Error ? error.message : '未知错误'}`);
+            // 不中断整个流程，只记录失败的图片
+            setWikiProcessingStep(`⚠️ 图片 ${i + 1}/${wikiFilenames.length} 处理失败，跳过...`);
+            continue;
           }
         }
 
@@ -660,7 +663,10 @@ export default function WorkbenchPage() {
         setWikiImages(allWikiCrops);
         setFetchedWikiName(fetchedWikiName);
         setWikiProcessed(true);
-        setWikiProcessingStep(`✅ 全部处理完成！共裁切 ${allWikiCrops.length} 个图标`);
+
+        // 汇总处理结果
+        const successCount = wikiFilenames.length - (allWikiCrops.length === 0 ? wikiFilenames.length : 0);
+        setWikiProcessingStep(`✅ 全部处理完成！共裁切 ${allWikiCrops.length} 个图标，${successCount === wikiFilenames.length ? '全部成功' : `部分成功 (${successCount}/${wikiFilenames.length})`}`);
       }
     } catch (error) {
       console.error('Wiki processing error:', error);
