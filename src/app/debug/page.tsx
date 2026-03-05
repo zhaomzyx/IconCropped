@@ -15,6 +15,7 @@ interface DebugPanel {
   height: number;
   rows: number;
   cols: number;
+  total?: number; // 实际图标总数
   imageUrl: string;
 }
 
@@ -44,6 +45,8 @@ export default function WikiDebugPage() {
     iconSize: 130,
     gapX: 15,
     gapY: 15,
+    bottomPadding: 50,      // 大框底部留白
+    panelSpacingY: 40,      // 面板间距
   };
 
   // LocalStorage 键名
@@ -75,18 +78,28 @@ export default function WikiDebugPage() {
   // 调试参数
   const [params, setParams] = useState<typeof DEFAULT_PARAMS>(() => loadParamsFromStorage());
 
-  // 计算图标位置
-  const calculateIconPositions = useCallback((panel: DebugPanel): IconPosition[] => {
-    const { x, y, width, height, rows, cols } = panel;
-    const { gridStartX, gridStartY, iconSize, gapX, gapY } = params;
+  // 计算图标位置（支持 total 限制）
+  const calculateIconPositions = useCallback((
+    panel: DebugPanel,
+    panelY: number
+  ): IconPosition[] => {
+    const { width, rows, cols, total } = panel;
+    const { gridStartX, gridStartY, iconSize, gapX, gapY, panelLeftOffset } = params;
 
-    const startX = x + params.panelLeftOffset + gridStartX;
-    const startY = y + params.panelTopOffset + gridStartY;
+    const startX = panel.x + panelLeftOffset + gridStartX;
+    const startY = panelY + gridStartY;
 
     const positions: IconPosition[] = [];
+    let count = 0;
+    const maxCount = total ?? (rows * cols); // 如果没有 total，则使用 rows * cols
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
+        // 检查是否超过总数
+        if (count >= maxCount) {
+          break;
+        }
+
         positions.push({
           x: Math.round(startX + col * (iconSize + gapX)),
           y: Math.round(startY + row * (iconSize + gapY)),
@@ -95,13 +108,19 @@ export default function WikiDebugPage() {
           row,
           col,
         });
+
+        count++;
+      }
+      // 外层循环也需要检查，避免不必要的行
+      if (count >= maxCount) {
+        break;
       }
     }
 
     return positions;
   }, [params]);
 
-  // 绘制Canvas
+  // 绘制Canvas（流式布局）
   const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !imageUrl) return;
@@ -118,34 +137,51 @@ export default function WikiDebugPage() {
       // 绘制原图
       ctx.drawImage(img, 0, 0);
 
-      // 绘制Panel边框（蓝色）
-      const selectedPanel = debugPanels[selectedPanelIndex];
-      if (selectedPanel) {
-        const { x, y, width, height } = selectedPanel;
-        const panelX = x + params.panelLeftOffset;
-        const panelY = y + params.panelTopOffset;
+      // 初始 Y 起点
+      let currentY = params.panelTopOffset;
 
-        // 蓝色框：Panel外边缘
-        ctx.strokeStyle = '#3B82F6';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(panelX, panelY, width, height);
+      // 遍历所有面板
+      for (let i = 0; i < debugPanels.length; i++) {
+        const panel = debugPanels[i];
+        const isSelected = i === selectedPanelIndex;
 
-        // 绿色框：顶部标题区域
+        const panelX = panel.x + params.panelLeftOffset;
+        const panelY = currentY;
+
+        // 计算图标区域的实际高度（基于实际使用的行数）
+        const positions = calculateIconPositions(panel, panelY);
+        const usedRows = positions.length > 0
+          ? Math.ceil(positions[positions.length - 1].row + 1)
+          : 1;
+        const iconAreaHeight = usedRows * params.iconSize + (usedRows - 1) * params.gapY;
+
+        // 计算当前大框的实际总高度
+        const currentPanelHeight = params.gridStartY + iconAreaHeight + params.bottomPadding;
+
+        // 绘制蓝色框（Panel外边缘）
+        ctx.strokeStyle = isSelected ? '#3B82F6' : '#93C5FD'; // 选中时深蓝，未选中时浅蓝
+        ctx.lineWidth = isSelected ? 3 : 2;
+        ctx.strokeRect(panelX, panelY, panel.width, currentPanelHeight);
+
+        // 绘制绿色框（标题区域）
         ctx.strokeStyle = '#22C55E';
-        ctx.strokeRect(panelX, panelY, width, params.gridStartY);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(panelX, panelY, panel.width, params.gridStartY);
 
-        // 红色框：每个图标位置
-        const positions = calculateIconPositions(selectedPanel);
-        positions.forEach((pos) => {
+        // 绘制红色框（图标位置）
+        positions.forEach((pos, index) => {
           ctx.strokeStyle = '#EF4444';
           ctx.lineWidth = 2;
           ctx.strokeRect(pos.x, pos.y, pos.width, pos.height);
 
           // 绘制序号
           ctx.fillStyle = '#EF4444';
-          ctx.font = '14px Arial';
-          ctx.fillText(`${pos.row},${pos.col}`, pos.x + 5, pos.y + 20);
+          ctx.font = '12px Arial';
+          ctx.fillText(`#${index + 1}`, pos.x + 3, pos.y + 15);
         });
+
+        // 累加 Y 坐标，为下一个 Panel 寻找起点
+        currentY = currentY + currentPanelHeight + params.panelSpacingY;
       }
     };
     img.src = imageUrl;
@@ -516,6 +552,46 @@ export default function WikiDebugPage() {
                       type="number"
                       value={params.gapY}
                       onChange={(e) => handleParamChange('gapY', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium">大框底部留白 (Bottom Padding)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.bottomPadding]}
+                      onValueChange={([v]) => handleParamChange('bottomPadding', v)}
+                      min={0}
+                      max={200}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.bottomPadding}
+                      onChange={(e) => handleParamChange('bottomPadding', parseInt(e.target.value) || 0)}
+                      className="w-20 text-center"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium">面板间距 (Panel Spacing Y)</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Slider
+                      value={[params.panelSpacingY]}
+                      onValueChange={([v]) => handleParamChange('panelSpacingY', v)}
+                      min={0}
+                      max={200}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      value={params.panelSpacingY}
+                      onChange={(e) => handleParamChange('panelSpacingY', parseInt(e.target.value) || 0)}
                       className="w-20 text-center"
                     />
                   </div>

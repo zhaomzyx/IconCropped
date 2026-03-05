@@ -201,6 +201,7 @@ export async function POST(request: NextRequest) {
                   height: correctedHeight,
                   rows: panel.rows,
                   cols: panel.cols,
+                  total: panel.total ?? (panel.rows * panel.cols), // 如果没有 total，则使用 rows * cols
                   imageUrl: `/wiki-big-cropped/${actualWikiName}/${panel.title || '板块_' + (idx + 1)}.png`
                 };
               });
@@ -396,6 +397,7 @@ interface PanelInfo {
   height: number;
   rows: number;
   cols: number;
+  total?: number; // 实际图标总数
 }
 
 interface PanelDetectionResult {
