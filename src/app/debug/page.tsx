@@ -79,7 +79,21 @@ export default function WikiDebugPage() {
   }, []);
 
   // 调试参数
-  const [params, setParams] = useState<typeof DEFAULT_PARAMS>(() => loadParamsFromStorage());
+  const [params, setParams] = useState<typeof DEFAULT_PARAMS>(() => {
+    // 只在客户端加载localStorage中的参数
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return { ...DEFAULT_PARAMS, ...parsed };
+        }
+      } catch (error) {
+        console.error('Failed to load params from localStorage:', error);
+      }
+    }
+    return DEFAULT_PARAMS;
+  });
 
   // 计算图标位置（支持 total 限制）
   const calculateIconPositions = useCallback((
@@ -315,6 +329,8 @@ export default function WikiDebugPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    console.log('开始上传图片:', file.name, file.size, 'bytes');
+
     const formData = new FormData();
     formData.append('file', file);
     formData.append('folder', 'wiki');
@@ -323,18 +339,21 @@ export default function WikiDebugPage() {
 
     try {
       // 上传图片
+      console.log('步骤1: 上传图片到 /api/upload');
       const uploadRes = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       });
       const uploadData = await uploadRes.json();
 
+      console.log('上传响应:', uploadData);
+
       if (uploadData.success) {
         const uploadedFilename = uploadData.filename;
-
-        console.log('Uploaded filename:', uploadedFilename);
+        console.log('✓ 上传成功，文件名:', uploadedFilename);
 
         // 调试模式处理
+        console.log('步骤2: 调用 /api/process-image-stream (debug模式)');
         const processRes = await fetch('/api/process-image-stream', {
           method: 'POST',
           headers: {
@@ -346,7 +365,7 @@ export default function WikiDebugPage() {
           }),
         });
 
-        console.log('Process response status:', processRes.status);
+        console.log('处理响应状态:', processRes.status, processRes.statusText);
 
         if (!processRes.ok) {
           const errorText = await processRes.text();
@@ -358,10 +377,16 @@ export default function WikiDebugPage() {
         if (!reader) throw new Error('No reader');
 
         const decoder = new TextDecoder();
+        let eventCount = 0;
+
+        console.log('开始读取SSE流...');
 
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            console.log('SSE流读取完成，共收到', eventCount, '个事件');
+            break;
+          }
 
           const chunk = decoder.decode(value);
           const lines = chunk.split('\n');
@@ -373,19 +398,35 @@ export default function WikiDebugPage() {
               if (nextLine?.startsWith('data:')) {
                 try {
                   const data = JSON.parse(nextLine.slice(5));
+                  eventCount++;
+                  console.log(`收到事件 ${eventCount}: ${event}`, data);
 
                   if (event === 'debug_complete') {
+                    console.log('✓ Debug模式完成，面板数据:', data.debugPanels);
                     setDebugPanels(data.debugPanels);
                     // 设置图片URL - 使用正确的API路由
                     setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
+                    console.log('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
+                  } else if (event === 'error') {
+                    console.error('✗ 收到错误事件:', data);
+                    throw new Error(data.message || '处理过程中发生错误');
                   }
                 } catch (e) {
-                  console.error('Failed to parse SSE data:', e);
+                  console.error('Failed to parse SSE data:', e, 'Line:', nextLine);
+                  if (e instanceof Error && e.message !== 'Failed to parse SSE data') {
+                    throw e; // 重新抛出解析错误以外的错误
+                  }
                 }
               }
             }
           }
         }
+
+        if (eventCount === 0) {
+          throw new Error('未收到任何SSE事件，请检查后端日志');
+        }
+      } else {
+        throw new Error(uploadData.error || '上传失败');
       }
     } catch (error) {
       console.error('Failed to process image:', error);
@@ -518,11 +559,13 @@ export default function WikiDebugPage() {
         const iconAreaHeight = usedRows * params.iconSize + (usedRows - 1) * params.gapY;
         const currentPanelHeight = params.gridStartY + iconAreaHeight;
 
-        // 蓝框坐标
+        // 蓝框坐标（一级裁切区域）
+        // 临时修复：使用canvas宽度减去边距作为面板宽度
+        const panelWidth = Math.max(panel.width, canvas.width - 40); // 假设左右各20px边距
         const blueBox = {
           x: panelX,
           y: panelY,
-          width: panel.width,
+          width: panelWidth,
           height: currentPanelHeight,
         };
 
@@ -530,11 +573,11 @@ export default function WikiDebugPage() {
         const greenBox = {
           x: panelX,
           y: panelY,
-          width: panel.width,
+          width: panelWidth,
           height: params.gridStartY,
         };
 
-        // 红框坐标（icon区域）
+        // 红框坐标（icon区域，二级裁切）
         const redBoxes = positions.map(pos => ({
           x: pos.x,
           y: pos.y,
@@ -542,11 +585,22 @@ export default function WikiDebugPage() {
           height: pos.height,
         }));
 
+        console.log(`面板 ${i + 1} 坐标:`, {
+          title: panel.title,
+          panelX: Math.round(panelX),
+          panelY: Math.round(panelY),
+          panelWidth: Math.round(panelWidth),
+          panelHeight: Math.round(currentPanelHeight),
+          blueBox: { x: Math.round(blueBox.x), y: Math.round(blueBox.y), w: Math.round(blueBox.width), h: Math.round(blueBox.height) },
+          firstIcon: redBoxes[0] ? { x: Math.round(redBoxes[0].x), y: Math.round(redBoxes[0].y) } : null,
+          redBoxCount: redBoxes.length,
+        });
+
         return {
           title: panel.title,
           x: panelX,
           y: panelY,
-          width: panel.width,
+          width: panelWidth,
           height: currentPanelHeight,
           rows: panel.rows,
           cols: panel.cols,
@@ -557,6 +611,14 @@ export default function WikiDebugPage() {
           redBoxes,
         };
       });
+
+      // 显示调试信息
+      const debugInfo = exportPanels.map((p, i) => 
+        `面板${i + 1}: x=${p.x}, y=${p.y}, w=${p.width}, h=${p.height}, icons=${p.redBoxes?.length || 0}`
+      ).join('\n');
+      
+      console.log('=== 裁切坐标信息 ===\n' + debugInfo);
+      alert(`即将裁切，请确认坐标是否正确：\n\n${debugInfo}\n\n点击"确定"继续裁切，点击"取消"取消`);
 
       // 调用API进行裁切
       const response = await fetch('/api/crop-with-coordinates', {
@@ -577,14 +639,19 @@ export default function WikiDebugPage() {
 
       if (result.success) {
         setCropResults(result.results);
-        alert(`裁切成功！共裁切 ${result.total} 个icon\n\n结果已保存，可在工作台查看`);
+        alert(`裁切成功！共裁切 ${result.total} 个icon\n\n结果已保存到 public/wiki-cropped/travel-town/`);
         console.log('裁切结果:', result.results);
       } else {
         throw new Error(result.error || '裁切失败');
       }
     } catch (error) {
-      console.error('裁切失败:', error);
-      alert('裁切失败：' + (error instanceof Error ? error.message : '未知错误'));
+      if (error instanceof Error && error.message === '用户取消') {
+        // 用户点击了取消
+        console.log('用户取消裁切');
+      } else {
+        console.error('裁切失败:', error);
+        alert('裁切失败：' + (error instanceof Error ? error.message : '未知错误'));
+      }
     } finally {
       setIsProcessing(false);
     }
