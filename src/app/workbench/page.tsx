@@ -547,6 +547,7 @@ export default function WorkbenchPage() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 filenames: [filename],
+                wikiName: fetchedWikiName,  // 传递 wikiName 参数
                 debug: true,
                 params: customParams,  // 传递自定义参数
               }),
