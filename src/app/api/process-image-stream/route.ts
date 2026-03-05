@@ -459,43 +459,19 @@ async function detectIconBasesWithLLM(
   // 提取板块区域
   const panelBuffer = await sharp(imageBuffer)
     .extract({ left: panel.x, top: panel.y, width: panel.width, height: panel.height })
+    .jpeg({ quality: 80 })
     .toBuffer();
+
+  console.log(`  Panel buffer size: ${panelBuffer.length} bytes`);
 
   // 转换为base64
   const base64Image = panelBuffer.toString('base64');
-  const dataUri = `data:image/png;base64,${base64Image}`;
+  const dataUri = `data:image/jpeg;base64,${base64Image}`;
+
+  console.log(`  Data URI length: ${dataUri.length} chars`);
 
   // LLM提示词（识别图标底座）
-  const prompt = `请识别这个板块内的所有图标底座。
-
-板块标题：${panel.title}
-图标布局：${panel.rows}行 × ${panel.cols}列
-
-每个图标底座特征：
-- 浅米色圆角方形（比板块背景更浅）
-- 有轻微阴影效果，看起来"浮起"
-- 图标在底座中居中
-
-请按从上到下、从左到右的顺序识别所有底座，返回每个底座的位置和尺寸：
-- x, y: 底座左上角坐标（相对于板块左上角）
-- width, height: 底座的宽度和高度
-
-请只返回JSON数组，格式如下：
-[
-  {
-    "x": 10,
-    "y": 20,
-    "width": 60,
-    "height": 60
-  },
-  ...
-]
-
-要求：
-1. 只返回JSON数组，不要其他文字
-2. 坐标和尺寸使用整数
-3. 按从上到下、从左到右的顺序排列
-4. 精确识别每个底座的四条边（用于裁切）`;
+  const prompt = `识别图片中所有图标底座的位置和尺寸。返回JSON数组，每个元素包含x, y, width, height。例如：[{"x":10,"y":20,"width":60,"height":60},{"x":80,"y":20,"width":60,"height":60}]`;;
 
   try {
     // 调用LLM API
@@ -523,7 +499,7 @@ async function detectIconBasesWithLLM(
       temperature: 0.3
     });
 
-    console.log(`  LLM response for panel "${panel.title}":`, response.content.substring(0, 500));
+    console.log(`  LLM response for panel "${panel.title}":`, response.content);
 
     // 解析LLM返回的JSON
     let jsonText = response.content.trim();
