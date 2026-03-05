@@ -348,7 +348,7 @@ async function detectPanelsWithLLM(
   const dataUri = `data:image/png;base64,${base64Image}`;
 
   // LLM提示词（识别所有大板块）
-  const prompt = `识别图片中所有板块。每个板块有英文标题（如"Bag"）、分隔线、图标网格。返回JSON数组，包含title, x, y, width, height, rows, cols。例如：[{"title":"Bag","x":10,"y":20,"width":300,"height":200,"rows":2,"cols":5}]`;
+  const prompt = `识别图片中所有板块。每个板块由三部分组成：1）顶部英文标题（如"Bag"）；2）标题下方的水平分隔线；3）下方的图标网格（多个方形图标底座排列成多行多列）。返回JSON数组，每个元素包含：title（板块标题）、x（板块左上角X坐标）、y（板块左上角Y坐标）、width（板块宽度，通常从左边界到右边界）、height（板块高度，从标题到图标网格底部）、rows（图标网格的行数）、cols（图标网格的列数）。注意：height必须足够大以包含整个图标网格，每个图标通常约130像素高。例如：[{"title":"Bag","x":10,"y":20,"width":900,"height":400,"rows":2,"cols":5}]`;
 
   try {
     // 调用LLM API
@@ -408,6 +408,15 @@ async function detectPanelsWithLLM(
 
     console.log(`  LLM detected ${panels.length} panels:`, panels.map((p: any) => p.title).join(', '));
 
+    // 验证板块高度是否合理
+    panels.forEach((panel: any) => {
+      const expectedMinHeight = 50 + (panel.rows * 130); // 标题50像素 + 每个图标130像素
+      if (panel.height < expectedMinHeight) {
+        console.warn(`  Panel "${panel.title}" height (${panel.height}) may be too small. Expected at least ${expectedMinHeight} for ${panel.rows} rows.`);
+        console.warn(`  Panel coords: x=${panel.x}, y=${panel.y}, width=${panel.width}, height=${panel.height}, rows=${panel.rows}, cols=${panel.cols}`);
+      }
+    });
+
     return { panels };
 
   } catch (error) {
@@ -438,7 +447,7 @@ async function detectIconBasesWithLLM(
   console.log(`  Data URI length: ${dataUri.length} chars`);
 
   // LLM提示词（识别图标底座）
-  const prompt = `识别图片中所有图标底座。图片是一个浅色背景的板块，上面有多个深色小方块（图标底座），每个底座中心有一个图标。请识别所有底座的位置。返回JSON数组：[{"x":10,"y":20,"width":130,"height":130},{"x":150,"y":20,"width":130,"height":130}]`;;
+  const prompt = `识别图片中所有图标底座。图片中包含多个正方形的图标底座（浅米色背景的方块，约130x130像素），每个底座中心有一个图标。请按从上到下、从左到右的顺序识别所有底座的位置和尺寸。返回JSON数组：[{"x":10,"y":20,"width":130,"height":130},{"x":150,"y":20,"width":130,"height":130}]。注意：只返回有效的图标底座（方形、尺寸约130像素），忽略其他元素（文字、分隔线等）。`;
 
   try {
     // 调用LLM API
