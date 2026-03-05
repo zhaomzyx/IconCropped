@@ -258,6 +258,17 @@ function checkIconExists(
 ): boolean {
   const { data, width: imageWidth, height: imageHeight } = imageData;
 
+  // 边界检查
+  const startX = x;
+  const startY = y;
+  const endX = x + width;
+  const endY = y + height;
+
+  if (startX < 0 || startY < 0 || endX > imageWidth || endY > imageHeight) {
+    console.warn(`[checkIconExists] 边界检查失败: 区域 (${startX}, ${startY}, ${width}, ${height}) 超出图片范围 (${imageWidth}×${imageHeight})`);
+    return true; // 超出边界时默认认为有图标（避免误判）
+  }
+
   let rSum = 0, gSum = 0, bSum = 0;
   let count = 0;
 
@@ -273,7 +284,10 @@ function checkIconExists(
     }
   }
 
-  if (count === 0) return true;
+  if (count === 0) {
+    console.warn(`[checkIconExists] 像素计数为 0`);
+    return true;
+  }
 
   const rAvg = rSum / count;
   const gAvg = gSum / count;
@@ -292,6 +306,8 @@ function checkIconExists(
   }
 
   variance = variance / (count * 3); // 返回平均方差
+
+  console.log(`    方差值: ${variance.toFixed(2)}, 阈值: ${varianceThreshold}`);
 
   return variance >= varianceThreshold;
 }
@@ -329,6 +345,8 @@ export function calculateIconPositions(
   console.log(`  firstCenterX=${firstCenterX}, firstCenterY=${firstCenterY}`);
   console.log(`  rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
   console.log(`  centerGapX=${centerGapX}, centerGapY=${centerGapY}`);
+  console.log(`  varianceThreshold=${varianceThreshold}`);
+  console.log(`  coreSize=${coreSize}`);
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
@@ -346,6 +364,11 @@ export function calculateIconPositions(
       const coreX = centerX - Math.floor(coreSize / 2);
       const coreY = centerY - Math.floor(coreSize / 2);
 
+      console.log(`  [${row}, ${col}] 坐标计算:`);
+      console.log(`    中心点: (${centerX}, ${centerY})`);
+      console.log(`    左上角: (${rectX}, ${rectY})`);
+      console.log(`    核心区域: (${coreX}, ${coreY}, ${coreSize}×${coreSize})`);
+
       // 呼叫空位探测器！
       const hasIcon = checkIconExists(
         imageData,
@@ -355,6 +378,8 @@ export function calculateIconPositions(
         coreSize,
         varianceThreshold || 50  // 与调试台一致，默认 50
       );
+
+      console.log(`    空位检测结果: ${hasIcon ? '✓ 有图标' : '✗ 空底座'}`);
 
       if (!hasIcon) {
         console.log(`[A计划前端] 探测到位置 [${row}, ${col}] 为空底座，终止当前面板识别！`);
@@ -390,16 +415,26 @@ export async function detectPanelsWithCanvas(
 
   console.log('\n========== 开始 A 计划面板检测（Canvas 版本） ==========');
 
+  // 输出图片元素的尺寸信息
+  console.log('📊 图片元素尺寸信息:');
+  console.log(`  图片自然尺寸 (naturalWidth × naturalHeight): ${imageElement.naturalWidth} × ${imageElement.naturalHeight}`);
+  console.log(`  图片显示尺寸 (width × height): ${imageElement.width} × ${imageElement.height}`);
+  console.log(`  图片 URL: ${imageElement.src}`);
+
   // 创建 Canvas 并绘制图片
   const canvas = document.createElement('canvas');
   canvas.width = imageElement.naturalWidth;
   canvas.height = imageElement.naturalHeight;
   const ctx = canvas.getContext('2d')!;
 
+  console.log(`📊 Canvas 尺寸信息:`);
+  console.log(`  Canvas 尺寸 (width × height): ${canvas.width} × ${canvas.height}`);
+  console.log(`  Canvas 与图片尺寸是否一致: ${canvas.width === imageElement.naturalWidth && canvas.height === imageElement.naturalHeight}`);
+
   ctx.drawImage(imageElement, 0, 0);
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-  console.log(`图片尺寸: ${canvas.width}x${canvas.height}`);
+  console.log(`✓ Canvas 绘制完成，ImageData 尺寸: ${imageData.width} × ${imageData.height}`);
   console.log(`参数: scanLineX=${params.scanLineX}, scanStartY=${params.scanStartY}`);
 
   // 1. Y轴检测

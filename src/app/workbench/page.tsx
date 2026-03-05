@@ -617,7 +617,10 @@ export default function WorkbenchPage() {
               imageElement.src = imageUrl;
             });
 
-            console.log(`✓ 图片加载成功: ${imageElement.naturalWidth}x${imageElement.naturalHeight}`);
+            console.log(`✓ 图片加载成功:`);
+            console.log(`  图片自然尺寸 (naturalWidth × naturalHeight): ${imageElement.naturalWidth} × ${imageElement.naturalHeight}`);
+            console.log(`  图片显示尺寸 (width × height): ${imageElement.width} × ${imageElement.height}`);
+            console.log(`  图片 URL: ${imageUrl}`);
 
             // 使用 Canvas 检测模块进行检测
             const detectedPanels = await detectPanelsWithCanvas(
