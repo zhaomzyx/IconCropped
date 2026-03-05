@@ -27,6 +27,7 @@ export const DEFAULT_DETECTION_PARAMS = {
   iconLineOffset: 107,
   iconLineGap: 144,
   minIconsPerLine: 5,
+  varianceThreshold: 300,  // 空位探测器的方差阈值
 };
 
 // 面板垂直范围
@@ -71,6 +72,59 @@ function colorDiff(color1: [number, number, number], color2: [number, number, nu
     Math.abs(color1[1] - color2[1]),
     Math.abs(color1[2] - color2[2])
   );
+}
+
+// 后端空位探测器：基于方差检测空底座
+function checkIconExists(
+  pixelData: Buffer,
+  imageWidth: number,
+  imageHeight: number,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  varianceThreshold: number = 300
+): boolean {
+  // 只取中心 30% 到 70% 的核心区域
+  const startX = Math.floor(x + width * 0.3);
+  const startY = Math.floor(y + height * 0.3);
+  const endX = Math.floor(x + width * 0.7);
+  const endY = Math.floor(y + height * 0.7);
+
+  // 边界保护
+  if (startX < 0 || startY < 0 || endX >= imageWidth || endY >= imageHeight) return true;
+
+  let rSum = 0, gSum = 0, bSum = 0;
+  let count = 0;
+  const pixels = [];
+
+  for (let py = startY; py < endY; py++) {
+    for (let px = startX; px < endX; px++) {
+      const idx = (py * imageWidth + px) * 4; // RGBA 4通道
+      const r = pixelData[idx];
+      const g = pixelData[idx + 1];
+      const b = pixelData[idx + 2];
+      pixels.push({ r, g, b });
+      rSum += r;
+      gSum += g;
+      bSum += b;
+      count++;
+    }
+  }
+
+  if (count === 0) return true;
+
+  const rAvg = rSum / count;
+  const gAvg = gSum / count;
+  const bAvg = bSum / count;
+
+  let variance = 0;
+  for (const p of pixels) {
+    variance += Math.pow(p.r - rAvg, 2) + Math.pow(p.g - gAvg, 2) + Math.pow(p.b - bAvg, 2);
+  }
+  variance = variance / count;
+
+  return variance > varianceThreshold;
 }
 
 // 垂直像素扫描（Y轴检测）
@@ -255,68 +309,70 @@ export async function scanHorizontalLine(
   return { startX: panelStartX, endX: panelEndX, icons };
 }
 
-// 计算图标位置（使用中心点间距）
+// 计算图标位置（使用中心点间距 + 空位探测器）
 export function calculateIconPositions(
   panel: any,
   panelY: number,
   params: typeof DEFAULT_DETECTION_PARAMS,
-  width: number,
-  height: number
+  pixelData: Buffer,
+  imageWidth: number,
+  imageHeight: number
 ): IconPosition[] {
-  const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY } = params;
+  const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset } = params;
 
-  // 计算面板的左上角坐标
-  const panelX = panel.x + panelLeftOffset;
+  // 终极解法：我们不再死板相信 LLM 的 rows！
+  // 给他一个允许的最大行数（比如 10 行），让我们的"空位探测器"自动去喊停！
+  const rows = panel.rows || 10;
+  const cols = panel.cols || 5;
+  const maxCount = panel.total || (rows * cols);
 
-  // 首个中心点坐标
-  const firstCenterX = panelX + gridStartX + iconCenterOffsetX;
-  const firstCenterY = panelY + gridStartY + iconCenterOffsetY;
+  const startX = panel.x + panelLeftOffset + gridStartX;
+  const startY = panelY + gridStartY;
 
-  const positions: IconPosition[] = [];
+  const positions = [];
   let count = 0;
-  const maxCount = panel.total ?? (panel.rows * panel.cols);
-  const coreSize = 30;
-  const varianceThreshold = 50;
 
-  console.log(`[图标定位] 开始计算图标位置`);
+  console.log(`[图标定位] 开始计算图标位置（带空位探测器）`);
   console.log(`  panel.x=${panel.x}, panel.y=${panel.y}`);
-  console.log(`  panelX=${panelX}, panelY=${panelY}`);
-  console.log(`  firstCenterX=${firstCenterX}, firstCenterY=${firstCenterY}`);
+  console.log(`  startX=${startX}, startY=${startY}`);
+  console.log(`  rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
   console.log(`  centerGapX=${centerGapX}, centerGapY=${centerGapY}`);
 
-  for (let row = 0; row < panel.rows; row++) {
-    for (let col = 0; col < panel.cols; col++) {
-      if (count >= maxCount) {
-        break;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      if (count >= maxCount) break;
+
+      const rectX = Math.round(startX + col * centerGapX);
+      const rectY = Math.round(startY + row * centerGapY);
+
+      // 呼叫后端空位探测器！
+      const hasIcon = checkIconExists(
+        pixelData,
+        imageWidth,
+        imageHeight,
+        rectX,
+        rectY,
+        iconSize,
+        iconSize,
+        params.varianceThreshold || 300
+      );
+
+      if (!hasIcon) {
+        console.log(`[A计划后端] 探测到位置 [${row}, ${col}] 为空底座，终止当前面板识别！`);
+        return positions; // 探测到空的，直接停止识别该面板！
       }
 
-      // 计算中心点坐标
-      const centerX = Math.round(firstCenterX + col * centerGapX);
-      const centerY = Math.round(firstCenterY + row * centerGapY);
-
-      // 从中心点计算左上角坐标
-      const x = centerX - Math.round(iconSize / 2);
-      const y = centerY - Math.round(iconSize / 2);
-
-      // 边界检查
-      if (x >= 0 && y >= 0 && x + iconSize <= width && y + iconSize <= height) {
-        positions.push({
-          x,
-          y,
-          width: iconSize,
-          height: iconSize,
-          row,
-          col,
-        });
-        count++;
-      } else {
-        console.warn(`[图标定位] 图标 [${row}, ${col}] 超出边界，跳过`);
-      }
+      positions.push({
+        x: rectX,
+        y: rectY,
+        width: iconSize,
+        height: iconSize,
+        row,
+        col,
+      });
+      count++;
     }
-
-    if (count >= maxCount) {
-      break;
-    }
+    if (count >= maxCount) break;
   }
 
   console.log(`[图标定位] 计算完成，共 ${positions.length} 个图标`);
@@ -326,17 +382,22 @@ export function calculateIconPositions(
 
 // 完整的面板检测流程
 export async function detectPanels(
-  image: sharp.Sharp,
+  imageBuffer: Buffer,
   debugPanels: any[],
-  params: typeof DEFAULT_DETECTION_PARAMS
+  customParams?: any
 ): Promise<DetectedPanel[]> {
+  // 合并前端传来的完美参数和默认参数
+  const params = { ...DEFAULT_DETECTION_PARAMS, ...(customParams || {}) };
+
   console.log('\n========== 开始 A 计划面板检测 ==========');
 
-  const metadata = await image.metadata();
-  const width = metadata.width!;
-  const height = metadata.height!;
+  // 重点：让 sharp 吐出带有 RGBA 像素数据的 raw buffer，给后续的方差检测用
+  const image = sharp(imageBuffer).ensureAlpha();
+  const { data: pixelData, info } = await image.raw().toBuffer({ resolveWithObject: true });
+  const imageWidth = info.width;
+  const imageHeight = info.height;
 
-  console.log(`图片尺寸: ${width}x${height}`);
+  console.log(`图片尺寸: ${imageWidth}x${imageHeight}`);
   console.log(`参数: scanLineX=${params.scanLineX}, scanStartY=${params.scanStartY}`);
 
   // 1. Y轴检测
@@ -440,8 +501,9 @@ export async function detectPanels(
       safePanel,
       range.startY,
       params,
-      width,
-      height
+      pixelData,
+      imageWidth,
+      imageHeight
     );
 
     console.log(`  GreenBox: x=${greenBox.x}, y=${greenBox.y}, width=${greenBox.width}, height=${greenBox.height}`);

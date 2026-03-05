@@ -203,12 +203,10 @@ export async function POST(request: NextRequest) {
               console.log(`  Panel ${idx + 1}: ${panel.title}, rows=${panel.rows}, cols=${panel.cols}, total=${panel.total}`);
             });
 
-            // 合并自定义参数（如果有的话）
-            const mergedParams = customParams ? { ...DEFAULT_DETECTION_PARAMS, ...customParams } : DEFAULT_DETECTION_PARAMS;
-            console.log(`使用的检测参数:`, mergedParams);
+            console.log(`使用的自定义检测参数:`, customParams);
 
-            // 使用 A 计划检测面板坐标
-            const detectedPanels = await detectPanels(image, debugPanels, mergedParams);
+            // 使用 A 计划检测面板坐标（传入 imageBuffer 和 customParams）
+            const detectedPanels = await detectPanels(imageBuffer, debugPanels, customParams);
 
             console.log(`\n========== A 计划检测完成，开始裁切图标 ==========`);
 
