@@ -770,8 +770,15 @@ export default function WikiDebugPage() {
       ctx.lineTo(canvas.width, params.scanStartY);
       ctx.stroke();
       ctx.setLineDash([]);
-      img.src = imageUrl;
-  };
+    };
+
+    // 图片加载错误处理
+    img.onerror = () => {
+      console.error('图片加载失败:', imageUrl);
+    };
+
+    // 设置图片源（触发加载）
+    img.src = imageUrl;
   }, [imageUrl, debugPanels, selectedPanelIndex, params, scanVerticalLine, scanHorizontalLine, calculateIconPositions]);
 
   // 重新绘制Canvas
