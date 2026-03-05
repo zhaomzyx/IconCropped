@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { cwd } from 'process';
 import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
+import { detectPanels, DEFAULT_DETECTION_PARAMS, DetectedPanel } from '@/lib/panel-detection';
 
 // 发送SSE事件
 function sendEvent(stream: ReadableStreamDefaultController<any>, event: string, data: any) {
@@ -182,117 +183,80 @@ export async function POST(request: NextRequest) {
               return;
             }
 
-            // 生产模式：继续执行裁切流程
-            // 创建大panel缓存目录
-            const bigPanelDir = path.join(cwd(), 'public', 'wiki-big-cropped', actualWikiName);
-            try {
-              await fs.rm(bigPanelDir, { recursive: true, force: true });
-            } catch (error) {
-              // 忽略错误
-            }
-            await fs.mkdir(bigPanelDir, { recursive: true });
+            // 生产模式：使用 A 计划切图方案进行检测和裁切
+            console.log(`\n========== 生产模式：使用 A 计划切图方案 ==========`);
 
-            // 保存一级裁切的大panel图片（用于调试）
-            for (let j = 0; j < panelData.panels.length; j++) {
-              const panel = panelData.panels[j];
-              const title = panel.title || `板块_${j + 1}`;
+            // 准备面板元数据（从 LLM 获取）
+            const debugPanels = panelData.panels.map((panel, idx) => ({
+              title: panel.title || `板块_${idx + 1}`,
+              x: panel.x,
+              y: panel.y,
+              width: panel.width,
+              height: panel.height,
+              rows: panel.rows,
+              cols: panel.cols,
+              total: panel.total ?? (panel.rows * panel.cols),
+            }));
 
-              // 边界检查和修正
-              const correctedX = Math.max(0, Math.min(panel.x, metadata.width! - 1));
-              const correctedY = Math.max(0, Math.min(panel.y, metadata.height! - 1));
-              const correctedWidth = Math.max(1, Math.min(panel.width, metadata.width! - correctedX));
-              const correctedHeight = Math.max(1, Math.min(panel.height, metadata.height! - correctedY));
+            // 使用 A 计划检测面板坐标
+            const detectedPanels = await detectPanels(image, debugPanels, DEFAULT_DETECTION_PARAMS);
 
-              // 保存大panel图片
-              const panelImagePath = path.join(bigPanelDir, `${title}.png`);
-              try {
-                await sharp(imageBuffer)
-                  .extract({ left: correctedX, top: correctedY, width: correctedWidth, height: correctedHeight })
-                  .png()
-                  .toFile(panelImagePath);
-                console.log(`  Saved big panel: ${title}.png (${correctedWidth}x${correctedHeight})`);
-              } catch (e) {
-                console.error(`  Failed to save big panel ${title}:`, e);
-              }
-            }
+            console.log(`\n========== A 计划检测完成，开始裁切图标 ==========`);
 
-            // 阶段4：二级裁切（使用数学网格计算切图）
+            // 阶段4：裁切图标（使用 A 计划检测到的坐标）
             sendEvent(controller, 'progress', {
               step: 'cutting_icons',
-              message: `✂️ 图片 ${i + 1}/${filenames.length} - 二级裁切：正在处理 ${panelData.panels.length} 个板块...`,
+              message: `✂️ 图片 ${i + 1}/${filenames.length} - 二级裁切：正在处理 ${detectedPanels.length} 个板块...`,
               currentImage: i + 1,
               totalImages: filenames.length,
-              totalPanels: panelData.panels.length,
+              totalPanels: detectedPanels.length,
               filename: filename,
               subStep: 'icon_cutting'
             });
 
-            // UI布局常量（可调整）
-            const UI_LAYOUT = {
-              COLS: 5,              // 固定为5列
-              TOP_PADDING: 60,      // 顶部标题区域高度（减小以适应小高度Panel）
-              BOTTOM_PADDING: 20,   // 底部留白
-              SIDE_PADDING: 30,     // 左右两侧的总留白
-              GAP: 15               // 图标之间的间距
-            };
-
-            console.log(`  UI Layout: COLS=${UI_LAYOUT.COLS}, TOP_PADDING=${UI_LAYOUT.TOP_PADDING}, BOTTOM_PADDING=${UI_LAYOUT.BOTTOM_PADDING}, SIDE_PADDING=${UI_LAYOUT.SIDE_PADDING}, GAP=${UI_LAYOUT.GAP}`);
-
             // 处理每个板块
             const crops: WikiCroppedImage[] = [];
 
-            for (let j = 0; j < panelData.panels.length; j++) {
-              const panel = panelData.panels[j];
-              const title = panel.title || `板块_${j + 1}`;
+            for (let j = 0; j < detectedPanels.length; j++) {
+              const detectedPanel = detectedPanels[j];
+              const title = detectedPanel.title;
 
               sendEvent(controller, 'progress', {
                 step: 'processing_panel',
-                message: `🎨 图片 ${i + 1}/${filenames.length} - 板块 ${j + 1}/${panelData.panels.length}：${title}`,
+                message: `🎨 图片 ${i + 1}/${filenames.length} - 板块 ${j + 1}/${detectedPanels.length}：${title}`,
                 currentImage: i + 1,
                 totalImages: filenames.length,
                 currentPanel: j + 1,
-                totalPanels: panelData.panels.length,
+                totalPanels: detectedPanels.length,
                 panelTitle: title,
                 filename: filename,
                 subStep: 'panel_processing'
               });
 
-              // 边界检查和修正
-              const correctedX = Math.max(0, Math.min(panel.x, metadata.width! - 1));
-              const correctedY = Math.max(0, Math.min(panel.y, metadata.height! - 1));
-              const correctedWidth = Math.max(1, Math.min(panel.width, metadata.width! - correctedX));
-              const correctedHeight = Math.max(1, Math.min(panel.height, metadata.height! - correctedY));
+              console.log(`  处理面板 ${j + 1}/${detectedPanels.length}: ${title}`);
+              console.log(`    蓝框: x=${detectedPanel.blueBox.x}, y=${detectedPanel.blueBox.y}, w=${detectedPanel.blueBox.width}, h=${detectedPanel.blueBox.height}`);
+              console.log(`    绿框: x=${detectedPanel.greenBox.x}, y=${detectedPanel.greenBox.y}, w=${detectedPanel.greenBox.width}, h=${detectedPanel.greenBox.height}`);
+              console.log(`    红框数量: ${detectedPanel.redBoxes.length}`);
 
-              // 使用数学网格计算图标位置
-              const iconPositions = calculateIconPositions(
-                correctedX,
-                correctedY,
-                correctedWidth,
-                correctedHeight,
-                UI_LAYOUT
-              );
-
-              console.log(`  Panel ${j} (${title}): calculated ${iconPositions.positions.length} icon positions (${iconPositions.rows} rows x ${iconPositions.cols} cols)`);
-
-              // 裁切图标（使用数学计算的位置）
-              for (const iconPos of iconPositions.positions) {
-                const iconIndex = iconPos.row * iconPositions.cols + iconPos.col;
-                const iconFileName = `${title}_icon_${iconIndex}.png`;
+              // 裁切图标（使用 A 计划检测到的坐标）
+              for (const redBox of detectedPanel.redBoxes) {
+                const iconIndex = redBox.row * detectedPanel.redBoxes.length / detectedPanel.redBoxes.length + redBox.col;
+                const iconFileName = `${title}_${redBox.row + 1}_${redBox.col + 1}.png`;
                 const iconPath = path.join(wikiDir, iconFileName);
 
-                console.log(`  Icon ${iconIndex}: [${iconPos.row},${iconPos.col}] position=(${iconPos.x},${iconPos.y}, ${iconPos.width}x${iconPos.height})`);
+                console.log(`  裁切图标 [${redBox.row},${redBox.col}]: x=${redBox.x}, y=${redBox.y}, size=${redBox.width}x${redBox.height}`);
 
-                // 边界检查（确保裁切区域不超出原图）
-                if (iconPos.x >= 0 && iconPos.y >= 0 &&
-                    iconPos.x + iconPos.width <= metadata.width &&
-                    iconPos.y + iconPos.height <= metadata.height) {
+                // 边界检查
+                if (redBox.x >= 0 && redBox.y >= 0 &&
+                    redBox.x + redBox.width <= metadata.width &&
+                    redBox.y + redBox.height <= metadata.height) {
                   try {
                     await sharp(imageBuffer)
                       .extract({
-                        left: iconPos.x,
-                        top: iconPos.y,
-                        width: iconPos.width,
-                        height: iconPos.height
+                        left: redBox.x,
+                        top: redBox.y,
+                        width: redBox.width,
+                        height: redBox.height
                       })
                       .png()
                       .toFile(iconPath);
@@ -300,14 +264,14 @@ export async function POST(request: NextRequest) {
                     crops.push({
                       path: iconFileName,
                       name: `${title}_icon_${iconIndex}`,
-                      row: iconPos.row,
-                      col: iconPos.col,
-                      totalRows: iconPositions.rows,
-                      totalCols: iconPositions.cols,
-                      x: iconPos.x,
-                      y: iconPos.y,
-                      width: iconPos.width,
-                      height: iconPos.height,
+                      row: redBox.row,
+                      col: redBox.col,
+                      totalRows: debugPanels[j].rows,
+                      totalCols: debugPanels[j].cols,
+                      x: redBox.x,
+                      y: redBox.y,
+                      width: redBox.width,
+                      height: redBox.height,
                       panelName: title,
                       title: title,
                       wikiName: actualWikiName,
@@ -315,7 +279,7 @@ export async function POST(request: NextRequest) {
                       imageUrl: `/api/crops/${actualWikiName}/${iconFileName}`
                     });
 
-                    console.log(`  Saved icon: ${iconFileName} (row=${iconPos.row}, col=${iconPos.col}, size=${iconPos.width}x${iconPos.height})`);
+                    console.log(`  Saved icon: ${iconFileName} (row=${redBox.row}, col=${redBox.col}, size=${redBox.width}x${redBox.height})`);
                   } catch (e) {
                     console.error(`  Failed to save icon ${iconFileName}:`, e);
                   }
