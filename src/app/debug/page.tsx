@@ -1349,6 +1349,11 @@ export default function WikiDebugPage() {
                 <span>黄色虚线：扫描起始线</span>
               </div>
             </div>
+            <div className="mt-4 p-3 bg-blue-50 rounded border border-blue-200">
+              <p className="text-sm text-blue-900">
+                <strong>💡 坐标显示说明：</strong>各框左上角会显示坐标值（格式：x,y）。裁切后的图片会自动在左下角添加红色坐标信息，便于对照验证。
+              </p>
+            </div>
           </CardContent>
         </Card>
       )}
