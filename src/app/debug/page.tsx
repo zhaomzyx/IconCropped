@@ -34,7 +34,6 @@ export default function WikiDebugPage() {
   const [selectedPanelIndex, setSelectedPanelIndex] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [cropResults, setCropResults] = useState<any[]>([]); // 裁切结果
-  const [verificationResults, setVerificationResults] = useState<any[]>([]); // 验证结果
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -96,10 +95,50 @@ export default function WikiDebugPage() {
     return DEFAULT_PARAMS;
   });
 
-  // 计算图标位置（支持 total 限制）
+  // 计算颜色方差（用于判断是否为空图标）
+  const calculateColorVariance = (imageData: ImageData, x: number, y: number, width: number, height: number): number => {
+    const { data } = imageData;
+    let rSum = 0, gSum = 0, bSum = 0;
+    let count = 0;
+
+    // 计算平均值
+    for (let py = y; py < y + height; py++) {
+      for (let px = x; px < x + width; px++) {
+        if (px < 0 || py < 0 || px >= imageData.width || py >= imageData.height) continue;
+        const idx = (py * imageData.width + px) * 4;
+        rSum += data[idx];
+        gSum += data[idx + 1];
+        bSum += data[idx + 2];
+        count++;
+      }
+    }
+
+    if (count === 0) return 0;
+
+    const rAvg = rSum / count;
+    const gAvg = gSum / count;
+    const bAvg = bSum / count;
+
+    // 计算方差
+    let variance = 0;
+    for (let py = y; py < y + height; py++) {
+      for (let px = x; px < x + width; px++) {
+        if (px < 0 || py < 0 || px >= imageData.width || py >= imageData.height) continue;
+        const idx = (py * imageData.width + px) * 4;
+        variance += Math.pow(data[idx] - rAvg, 2);
+        variance += Math.pow(data[idx + 1] - gAvg, 2);
+        variance += Math.pow(data[idx + 2] - bAvg, 2);
+      }
+    }
+
+    return variance / (count * 3); // 返回平均方差
+  };
+
+  // 计算图标位置（支持 total 限制 + 空图标过滤）
   const calculateIconPositions = useCallback((
     panel: DebugPanel,
-    panelY: number
+    panelY: number,
+    ctx: CanvasRenderingContext2D
   ): IconPosition[] => {
     const { width, rows, cols, total } = panel;
     const { gridStartX, gridStartY, iconSize, gapX, gapY, panelLeftOffset } = params;
@@ -110,6 +149,14 @@ export default function WikiDebugPage() {
     const positions: IconPosition[] = [];
     let count = 0;
     const maxCount = total ?? (rows * cols); // 如果没有 total，则使用 rows * cols
+    const coreSize = 30; // 核心区域大小（正方形）
+    const varianceThreshold = 100; // 方差阈值，小于此值判定为空图标
+
+    // 获取完整的像素数据
+    const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+    console.log(`  开始扫描图标位置，rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
+    console.log(`  方差阈值: ${varianceThreshold}, 核心区域大小: ${coreSize}x${coreSize}`);
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -118,16 +165,35 @@ export default function WikiDebugPage() {
           break;
         }
 
-        positions.push({
-          x: Math.round(startX + col * (iconSize + gapX)),
-          y: Math.round(startY + row * (iconSize + gapY)),
-          width: iconSize,
-          height: iconSize,
-          row,
-          col,
-        });
+        const x = Math.round(startX + col * (iconSize + gapX));
+        const y = Math.round(startY + row * (iconSize + gapY));
 
-        count++;
+        // 获取icon中心区域的像素（用于检测空图标）
+        const coreX = x + Math.floor((iconSize - coreSize) / 2);
+        const coreY = y + Math.floor((iconSize - coreSize) / 2);
+
+        // 计算中心区域的颜色方差
+        const variance = calculateColorVariance(imageData, coreX, coreY, coreSize, coreSize);
+
+        const hasIcon = variance >= varianceThreshold;
+
+        console.log(`  [${row}, ${col}] 位置: x=${x}, y=${y}, 方差=${variance.toFixed(2)}, ${hasIcon ? '✓ 有图标' : '✗ 空图标'}`);
+
+        if (hasIcon) {
+          positions.push({
+            x,
+            y,
+            width: iconSize,
+            height: iconSize,
+            row,
+            col,
+          });
+          count++;
+        } else {
+          // 遇到空图标，直接结束当前面板的扫描
+          console.log(`  遇到空图标，结束面板扫描。共找到 ${positions.length} 个有效图标`);
+          return positions;
+        }
       }
       // 外层循环也需要检查，避免不必要的行
       if (count >= maxCount) {
@@ -135,6 +201,7 @@ export default function WikiDebugPage() {
       }
     }
 
+    console.log(`  扫描完成，共找到 ${positions.length} 个有效图标`);
     return positions;
   }, [params]);
 
@@ -263,7 +330,7 @@ export default function WikiDebugPage() {
         const panelY = absolutePanelY;
 
         // 计算图标区域的实际高度（基于实际使用的行数）
-        const positions = calculateIconPositions(panel, panelY);
+        const positions = calculateIconPositions(panel, panelY, ctx);
         const usedRows = positions.length > 0
           ? Math.ceil(positions[positions.length - 1].row + 1)
           : 1;
@@ -560,7 +627,7 @@ export default function WikiDebugPage() {
         console.log(`  计算后: panelX=${panelX}, panelY=${panelY}`);
 
         // 计算图标位置
-        const positions = calculateIconPositions(panel, panelY);
+        const positions = calculateIconPositions(panel, panelY, ctx);
         console.log(`  calculateIconPositions 返回了 ${positions.length} 个位置:`);
         positions.forEach((pos, idx) => {
           if (idx < 3 || idx === positions.length - 1) { // 只显示前3个和最后一个
@@ -648,30 +715,8 @@ export default function WikiDebugPage() {
 
       if (result.success) {
         setCropResults(result.results);
-        setVerificationResults(result.verification?.details || []);
-
-        // 构建验证信息提示
-        let message = `裁切成功！共裁切 ${result.total} 个icon\n\n结果已保存到 public/wiki-cropped/travel-town/`;
-
-        if (result.verification && result.verification.details.length > 0) {
-          const { matched, mismatched, details } = result.verification;
-          message += `\n\n=== LLM数量验证结果 ===`;
-          message += `\n✓ 匹配: ${matched}/${details.length} 个面板`;
-
-          if (mismatched > 0) {
-            message += `\n✗ 不匹配: ${mismatched}/${details.length} 个面板`;
-            message += `\n\n不匹配的面板详情:\n`;
-            details.forEach((v: any) => {
-              if (!v.match) {
-                message += `- ${v.panelTitle}: 网格推断${v.gridCount}个, LLM识别${v.llmCount}个\n`;
-              }
-            });
-          }
-        }
-
-        alert(message);
+        alert(`裁切成功！共裁切 ${result.total} 个icon\n\n结果已保存到 public/wiki-cropped/travel-town/`);
         console.log('裁切结果:', result.results);
-        console.log('验证结果:', result.verification);
       } else {
         throw new Error(result.error || '裁切失败');
       }
@@ -1024,23 +1069,8 @@ export default function WikiDebugPage() {
                     {isProcessing ? '裁切中...' : '导出到工作台'}
                   </Button>
                   {cropResults.length > 0 && (
-                    <div className="mt-2 space-y-2">
-                      <div className="text-sm text-green-600">
-                        ✓ 已裁切 {cropResults.length} 个icon
-                      </div>
-
-                      {/* LLM验证结果 */}
-                      {verificationResults.length > 0 && (
-                        <div className="mt-4 p-3 bg-gray-50 rounded-md border">
-                          <div className="text-sm font-semibold mb-2">LLM数量验证结果</div>
-                          {verificationResults.map((v, idx) => (
-                            <div key={idx} className={`text-xs py-1 ${v.match ? 'text-green-600' : 'text-red-600'}`}>
-                              {v.match ? '✓' : '✗'} {v.panelTitle}: 网格{v.gridCount} vs LLM{v.llmCount}
-                              <div className="ml-2 text-gray-500">{v.confidence}</div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                    <div className="mt-2 text-sm text-green-600">
+                      ✓ 已裁切 {cropResults.length} 个icon
                     </div>
                   )}
                 </div>

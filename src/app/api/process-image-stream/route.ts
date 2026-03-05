@@ -138,7 +138,24 @@ export async function POST(request: NextRequest) {
 
             const image = sharp(imageBuffer);
 
-            // 阶段3：一级裁切（使用LLM识别大板块）
+            // 阶段3：检查是否为调试模式
+            if (debug) {
+              // Debug模式：只保存图片，不进行LLM识别，让前端自己扫描面板
+              console.log('  Debug模式：跳过LLM识别，只保存图片');
+
+              sendEvent(controller, 'debug_complete', {
+                debugPanels: [], // 返回空数组，让前端自己初始化
+                imageMetadata: {
+                  width: metadata.width,
+                  height: metadata.height
+                }
+              });
+
+              controller.close();
+              return;
+            }
+
+            // 生产模式：使用LLM识别大板块
             sendEvent(controller, 'progress', {
               step: 'detecting_panels',
               message: `🔍 图片 ${i + 1}/${filenames.length} - 一级裁切：正在识别大板块（LLM视觉识别）...`,
@@ -182,40 +199,6 @@ export async function POST(request: NextRequest) {
               } catch (e) {
                 console.error(`  Failed to save big panel ${title}:`, e);
               }
-            }
-
-            // Debug模式：返回Panel坐标信息，跳过裁切
-            if (debug) {
-              const debugPanels = panelData.panels.map((panel, idx) => {
-                // 边界检查和修正
-                const correctedX = Math.max(0, Math.min(panel.x, metadata.width! - 1));
-                const correctedY = Math.max(0, Math.min(panel.y, metadata.height! - 1));
-                const correctedWidth = Math.max(1, Math.min(panel.width, metadata.width! - correctedX));
-                const correctedHeight = Math.max(1, Math.min(panel.height, metadata.height! - correctedY));
-
-                return {
-                  title: panel.title || `板块_${idx + 1}`,
-                  x: correctedX,
-                  y: correctedY,
-                  width: correctedWidth,
-                  height: correctedHeight,
-                  rows: panel.rows,
-                  cols: panel.cols,
-                  total: panel.total ?? (panel.rows * panel.cols), // 如果没有 total，则使用 rows * cols
-                  imageUrl: `/wiki-big-cropped/${actualWikiName}/${panel.title || '板块_' + (idx + 1)}.png`
-                };
-              });
-
-              sendEvent(controller, 'debug_complete', {
-                debugPanels: debugPanels,
-                imageMetadata: {
-                  width: metadata.width,
-                  height: metadata.height
-                }
-              });
-
-              controller.close();
-              return;
             }
 
             // 阶段4：二级裁切（使用数学网格计算切图）
