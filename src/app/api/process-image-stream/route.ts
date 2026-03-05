@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
             // UI布局常量（可调整）
             const UI_LAYOUT = {
               COLS: 5,              // 固定为5列
-              TOP_PADDING: 80,      // 顶部标题区域高度
+              TOP_PADDING: 60,      // 顶部标题区域高度（减小以适应小高度Panel）
               BOTTOM_PADDING: 20,   // 底部留白
               SIDE_PADDING: 30,     // 左右两侧的总留白
               GAP: 15               // 图标之间的间距
@@ -941,6 +941,17 @@ function calculateIconPositions(
 
   console.log(`  Available area: ${availableWidth}x${availableHeight}`);
 
+  // 边界检查：如果可用高度太小或为负数，返回空数组
+  if (availableHeight <= 0) {
+    console.warn(`  Available height (${availableHeight}) is too small or negative, skipping panel`);
+    return { positions: [], rows: 0, cols: COLS };
+  }
+
+  if (availableWidth <= 0) {
+    console.warn(`  Available width (${availableWidth}) is too small or negative, skipping panel`);
+    return { positions: [], rows: 0, cols: COLS };
+  }
+
   // 计算单个图标的宽度和高度
   const iconWidth = (availableWidth - (COLS - 1) * GAP) / COLS;
 
@@ -952,6 +963,12 @@ function calculateIconPositions(
 
   console.log(`  Estimated icon size: ${iconWidth.toFixed(1)}x${estimatedIconHeight.toFixed(1)}`);
   console.log(`  Calculated rows: ${rows}`);
+
+  // 边界检查：如果行数为0，返回空数组
+  if (rows <= 0) {
+    console.warn(`  Calculated rows (${rows}) is too small, skipping panel`);
+    return { positions: [], rows: 0, cols: COLS };
+  }
 
   // 重新计算实际图标高度（基于行数）
   const actualIconHeight = (availableHeight - (rows - 1) * GAP) / rows;
