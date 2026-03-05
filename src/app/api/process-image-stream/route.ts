@@ -56,7 +56,7 @@ interface GridItem {
 // SSE版本的process-image API
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { filenames, wikiName, gridSize, debug = false } = body;
+  const { filenames, wikiName, gridSize, debug = false, params: customParams } = body;
 
   if (!filenames || !Array.isArray(filenames) || filenames.length === 0) {
     return new Response(JSON.stringify({ error: 'Missing or invalid filenames parameter' }), {
@@ -203,8 +203,12 @@ export async function POST(request: NextRequest) {
               console.log(`  Panel ${idx + 1}: ${panel.title}, rows=${panel.rows}, cols=${panel.cols}, total=${panel.total}`);
             });
 
+            // 合并自定义参数（如果有的话）
+            const mergedParams = customParams ? { ...DEFAULT_DETECTION_PARAMS, ...customParams } : DEFAULT_DETECTION_PARAMS;
+            console.log(`使用的检测参数:`, mergedParams);
+
             // 使用 A 计划检测面板坐标
-            const detectedPanels = await detectPanels(image, debugPanels, DEFAULT_DETECTION_PARAMS);
+            const detectedPanels = await detectPanels(image, debugPanels, mergedParams);
 
             console.log(`\n========== A 计划检测完成，开始裁切图标 ==========`);
 
