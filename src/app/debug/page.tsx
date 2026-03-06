@@ -574,9 +574,10 @@ export default function WikiDebugPage() {
       // 2. X轴检测：对每个panel检测X坐标范围（仅检测Panel边界）
       const panelRanges = panelVerticalRanges.map((vRange, index) => {
         const panel = debugPanels[index];
+        const safePanel = panel || { title: `Panel_${index + 1}` };
         const midY = Math.round((vRange.startY + vRange.endY) / 2);
 
-        console.log(`\n[Panel ${index + 1}] ${panel.title}`);
+        console.log(`\n[Panel ${index + 1}] ${safePanel.title}`);
         console.log(`[Panel ${index + 1}] 中间检测线 Y: ${midY}`);
 
         // 在Panel中间横线上扫描，检测Panel的左右边界
@@ -611,10 +612,11 @@ export default function WikiDebugPage() {
 
       for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
         const panel = debugPanels[i];
+        const safePanel = panel || { title: `Panel_${i + 1}` };
         const range = panelRanges[i];
         const isSelected = i === selectedPanelIndex;
 
-        console.log(`\n[Panel ${i + 1}] ${panel.title}: 初始宽度 = ${range.width}px`);
+        console.log(`\n[Panel ${i + 1}] ${safePanel.title}: 初始宽度 = ${range.width}px`);
 
         // 保存框体坐标
         const blueBox = {
@@ -632,7 +634,7 @@ export default function WikiDebugPage() {
         };
 
         currentDetectedPanels.push({
-          title: panel.title,
+          title: safePanel.title,
           x: range.startX,
           y: range.startY,
           width: range.width,
@@ -682,13 +684,14 @@ export default function WikiDebugPage() {
       // 3.3 🌟 再次遍历所有panel，使用归一化后的宽度绘制并检测图标
       for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
         const panel = debugPanels[i];
+        const safePanel = panel || { title: `Panel_${i + 1}` };
         const range = panelRanges[i]; // 🌟 此时 range.width 已经被归一化更新
         const isSelected = i === selectedPanelIndex;
         const currentDetectedPanel = currentDetectedPanels[i]; // 🌟 获取归一化后的面板数据
 
         // 绘制时的详细日志（只记录选中的面板）
         if (isSelected) {
-          console.log(`\n========== [drawCanvas] 面板 ${i + 1} (${panel.title}) 坐标计算 ==========`);
+          console.log(`\n========== [drawCanvas] 面板 ${i + 1} (${safePanel.title}) 坐标计算 ==========`);
           console.log(`[Y轴检测结果]`);
           console.log(`  startY = ${range.startY}, endY = ${range.endY}, height = ${range.height}`);
           console.log(`[X轴检测结果]`);
