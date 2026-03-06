@@ -850,43 +850,28 @@ export function normalizePanelWidths(
     console.log(`  ✅ Panel ${i + 1} [${panel.title}]: ${oldWidth}px → ${targetWidth}px${diffStr}`);
   }
 
-  // 🌟 新增：居中逻辑（如果有 imageWidth 参数）
+  // 🌟 新增：居中逻辑（归一化完成后，强制将所有大panel居中）
   if (imageWidth !== undefined && targetWidth !== null) {
-    console.log(`[normalizePanelWidths] 🎯 检查是否需要居中...`);
+    console.log(`[normalizePanelWidths] 🎯 开始居中计算...`);
     console.log(`  图片宽度: ${imageWidth}px`);
     console.log(`  目标宽度: ${targetWidth}px`);
 
-    // 检查所有面板的原始 x 坐标是否都在一个小的范围内（比如都在左边）
-    const allXCoords = panels.map(p => p.x);
-    const minX = Math.min(...allXCoords);
-    const maxX = Math.max(...allXCoords);
-    const xRange = maxX - minX;
+    // 计算左边距：(图片宽度 - 归一化宽度) / 2
+    const leftMargin = Math.round((imageWidth - targetWidth) / 2);
+    console.log(`  大panel的左上角和左下角的x值: ${leftMargin}px`);
 
-    console.log(`  X坐标范围: ${minX}px ~ ${maxX}px, 差距: ${xRange}px`);
+    // 调整所有大panel的 x 坐标
+    for (let i = 0; i < panels.length; i++) {
+      const panel = panels[i];
+      const oldX = panel.x;
+      panel.x = leftMargin;
+      panel.blueBox.x = leftMargin;
+      panel.greenBox.x = leftMargin;
 
-    // 如果 x 坐标的差距很小（比如小于 100），则认为需要居中
-    const shouldCenter = xRange < 100;
-
-    if (shouldCenter) {
-      // 计算左边距
-      const leftMargin = Math.round((imageWidth - targetWidth) / 2);
-      console.log(`  ✅ 需要居中，左边距: ${leftMargin}px`);
-
-      // 调整所有面板的 x 坐标
-      for (let i = 0; i < panels.length; i++) {
-        const panel = panels[i];
-        const oldX = panel.x;
-        panel.x = leftMargin;
-        panel.blueBox.x = leftMargin;
-        panel.greenBox.x = leftMargin;
-
-        console.log(`  ✅ Panel ${i + 1} [${panel.title}]: X坐标 ${oldX}px → ${leftMargin}px`);
-      }
-
-      console.log(`[normalizePanelWidths] ✅ 居中完成！`);
-    } else {
-      console.log(`  ⚠️ 不需要居中（X坐标差距较大），保持原始位置，只调整宽度`);
+      console.log(`  ✅ Panel ${i + 1} [${panel.title}]: X坐标 ${oldX}px → ${leftMargin}px`);
     }
+
+    console.log(`[normalizePanelWidths] ✅ 居中完成！所有大panel已居中`);
   }
 
   console.log(`[normalizePanelWidths] ✅ 归一化完成！`);
