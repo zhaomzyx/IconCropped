@@ -207,6 +207,14 @@ export async function scanVerticalLine(
     }
   }
 
+  // 🌟 修复：如果循环结束时仍在 panel 内，手动关闭最后一个 panel
+  if (inPanel) {
+    const endY = height;
+    console.log(`[Y轴检测] Panel ${panels.length + 1} 下Y轴: ${endY} (到底部), 高度: ${endY - currentStartY}`);
+    panels.push({ startY: currentStartY, endY: endY });
+    console.log(`[Y轴检测] ✅ 已手动关闭最后一个 panel（扫描到图片底部）`);
+  }
+
   console.log(`[Y轴检测] 共检测到 ${panels.length} 个panel`);
   return panels;
 }
