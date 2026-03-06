@@ -273,7 +273,7 @@ export function detectIconPositionsBySlidingWindow(
 // ========== 边界检测方法（新） ==========
 
 // 计算区域的颜色方差（用于检测内容与背景）
-function calculateVariance(
+export function calculateVariance(
   pixelData: Buffer,
   width: number,
   startX: number,
