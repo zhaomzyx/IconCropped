@@ -534,6 +534,9 @@ export default function WorkbenchPage() {
         let allWikiCrops: WikiCroppedImage[] = [];
         let failedCount = 0;
 
+        // 🔧 添加：确定实际的 wikiName
+        const actualWikiName = fetchedWikiName || 'default';
+
         // 逐张处理 Wiki 图片
         for (let i = 0; i < wikiFilenames.length; i++) {
           const filename = wikiFilenames[i];
@@ -660,23 +663,37 @@ export default function WorkbenchPage() {
             console.log(`获取到 ${detectedPanels.length} 个面板的裁切坐标`);
             console.log('🎨 调试台返回的裁切坐标:', JSON.stringify(detectedPanels, null, 2));
 
+            // 🔧 清理 redBoxes 中的 row 和 col 字段，确保符合 API 格式
+            const cleanedDetectedPanels = detectedPanels.map((panel: any) => ({
+              ...panel,
+              redBoxes: panel.redBoxes?.map((box: any) => ({
+                x: box.x,
+                y: box.y,
+                width: box.width,
+                height: box.height,
+              })) || [],
+            }));
+
+            console.log(`🎨 清理后的裁切坐标:`, JSON.stringify(cleanedDetectedPanels, null, 2));
+
             // 2. 将裁切坐标传给后端接口进行裁切
             setWikiProcessingStep(`✂️ 图片 ${i + 1}/${wikiFilenames.length} - 正在裁切图标...`);
 
             console.log(`📤 准备发送裁切请求到后端接口`);
             console.log('📤 发送给后端的裁切坐标:', JSON.stringify({
-              filename: filename,
-              wikiName: fetchedWikiName,
-              detectedPanels: detectedPanels,
+              imageUrl: `/api/uploads/wiki/${filename}`,
+              debugPanels: cleanedDetectedPanels,
+              wikiName: actualWikiName || 'default',
             }, null, 2));
 
-            const cropResponse = await fetch('/api/crop-with-detected-coordinates', {
+            // 🔧 修改：使用与调试台相同的 API，确保结果一致
+            const cropResponse = await fetch('/api/crop-with-coordinates', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                filename: filename,
-                wikiName: fetchedWikiName,
-                detectedPanels: detectedPanels,
+                imageUrl: `/api/uploads/wiki/${filename}`,
+                debugPanels: cleanedDetectedPanels,
+                wikiName: actualWikiName || 'default',
               }),
             });
 
@@ -690,8 +707,27 @@ export default function WorkbenchPage() {
               throw new Error(cropData.error || '裁切失败');
             }
 
-            allWikiCrops = [...allWikiCrops, ...cropData.crops];
-            setWikiProcessingStep(`✓ 图片 ${i + 1}/${wikiFilenames.length} 处理完成，已切割 ${cropData.crops.length} 个图标`);
+            // 🔧 修改：API返回的格式是 { results, total }，需要转换成 crops 格式
+            const convertedCrops: WikiCroppedImage[] = cropData.results.map((result: any) => ({
+              path: result.filename,
+              name: result.name,
+              row: result.row,
+              col: result.col,
+              totalRows: result.row + 1,
+              totalCols: result.col + 1,
+              x: 0,  // 裁切后的图标不需要原始坐标
+              y: 0,
+              width: 0,
+              height: 0,
+              panelName: result.name.split('_')[0],
+              title: result.name.split('_')[0],
+              wikiName: actualWikiName || 'default',
+              id: `${actualWikiName || 'default'}_${result.filename}`,
+              imageUrl: result.imageUrl,
+            }));
+
+            allWikiCrops = [...allWikiCrops, ...convertedCrops];
+            setWikiProcessingStep(`✓ 图片 ${i + 1}/${wikiFilenames.length} 处理完成，已切割 ${cropData.total} 个图标`);
           } catch (error) {
             console.error(`处理图片 ${filename} 失败:`, error);
             
