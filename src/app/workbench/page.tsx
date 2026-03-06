@@ -10,6 +10,7 @@ import { Upload, ArrowLeft, CheckCircle, AlertCircle, Link2, X, ChevronDown, Fil
 import Link from 'next/link';
 import { ResourceItem, WikiCroppedImage, MappingRelation } from '@/types';
 import { detectWikiImage } from '@/lib/wiki-image-detector';
+import DebugModal, { DetectedPanel } from '@/components/debug-modal';
 
 // Wiki图片预览组件
 const WikiImagePreview = ({ filename, wikiName, onRemove }: { filename: string; wikiName?: string; onRemove: () => void }) => {
@@ -147,6 +148,11 @@ export default function WorkbenchPage() {
 
   // 新增：裁切统计信息
   const [chainCount, setChainCount] = useState<number>(0);  // 合成链数量（大Panel数量）
+
+  // 🌟 新增：调试台相关状态
+  const [showDebugModal, setShowDebugModal] = useState(false);  // 是否显示调试台 Modal
+  const [currentImageUrl, setCurrentImageUrl] = useState('');  // 当前调试的图片 URL
+  const [currentFilename, setCurrentFilename] = useState('');  // 当前调试的文件名
 
   // 预设Wiki URL列表
   const presetWikiUrls = [
@@ -516,8 +522,112 @@ export default function WorkbenchPage() {
     }
   };
 
-  // 步骤1：处理Wiki图片裁切
+  // 步骤1：打开调试台（修改：不再直接处理，而是打开调试台）
   const handleProcessWiki = async () => {
+    if (wikiFiles.length === 0 && fetchedWikiFiles.length === 0) {
+      alert('请先上传Wiki长图或从Wiki URL获取图片');
+      return;
+    }
+
+    // 🌟 修改：打开调试台而不是直接处理
+    // 获取第一张图片的 URL
+    let imageUrl: string;
+    let filename: string;
+    const actualWikiName = fetchedWikiName || 'default';
+
+    if (wikiFiles.length > 0) {
+      // 用户上传的文件
+      filename = wikiFiles[0].name;
+      imageUrl = `/api/uploads/wiki/${filename}`;
+    } else {
+      // 从 Wiki URL 获取的文件
+      filename = fetchedWikiFiles[0];
+      imageUrl = `/WikiPic/${actualWikiName}/${filename}`;
+    }
+
+    // 打开调试台
+    setCurrentImageUrl(imageUrl);
+    setCurrentFilename(filename);
+    setShowDebugModal(true);
+  };
+
+  // 🌟 新增：处理从调试台导出的裁切坐标
+  const handleDebugExport = async (panels: DetectedPanel[]) => {
+    setShowDebugModal(false);
+    setIsProcessingWiki(true);
+    setWikiProcessingStep('正在裁切...');
+    setWikiProcessed(false);
+
+    try {
+      const actualWikiName = fetchedWikiName || 'default';
+
+      // 🌟 打点2 - 发起请求前
+      console.log(`[打点2 - 发起请求前] 准备发给后端的 payload:`, JSON.stringify({
+        imageUrl: currentImageUrl,
+        panelsCount: panels.length,
+        firstPanelRedBoxesCount: panels[0]?.redBoxes?.length
+      }, null, 2));
+
+      // 调用裁切 API
+      const cropResponse = await fetch('/api/crop-with-coordinates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageUrl: currentImageUrl,
+          debugPanels: panels,
+          wikiName: actualWikiName || 'default',
+        }),
+      });
+
+      if (!cropResponse.ok) {
+        throw new Error(`裁切失败: ${cropResponse.status}`);
+      }
+
+      const cropData = await cropResponse.json();
+
+      if (!cropData.success) {
+        throw new Error(cropData.error || '裁切失败');
+      }
+
+      console.log(`裁切完成，共裁切 ${cropData.total} 个图标`);
+
+      // 转换结果格式
+      const convertedCrops: WikiCroppedImage[] = cropData.results.map((result: any) => ({
+        path: result.filename,
+        name: result.name,
+        row: result.row,
+        col: result.col,
+        totalRows: result.row + 1,
+        totalCols: result.col + 1,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        panelName: result.name.split('_')[0],
+        title: result.name.split('_')[0],
+        wikiName: actualWikiName || 'default',
+        id: `${actualWikiName || 'default'}_${result.filename}`,
+        imageUrl: result.imageUrl,
+      }));
+
+      setWikiImages(convertedCrops);
+      setChainCount(panels.length);  // 合成链数量 = 面板数量
+      setWikiProcessed(true);
+      setWikiProcessingStep('✅ 裁切完成');
+
+      // 🌟 显示切图完成弹窗
+      alert(`✅ 切图完成！\n\n📊 统计信息：\n- 合成链数量：${panels.length} 条\n- 图标数量：${cropData.total} 个\n\n📁 保存位置：\npublic/wiki-cropped/${currentFilename.split('.')[0]}/`);
+    } catch (error) {
+      console.error('裁切失败:', error);
+      alert('裁切失败：' + (error instanceof Error ? error.message : '未知错误'));
+      setWikiProcessingStep('❌ 裁切失败');
+    } finally {
+      setIsProcessingWiki(false);
+    }
+  };
+
+  // 步骤1：处理Wiki图片裁切（保留原函数，供后续多图处理使用）
+  const handleProcessWikiLegacy = async () => {
     if (wikiFiles.length === 0 && fetchedWikiFiles.length === 0) {
       alert('请先上传Wiki长图或从Wiki URL获取图片');
       return;
@@ -1732,6 +1842,16 @@ export default function WorkbenchPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* 调试台 Modal */}
+      {showDebugModal && currentImageUrl && (
+        <DebugModal
+          imageUrl={currentImageUrl}
+          isOpen={showDebugModal}
+          onExport={handleDebugExport}
+          onClose={() => setShowDebugModal(false)}
+        />
       )}
     </div>
   );
