@@ -1357,16 +1357,8 @@ export default function WikiDebugPage() {
           };
         });
 
-        currentDetectedPanels.push({
-          title: panel.title,
-          x: range.startX,
-          y: range.startY,
-          width: range.width,
-          height: range.height,
-          blueBox,
-          greenBox,
-          redBoxes,
-        });
+        // 更新 currentDetectedPanels[i].redBoxes
+        currentDetectedPanels[i].redBoxes = redBoxes;
 
         // 绘制扫描线（用于调试）
         if (isSelected) {
