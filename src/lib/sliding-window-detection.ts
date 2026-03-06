@@ -157,10 +157,18 @@ export function detectColumnsBySlidingWindow(
   windowWidth: number,      // M列：窗口宽度
   diffThreshold: number,    // 颜色差异阈值
   stepSize: number = 1,     // 步长（像素）
-  minGap: number = 50       // 最小列间距（像素）
+  minGap: number = 50,      // 最小列间距（像素）
+  rowY?: number,            // 🌟 新增：行的起始Y坐标（限制检测范围）
+  rowHeight?: number        // 🌟 新增：行的高度（限制检测范围）
 ): ColumnDetectionResult[] {
   console.log(`[滑动窗口检测-列] 开始扫描...`);
+  
+  // 🌟 优化：如果指定了行范围，使用行范围，否则使用整个面板范围
+  const scanY = rowY !== undefined ? rowY : panelY;
+  const scanHeight = rowHeight !== undefined ? rowHeight : panelHeight;
+  
   console.log(`  面板位置: (${panelX}, ${panelY}), 尺寸: ${panelWidth}x${panelHeight}`);
+  console.log(`  检测范围: Y=${scanY}, 高度=${scanHeight}`);
   console.log(`  窗口宽度: ${windowWidth}px, 阈值: ${diffThreshold}, 步长: ${stepSize}px`);
 
   const results: ColumnDetectionResult[] = [];
@@ -173,9 +181,9 @@ export function detectColumnsBySlidingWindow(
       pixelData,
       imageWidth,
       x,                       // X：当前扫描位置
-      panelY,                  // Y：从面板顶部开始
+      scanY,                   // 🌟 使用行范围的起始Y坐标
       windowWidth,             // 窗口宽度：M列
-      panelHeight,             // 窗口高度：整个面板高度
+      scanHeight,              // 🌟 使用行的高度
       'horizontal',            // 方向：水平（左右滑动）
       stepSize
     );
@@ -239,22 +247,33 @@ export function detectIconPositionsBySlidingWindow(
     stepSize
   );
 
-  // 检测多列
-  const cols = detectColumnsBySlidingWindow(
-    pixelData,
-    imageWidth,
-    panelX,
-    panelY,
-    panelWidth,
-    panelHeight,
-    windowWidth,
-    diffThreshold,
-    stepSize
-  );
+  console.log(`[滑动窗口检测] 检测到 ${rows.length} 行，开始对每一行单独检测列...`);
 
-  // 生成所有图标的位置
+  // 🌟 修改：对每一行单独检测列，而不是在整个面板范围内检测列
   const icons: IconPosition[] = [];
   for (const row of rows) {
+    // 计算行的范围
+    const rowY = Math.max(panelY, row.centerY - Math.floor(windowHeight / 2));
+    const rowHeight = windowHeight;
+
+    // 在当前行的高度范围内检测列
+    const cols = detectColumnsBySlidingWindow(
+      pixelData,
+      imageWidth,
+      panelX,
+      panelY,
+      panelWidth,
+      panelHeight,
+      windowWidth,
+      diffThreshold,
+      stepSize,
+      rowY,      // 🌟 传递行的起始Y坐标
+      rowHeight  // 🌟 传递行的高度
+    );
+
+    console.log(`[滑动窗口检测] 行 ${row.rowIndex} (Y=${row.centerY}) 检测到 ${cols.length} 列`);
+
+    // 生成当前行的所有图标位置
     for (const col of cols) {
       icons.push({
         centerX: col.centerX,
