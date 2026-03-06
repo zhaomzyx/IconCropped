@@ -537,6 +537,15 @@ export async function detectWikiImage(
           console.log(`[WikiImageDetector] Panel ${i + 1} (${meta?.title || '未知'}): ${redBoxes.length} 个合成物 (${rows}行 × ${cols}列)`);
         }
 
+        // 🌟 新增：宽度归一化逻辑
+        // 如果超过半数的大panel宽度在某个数值±10之间波动，自动将所有大panel宽度设置为这个数值
+        if (detectedPanels.length > 0) {
+          const widthStats = normalizePanelWidths(detectedPanels);
+          if (widthStats.applied) {
+            console.log(`[WikiImageDetector] ✅ 宽度归一化已应用：目标宽度 ${widthStats.targetWidth}px，影响 ${widthStats.affectedCount} 个面板`);
+          }
+        }
+
         resolve(detectedPanels);
       } catch (error) {
         reject(error);
@@ -549,4 +558,102 @@ export async function detectWikiImage(
 
     img.src = imageUrl;
   });
+}
+
+/**
+ * 🌟 宽度归一化函数
+ * 如果超过半数的大panel宽度在某个数值±10之间波动，自动将所有大panel宽度设置为这个数值
+ *
+ * @param panels - 检测到的所有面板
+ * @returns 归一化结果（是否应用、目标宽度、影响数量）
+ */
+function normalizePanelWidths(panels: DetectedPanel[]): {
+  applied: boolean;
+  targetWidth: number | null;
+  affectedCount: number;
+} {
+  if (panels.length === 0) {
+    return { applied: false, targetWidth: null, affectedCount: 0 };
+  }
+
+  // 1. 提取所有面板的宽度
+  const widths = panels.map(p => p.width);
+  console.log(`[normalizePanelWidths] 原始宽度分布:`, widths);
+
+  // 2. 统计每个宽度的出现频率（容差±10）
+  const widthFrequency = new Map<number, number>();
+  const tolerance = 10; // 容差±10
+
+  for (let i = 0; i < widths.length; i++) {
+    const width = widths[i];
+    let found = false;
+
+    // 检查是否已经在某个容差范围内
+    for (const [baseWidth, count] of widthFrequency) {
+      if (Math.abs(width - baseWidth) <= tolerance) {
+        widthFrequency.set(baseWidth, count + 1);
+        found = true;
+        break;
+      }
+    }
+
+    // 如果没有找到匹配的容差范围，创建新的分组
+    if (!found) {
+      widthFrequency.set(width, 1);
+    }
+  }
+
+  console.log(`[normalizePanelWidths] 宽度频率统计（容差±${tolerance}）:`);
+  for (const [baseWidth, count] of widthFrequency) {
+    console.log(`  ${baseWidth}px: ${count} 个面板 (${(count / panels.length * 100).toFixed(1)}%)`);
+  }
+
+  // 3. 找出出现频率最高的宽度分组
+  let maxCount = 0;
+  let targetWidth: number | null = null;
+
+  for (const [baseWidth, count] of widthFrequency) {
+    if (count > maxCount) {
+      maxCount = count;
+      targetWidth = baseWidth;
+    }
+  }
+
+  // 4. 判断是否需要归一化（超过半数）
+  const threshold = Math.floor(panels.length / 2) + 1;
+  const shouldNormalize = maxCount >= threshold;
+
+  if (!shouldNormalize || targetWidth === null) {
+    console.log(`[normalizePanelWidths] 未满足归一化条件（需要≥${threshold}个面板，最多只有${maxCount}个）`);
+    return { applied: false, targetWidth: null, affectedCount: 0 };
+  }
+
+  // 5. 应用归一化：将所有面板宽度设置为目标宽度
+  let affectedCount = 0;
+  const widthVarianceThreshold = tolerance; // 使用相同的容差
+
+  for (let i = 0; i < panels.length; i++) {
+    const panel = panels[i];
+    const currentWidth = panel.width;
+
+    // 如果当前宽度与目标宽度的差异在容差范围内，则归一化
+    if (Math.abs(currentWidth - targetWidth) <= widthVarianceThreshold) {
+      const oldWidth = panel.width;
+      panel.width = targetWidth;
+
+      // 同步更新 blueBox 和 greenBox 的宽度
+      panel.blueBox.width = targetWidth;
+      panel.greenBox.width = targetWidth;
+
+      affectedCount++;
+
+      console.log(`[normalizePanelWidths] Panel ${i + 1}: ${oldWidth}px → ${targetWidth}px (${panel.title})`);
+    }
+  }
+
+  return {
+    applied: true,
+    targetWidth,
+    affectedCount
+  };
 }
