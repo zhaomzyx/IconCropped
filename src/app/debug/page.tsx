@@ -1595,7 +1595,17 @@ export default function WikiDebugPage() {
                 logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
               } else if (currentEvent === 'error') {
                 console.error('✗ 收到错误事件:', data);
-                throw new Error(data.message || '处理过程中发生错误');
+                // 🌟 如果只是检测失败（如未检测到面板），不抛出错误，继续显示图片
+                const errorMessage = data.message || '处理过程中发生错误';
+                if (errorMessage.includes('未检测到') || errorMessage.includes('检测失败') || errorMessage.includes('Y轴检测失败')) {
+                  console.warn('⚠️ 检测失败但继续显示图片:', errorMessage);
+                  logInfo(`⚠️ 检测失败: ${errorMessage}，但继续显示图片`);
+                  // 仍然设置图片URL，让图片能够显示
+                  setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
+                } else {
+                  // 其他真正的错误才抛出
+                  throw new Error(errorMessage);
+                }
               }
             } catch (e) {
               console.error(`Failed to parse SSE data for event ${currentEvent}:`, e, '原始数据:', currentData.substring(0, 100));
@@ -1625,7 +1635,17 @@ export default function WikiDebugPage() {
               logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
             } else if (currentEvent === 'error') {
               console.error('✗ 收到错误事件:', data);
-              throw new Error(data.message || '处理过程中发生错误');
+              // 🌟 如果只是检测失败（如未检测到面板），不抛出错误，继续显示图片
+              const errorMessage = data.message || '处理过程中发生错误';
+              if (errorMessage.includes('未检测到') || errorMessage.includes('检测失败') || errorMessage.includes('Y轴检测失败')) {
+                console.warn('⚠️ 检测失败但继续显示图片:', errorMessage);
+                logInfo(`⚠️ 检测失败: ${errorMessage}，但继续显示图片`);
+                // 仍然设置图片URL，让图片能够显示
+                setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
+              } else {
+                // 其他真正的错误才抛出
+                throw new Error(errorMessage);
+              }
             }
           } catch (e) {
             console.error(`Failed to parse SSE data for event ${currentEvent}:`, e, '原始数据:', currentData.substring(0, 100));
