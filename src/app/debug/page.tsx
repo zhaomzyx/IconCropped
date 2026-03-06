@@ -623,7 +623,9 @@ export default function WikiDebugPage() {
         // 绘制绿色框（标题区域）
         ctx.strokeStyle = '#22C55E';
         ctx.lineWidth = 2;
-        ctx.strokeRect(range.startX, range.startY, range.width, params.gridStartY);
+        // 🌟 绿框宽度使用归一化后的蓝框宽度
+        const greenBoxWidth = currentDetectedPanels[i]?.blueBox.width || range.width;
+        ctx.strokeRect(range.startX, range.startY, greenBoxWidth, params.gridStartY);
 
         // 绘制绿框坐标
         ctx.fillStyle = '#22C55E';
@@ -994,6 +996,16 @@ export default function WikiDebugPage() {
         const widthStats = normalizePanelWidths(currentDetectedPanels);
         if (widthStats.applied) {
           console.log(`[drawCanvas] ✅ 宽度归一化已应用：目标宽度 ${widthStats.targetWidth}px，影响 ${widthStats.affectedCount} 个面板`);
+
+          // 🌟 更新 panelRanges，让 Canvas 绘制蓝框时使用归一化后的宽度
+          for (let i = 0; i < currentDetectedPanels.length; i++) {
+            const panel = currentDetectedPanels[i];
+            if (panel.width !== panelRanges[i].width) {
+              console.log(`[Canvas绘制] Panel ${i + 1}: 更新蓝框宽度 ${panelRanges[i].width}px → ${panel.width}px`);
+              panelRanges[i].width = panel.width;
+              panelRanges[i].endX = panelRanges[i].startX + panel.width;
+            }
+          }
 
           // 添加归一化日志
           const logMessages = [
