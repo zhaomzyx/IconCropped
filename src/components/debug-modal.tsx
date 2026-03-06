@@ -334,7 +334,7 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-screen h-screen max-w-none max-h-none p-0">
+      <DialogContent className="w-screen h-screen max-w-none max-h-none p-0 fixed top-[50%] left-[50%] -translate-x-1/2 -translate-y-1/2 rounded-none">
         <div className="flex flex-col h-full bg-white dark:bg-slate-950">
           {/* 标题栏 */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
