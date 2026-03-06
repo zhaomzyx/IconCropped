@@ -9,7 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Upload, ArrowLeft, CheckCircle, AlertCircle, Link2, X, ChevronDown, FileImage, Package, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 import { ResourceItem, WikiCroppedImage, MappingRelation } from '@/types';
-import { detectWikiImage } from '@/lib/wiki-image-detector';
 
 // Wiki图片预览组件
 const WikiImagePreview = ({ filename, wikiName, onRemove }: { filename: string; wikiName?: string; onRemove: () => void }) => {
@@ -144,9 +143,6 @@ export default function WorkbenchPage() {
   const [isProcessingLocal, setIsProcessingLocal] = useState(false);  // 本地资源分析中
   const [wikiProcessingStep, setWikiProcessingStep] = useState('');  // Wiki处理步骤
   const [localProcessingStep, setLocalProcessingStep] = useState('');  // 本地资源处理步骤
-
-  // 新增：裁切统计信息
-  const [chainCount, setChainCount] = useState<number>(0);  // 合成链数量（大Panel数量）
 
   // 预设Wiki URL列表
   const presetWikiUrls = [
@@ -482,40 +478,6 @@ export default function WorkbenchPage() {
     setLocalFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  // 🌟 下载ZIP打包函数
-  const handleDownloadZip = async () => {
-    try {
-      const wikiName = fetchedWikiName || 'default';
-      
-      // 调用后端API生成ZIP
-      const response = await fetch('/api/download-zip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wikiName }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`下载失败: ${response.status}`);
-      }
-
-      // 获取Blob并下载
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${wikiName}-cropped.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-      console.log('✅ ZIP 下载成功');
-    } catch (error) {
-      console.error('下载ZIP失败:', error);
-      alert('下载失败：' + (error instanceof Error ? error.message : '未知错误'));
-    }
-  };
-
   // 步骤1：处理Wiki图片裁切
   const handleProcessWiki = async () => {
     if (wikiFiles.length === 0 && fetchedWikiFiles.length === 0) {
@@ -571,66 +533,150 @@ export default function WorkbenchPage() {
 
         let allWikiCrops: WikiCroppedImage[] = [];
         let failedCount = 0;
-        let totalChainCount = 0;  // 🌟 累加所有图片的合成链数量
 
-        // 🔧 添加：确定实际的 wikiName
-        const actualWikiName = fetchedWikiName || 'default';
-
-        // 逐张处理 Wiki 图片（使用前端 Canvas 滑动窗口算法）
+        // 逐张处理 Wiki 图片
         for (let i = 0; i < wikiFilenames.length; i++) {
           const filename = wikiFilenames[i];
           setWikiProcessingStep(`🖼️ 正在处理第 ${i + 1}/${wikiFilenames.length} 张图片...`);
 
           try {
-            // 步骤1：调用前端 Canvas 滑动窗口算法（隐藏处理），获取图片上的所有信息
+            // 1. 调用 debug=true 模式获取面板元数据和裁切坐标
             setWikiProcessingStep(`🔍 图片 ${i + 1}/${wikiFilenames.length} - 正在识别大板块和裁切坐标...`);
 
-            console.log(`[步骤1] 开始前端检测，图片: ${filename}`);
-
-            // 🔧 构建图片URL：区分来源
-            let imageUrl: string;
-            // 检查文件名是否以 wiki- 开头（从 Wiki URL 获取的文件）
-            if (filename.startsWith('wiki-') && fetchedWikiFiles.includes(filename)) {
-              // 从 Wiki URL 获取的文件保存在 /WikiPic/{wikiName}/ 目录
-              imageUrl = `/WikiPic/${actualWikiName}/${filename}`;
-            } else {
-              // 用户手动上传的文件通过 /api/uploads/wiki/ 访问
-              imageUrl = `/api/uploads/wiki/${filename}`;
-            }
-            
-            console.log(`[步骤1] 图片URL: ${imageUrl}`);
-
-            // 使用纯前端检测算法
-            const detectedPanels = await detectWikiImage(imageUrl);
-
-            console.log(`[步骤1] 前端检测完成，检测到 ${detectedPanels.length} 个面板`);
-            console.log(`[步骤1] 检测结果:`, JSON.stringify(detectedPanels, null, 2));
-
-            if (detectedPanels.length === 0) {
-              throw new Error('未检测到任何面板，请检查图片是否正确');
-            }
-
-            // 🌟 累加合成链数量
-            totalChainCount += detectedPanels.length;
-            console.log(`[步骤1] 累加合成链数量，当前总数: ${totalChainCount}`);
-
-            // 步骤2：根据获取的信息进行裁切
-            setWikiProcessingStep(`✂️ 图片 ${i + 1}/${wikiFilenames.length} - 正在裁切图标...`);
-
-            console.log(`[步骤2] 开始裁切，图片: ${filename}`);
-            console.log(`[步骤2] 发送给后端的裁切坐标:`, JSON.stringify({
-              imageUrl,
-              debugPanels: detectedPanels,
-              wikiName: actualWikiName || 'default',
-            }, null, 2));
-
-            const cropResponse = await fetch('/api/crop-with-coordinates', {
+            const debugResponse = await fetch('/api/process-image-stream', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                imageUrl,
-                debugPanels: detectedPanels,
-                wikiName: actualWikiName || 'default',
+                filenames: [filename],
+                wikiName: fetchedWikiName,  // 传递 wikiName 参数
+                debug: true,
+                params: customParams,  // 传递自定义参数
+              }),
+            });
+
+            if (!debugResponse.ok) {
+              throw new Error(`获取面板元数据失败: ${debugResponse.status}`);
+            }
+
+            const reader = debugResponse.body?.getReader();
+            if (!reader) {
+              throw new Error('无法读取响应流');
+            }
+
+            const decoder = new TextDecoder();
+            let debugPanels: any[] = [];
+            let detectedPanels: any[] = [];
+            let imageMetadata: any = null;
+            let fullSSEContent = '';  // 收集完整的 SSE 内容
+
+            console.log('📡 开始读取 SSE 流...');
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) {
+                console.log('📡 SSE 流读取完成，总共接收 ' + fullSSEContent.length + ' 字节');
+                break;
+              }
+
+              const chunk = decoder.decode(value, { stream: true });
+              fullSSEContent += chunk;
+              console.log('📡 接收到 chunk (' + chunk.length + ' 字节)');
+            }
+
+            // 使用更健壮的 SSE 解析逻辑（支持多行 JSON）
+            console.log('📡 开始解析 SSE 流...');
+
+            // 按 SSE 协议规范解析：每个事件以 "event:" 开头，以空行结束
+            const lines = fullSSEContent.split('\n');
+            let currentEvent = '';
+            let currentData = '';
+            let isReadingData = false;
+
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+
+              if (trimmedLine.startsWith('event:')) {
+                currentEvent = trimmedLine.substring(6).trim();
+                currentData = '';
+                isReadingData = false;
+              } else if (trimmedLine.startsWith('data:')) {
+                currentData = trimmedLine.substring(5).trim();
+                isReadingData = true;
+              } else if (trimmedLine === '' && currentEvent && currentData) {
+                // 空行表示事件结束，处理当前事件
+                console.log(`📡 解析到事件: ${currentEvent}`);
+
+                try {
+                  const data = JSON.parse(currentData);
+                  console.log(`📡 SSE 事件: ${currentEvent}, 数据解析成功`);
+
+                  if (currentEvent === 'debug_complete') {
+                    debugPanels = data.debugPanels || [];
+                    detectedPanels = data.detectedPanels || [];
+                    imageMetadata = data.imageMetadata;
+                    console.log(`✓ 接收到 debug_complete 事件`);
+                    console.log(`  debugPanels 数量: ${debugPanels.length}`);
+                    console.log(`  detectedPanels 数量: ${detectedPanels.length}`);
+                  } else if (currentEvent === 'error') {
+                    throw new Error(data.message || '处理失败');
+                  }
+                } catch (e) {
+                  console.error(`📡 事件 ${currentEvent} 的 JSON 解析失败:`, e, '原始数据:', currentData.substring(0, 100));
+                }
+
+                currentEvent = '';
+                currentData = '';
+                isReadingData = false;
+              } else if (isReadingData && trimmedLine.startsWith('{')) {
+                // 多行 JSON 数据（虽然当前后端不使用，但为了兼容性）
+                currentData += '\n' + trimmedLine;
+              }
+            }
+
+            // 处理最后一个事件（如果没有空行结束）
+            if (currentEvent && currentData) {
+              console.log(`📡 解析到最后一个事件: ${currentEvent}`);
+              try {
+                const data = JSON.parse(currentData);
+                if (currentEvent === 'debug_complete') {
+                  debugPanels = data.debugPanels || [];
+                  detectedPanels = data.detectedPanels || [];
+                  imageMetadata = data.imageMetadata;
+                  console.log(`✓ 接收到 debug_complete 事件`);
+                  console.log(`  debugPanels 数量: ${debugPanels.length}`);
+                  console.log(`  detectedPanels 数量: ${detectedPanels.length}`);
+                } else if (currentEvent === 'error') {
+                  throw new Error(data.message || '处理失败');
+                }
+              } catch (e) {
+                console.error(`📡 事件 ${currentEvent} 的 JSON 解析失败:`, e, '原始数据:', currentData.substring(0, 100));
+              }
+            }
+
+            console.log('📡 SSE 流解析完成');
+
+            console.log(`获取到 ${debugPanels.length} 个面板的元数据`);
+            console.log('📋 调试台返回的面板元数据:', debugPanels);
+            console.log(`获取到 ${detectedPanels.length} 个面板的裁切坐标`);
+            console.log('🎨 调试台返回的裁切坐标:', JSON.stringify(detectedPanels, null, 2));
+
+            // 2. 将裁切坐标传给后端接口进行裁切
+            setWikiProcessingStep(`✂️ 图片 ${i + 1}/${wikiFilenames.length} - 正在裁切图标...`);
+
+            console.log(`📤 准备发送裁切请求到后端接口`);
+            console.log('📤 发送给后端的裁切坐标:', JSON.stringify({
+              filename: filename,
+              wikiName: fetchedWikiName,
+              detectedPanels: detectedPanels,
+            }, null, 2));
+
+            const cropResponse = await fetch('/api/crop-with-detected-coordinates', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                filename: filename,
+                wikiName: fetchedWikiName,
+                detectedPanels: detectedPanels,
               }),
             });
 
@@ -644,31 +690,8 @@ export default function WorkbenchPage() {
               throw new Error(cropData.error || '裁切失败');
             }
 
-            console.log(`[步骤2] 裁切完成，共裁切 ${cropData.total} 个图标`);
-
-            // 转换结果格式
-            const convertedCrops: WikiCroppedImage[] = cropData.results.map((result: any) => ({
-              path: result.filename,
-              name: result.name,
-              row: result.row,
-              col: result.col,
-              totalRows: result.row + 1,
-              totalCols: result.col + 1,
-              x: 0,
-              y: 0,
-              width: 0,
-              height: 0,
-              panelName: result.name.split('_')[0],
-              title: result.name.split('_')[0],
-              wikiName: actualWikiName || 'default',
-              id: `${actualWikiName || 'default'}_${result.filename}`,
-              imageUrl: result.imageUrl,
-            }));
-
-            allWikiCrops = [...allWikiCrops, ...convertedCrops];
-            setWikiProcessingStep(`✓ 图片 ${i + 1}/${wikiFilenames.length} 处理完成，已切割 ${cropData.total} 个图标`);
-
-            // 步骤3：裁切完后通知下一张图片进行此流程（自动进入下一次循环）
+            allWikiCrops = [...allWikiCrops, ...cropData.crops];
+            setWikiProcessingStep(`✓ 图片 ${i + 1}/${wikiFilenames.length} 处理完成，已切割 ${cropData.crops.length} 个图标`);
           } catch (error) {
             console.error(`处理图片 ${filename} 失败:`, error);
             
@@ -696,7 +719,6 @@ export default function WorkbenchPage() {
         // 设置最终结果
         setWikiImages(allWikiCrops);
         setFetchedWikiName(fetchedWikiName);
-        setChainCount(totalChainCount);  // 🌟 设置合成链数量
         setWikiProcessed(true);
 
         // 汇总处理结果
@@ -1063,7 +1085,7 @@ export default function WorkbenchPage() {
               {/* Wiki处理按钮和进度 */}
               {(fetchedWikiFiles.length > 0 || wikiFiles.length > 0) && (
                 <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center justify-between mb-3">
                     <Button
                       onClick={handleProcessWiki}
                       disabled={isProcessingWiki || wikiProcessed}
@@ -1071,29 +1093,10 @@ export default function WorkbenchPage() {
                     >
                       {isProcessingWiki ? '裁切中...' : wikiProcessed ? '✓ 已裁切' : '开始裁切'}
                     </Button>
-                    
                     {wikiProcessed && (
-                      <>
-                        {/* 🌟 合成链数量 */}
-                        <Badge variant="outline" className="bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800">
-                          {chainCount} 条合成链
-                        </Badge>
-                        
-                        {/* 图标数量 */}
-                        <Badge variant="outline" className="bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
-                          {wikiImages.length} 个图标
-                        </Badge>
-
-                        {/* 🌟 下载按钮 */}
-                        <Button
-                          onClick={handleDownloadZip}
-                          variant="outline"
-                          size="sm"
-                          className="ml-2 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950"
-                        >
-                          下载全部
-                        </Button>
-                      </>
+                      <Badge variant="outline" className="bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
+                        {wikiImages.length} 个图标
+                      </Badge>
                     )}
                   </div>
                   {wikiProcessingStep && (

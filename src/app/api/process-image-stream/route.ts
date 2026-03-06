@@ -496,28 +496,7 @@ JSON格式要求：
     } catch (parseError) {
       console.error(`  JSON parse error for panel detection:`, parseError);
       console.error(`  JSON text:`, jsonMatch[0]);
-
-      // 🔧 尝试修复常见的JSON格式错误
-      let fixedJsonText = jsonMatch[0];
-
-      // 修复1: 将 "x":123,"456" 替换为 "x":123,"y":456
-      fixedJsonText = fixedJsonText.replace(/"x"\s*:\s*(\d+)\s*,\s*"(\d+)"/g, '"x":$1,"y":$2');
-
-      // 修复2: 将 "title":"XXX","123","456" 替换为 "title":"XXX","x":123,"y":456
-      fixedJsonText = fixedJsonText.replace(/"title"\s*:\s*"([^"]+)"\s*,\s*"(\d+)"\s*,\s*"(\d+)"/g, '"title":"$1","x":$2,"y":$3');
-
-      // 修复3: 将 "title":"XXX","x":123,"456" 替换为 "title":"XXX","x":123,"y":456
-      fixedJsonText = fixedJsonText.replace(/"title"\s*:\s*"([^"]+)"\s*,\s*"x"\s*:\s*(\d+)\s*,\s*"(\d+)"/g, '"title":"$1","x":$2,"y":$3');
-
-      console.log(`  尝试修复后的JSON:`, fixedJsonText.substring(0, 500));
-
-      try {
-        panels = JSON.parse(fixedJsonText);
-        console.log(`  ✅ JSON修复成功！`);
-      } catch (retryError) {
-        console.error(`  JSON修复后仍然失败:`, retryError);
-        throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
-      }
+      throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
     }
 
     console.log(`  LLM detected ${panels.length} panels:`, panels.map((p: any) => p.title).join(', '));
