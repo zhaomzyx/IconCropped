@@ -736,15 +736,15 @@ function normalizePanelWidths(panels: DetectedPanel[]): {
     }
   }
 
+  // 3. 找出出现频率最高的宽度分组
+  let maxCount = 0;
+  let targetWidth: number | null = null;
+
   console.log(`[normalizePanelWidths] 📈 宽度频率统计结果（容差±${tolerance}px）:`);
   for (const [baseWidth, count] of Array.from(widthFrequency.entries()).sort((a, b) => b[1] - a[1])) {
     const percentage = (count / panels.length * 100).toFixed(1);
     console.log(`  ${baseWidth}px: ${count} 个面板 (${percentage}%) ${count === maxCount ? '🔥' : ''}`);
   }
-
-  // 3. 找出出现频率最高的宽度分组
-  let maxCount = 0;
-  let targetWidth: number | null = null;
 
   for (const [baseWidth, count] of widthFrequency) {
     if (count > maxCount) {

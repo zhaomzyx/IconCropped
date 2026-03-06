@@ -173,10 +173,10 @@ export async function POST(request: NextRequest) {
               // 🌟 将检测到的坐标更新回 debugPanels
               detectedPanels.forEach((detectedPanel, idx) => {
                 if (idx < debugPanels.length) {
-                  debugPanels[idx].x = detectedPanel.x;
-                  debugPanels[idx].y = detectedPanel.y;
-                  debugPanels[idx].width = detectedPanel.width;
-                  debugPanels[idx].height = detectedPanel.height;
+                  debugPanels[idx].x = detectedPanel.blueBox.x;
+                  debugPanels[idx].y = detectedPanel.blueBox.y;
+                  debugPanels[idx].width = detectedPanel.blueBox.width;
+                  debugPanels[idx].height = detectedPanel.blueBox.height;
                 }
               });
 
