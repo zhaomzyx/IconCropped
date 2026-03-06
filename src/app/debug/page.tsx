@@ -103,7 +103,7 @@ export default function WikiDebugPage() {
     boundsMinColWidth: 20,      // 最小列宽（过滤噪声）
     forceSquareIcons: true,     // 强制图标为1:1正方形（基于行高度）
     forceSquareOffsetX: 0,      // 1:1强制时的X轴偏移（像素）
-    forceSquareOffsetY: 0,      // 1:1强制时的Y轴偏移（像素）
+    forceSquareOffsetY: 2,      // 1:1强制时的Y轴偏移（像素）
 
     // 空图标过滤参数
     filterEmptyIcons: true,     // 是否过滤空图标（没有内容的方框）
@@ -1168,8 +1168,28 @@ export default function WikiDebugPage() {
   const handleParamChange = (key: keyof typeof DEFAULT_PARAMS, value: number | boolean) => {
     const newParams = { ...params, [key]: value };
     setParams(newParams);
+
     // 实时保存到 localStorage
     saveParamsToStorage(newParams);
+
+    // 🌟 调试日志：记录参数变更
+    console.log(`[参数变更] ${key}: ${params[key]} → ${value}`);
+
+    // 🌟 立即验证 localStorage 是否正确保存
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const savedValue = parsed[key];
+        console.log(`[LocalStorage验证] ${key} 已保存为: ${savedValue}`);
+
+        if (savedValue !== value) {
+          console.error(`❌ [LocalStorage保存失败] 期望: ${value}, 实际: ${savedValue}`);
+        }
+      }
+    } catch (e) {
+      console.error('[LocalStorage验证] 检查失败:', e);
+    }
   };
 
   // 恢复默认值
@@ -2029,6 +2049,34 @@ export default function WikiDebugPage() {
                     onChange={handleFileSelect}
                     className="hidden"
                   />
+                </div>
+
+                {/* 🌟 当前参数状态 */}
+                <div className="pt-4 border-t">
+                  <div className="flex items-center justify-between mb-3">
+                    <Label className="text-sm font-semibold">当前参数状态</Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const currentState = localStorage.getItem(STORAGE_KEY);
+                        alert(`LocalStorage中的当前配置：\n\n${currentState}`);
+                      }}
+                      className="text-xs"
+                    >
+                      检查 LocalStorage
+                    </Button>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded text-xs space-y-1 max-h-40 overflow-y-auto">
+                    <div className="font-semibold mb-2">偏移校准参数：</div>
+                    <div>X轴偏移: <span className="font-mono text-blue-600 dark:text-blue-400">{params.forceSquareOffsetX}</span></div>
+                    <div>Y轴偏移: <span className="font-mono text-blue-600 dark:text-blue-400">{params.forceSquareOffsetY}</span></div>
+                    <div className="font-semibold mb-2 mt-2">边界检测参数：</div>
+                    <div>行检测阈值: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsVarianceThresholdRow}</span></div>
+                    <div>列检测阈值: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsVarianceThresholdCol}</span></div>
+                    <div>最小行高: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsMinRowHeight}</span></div>
+                    <div>最小列宽: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsMinColWidth}</span></div>
+                  </div>
                 </div>
 
                 {/* 裁切功能 */}
