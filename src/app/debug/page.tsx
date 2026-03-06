@@ -786,29 +786,14 @@ export default function WikiDebugPage() {
         const validIcons = boundsIcons.filter((icon) => {
           if (!params.filterEmptyIcons) return true;
 
-          // 计算绘制时的实际坐标（考虑1:1强制）
-          const { leftX, topY, width, height, centerX, centerY, row, col } = icon;
-
-          let drawLeftX = leftX;
-          let drawTopY = topY;
-          let drawWidth = width;
-          let drawHeight = height;
-
-          if (params.forceSquareIcons) {
-            const squareSize = height;
-            drawWidth = squareSize;
-            drawHeight = squareSize;
-            drawLeftX = centerX - squareSize / 2;
-            drawTopY = centerY - squareSize / 2;
-          }
-
-          // 计算绘制区域的方差
+          // 🌟 计算方差时使用原始边界（不应用1:1强制）
+          // 这样可以避免1:1偏移影响方差计算，过滤结果更准确
           const variance = calculateColorVariance(
             imageData,
-            drawLeftX,
-            drawTopY,
-            drawWidth,
-            drawHeight
+            icon.leftX,    // 使用原始边界
+            icon.topY,
+            icon.width,
+            icon.height
           );
 
           // 如果方差小于阈值，认为是空图标，过滤掉
@@ -823,6 +808,8 @@ export default function WikiDebugPage() {
         console.log(`[空图标过滤] 原始图标数=${boundsIcons.length}, 有效图标数=${validIcons.length}, 过滤掉=${boundsIcons.length - validIcons.length}个`);
         console.log(`[合成链信息] 该合成链包含 ${validIcons.length} 个合成物（小panel）`);
         console.log(`  🌟 合成物数量: ${validIcons.length} 个（过滤掉 ${boundsIcons.length - validIcons.length} 个空方框）`);
+        console.log(`  📐 方差计算：基于原始边界（不应用1:1强制）`);
+        console.log(`  📐 1:1强制：只在绘制和导出时应用`);
 
         // 只在选中时显示检测统计和调试信息（在validIcons声明之后）
         if (isSelected) {
@@ -1836,7 +1823,7 @@ export default function WikiDebugPage() {
                       <div className="flex items-center justify-between p-3 bg-indigo-100 rounded mb-3">
                         <div>
                           <Label className="text-sm font-medium text-indigo-800">强制1:1比例</Label>
-                          <p className="text-xs text-indigo-600 mt-1">强制所有图标为正方形（基于行高度）</p>
+                          <p className="text-xs text-indigo-600 mt-1">输出1:1正方形图标（基于行高度）</p>
                         </div>
                         <input
                           type="checkbox"
@@ -1846,6 +1833,13 @@ export default function WikiDebugPage() {
                           className="w-5 h-5 text-indigo-600 rounded cursor-pointer"
                         />
                       </div>
+                      {params.forceSquareIcons && (
+                        <div className="p-3 bg-indigo-50 rounded mb-3">
+                          <p className="text-xs text-indigo-600">
+                            <strong>工作原理：</strong>基于原始边界计算方差和过滤，只在绘制和导出时应用1:1收束，确保输出正方形图标。
+                          </p>
+                        </div>
+                      )}
                       <div className="space-y-3">
                         <div className="flex items-center justify-between p-3 bg-purple-50 rounded">
                           <div>
