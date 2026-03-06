@@ -124,7 +124,7 @@ async function cropIconFromRedBox(
   row: number,
   col: number,
   wikiName: string,
-  imageName: string  // 🌟 新增：图片名称（用于创建文件夹）
+  actualImageName: string  // 🌟 修改：使用实际图片名称（可能包含时间戳）
 ): Promise<CropResult> {
   // 裁切红框区域（直接裁切，不添加坐标标注）
   // 🔧 修复：sharp.extract要求整数参数，将浮点数四舍五入
@@ -142,7 +142,7 @@ async function cropIconFromRedBox(
   const filename = `${panelTitle}_${iconIndex}.png`;
 
   // 🌟 修改：保存icon到public/wiki-cropped/{图片名称}/目录
-  const outputDir = path.join(cwd(), 'public', 'wiki-cropped', imageName);
+  const outputDir = path.join(cwd(), 'public', 'wiki-cropped', actualImageName);
   await fs.mkdir(outputDir, { recursive: true });
 
   const outputPath = path.join(outputDir, filename);
@@ -158,7 +158,7 @@ async function cropIconFromRedBox(
     row,
     col,
     wikiName,
-    imageUrl: `/wiki-cropped/${imageName}/${filename}`,  // 🌟 修改：使用图片名称作为路径
+    imageUrl: `/wiki-cropped/${actualImageName}/${filename}`,  // 🌟 修改：使用实际图片名称
   };
 }
 
@@ -201,6 +201,24 @@ export async function POST(request: NextRequest) {
       // 去除扩展名
       imageName = filename.split('.')[0];
       console.log(`提取图片名称: ${imageName}`);
+    }
+
+    // 🌟 避免覆盖：如果文件夹已存在，添加时间戳后缀
+    const baseOutputDir = path.join(cwd(), 'public', 'wiki-cropped', imageName);
+    let finalOutputDir = baseOutputDir;
+    let actualImageName = imageName;
+
+    try {
+      // 检查文件夹是否已存在
+      await fs.access(baseOutputDir);
+      // 如果存在，添加时间戳后缀
+      const timestamp = Date.now();
+      actualImageName = `${imageName}_${timestamp}`;
+      finalOutputDir = path.join(cwd(), 'public', 'wiki-cropped', actualImageName);
+      console.log(`文件夹已存在，使用新名称: ${actualImageName}`);
+    } catch {
+      // 文件夹不存在，直接使用原名称
+      console.log(`文件夹不存在，使用原名称: ${imageName}`);
     }
 
     console.log(`\n接收到的调试面板数据:`);
@@ -306,7 +324,7 @@ export async function POST(request: NextRequest) {
             row,
             col,
             wikiName,
-            imageName  // 🌟 传递图片名称
+            actualImageName  // 🌟 传递实际图片名称
           );
 
           results.push(result);
@@ -337,7 +355,7 @@ export async function POST(request: NextRequest) {
               row,
               col,
               wikiName,
-              imageName  // 🌟 传递图片名称
+              actualImageName  // 🌟 传递实际图片名称
             );
 
             results.push(result);
@@ -352,6 +370,7 @@ export async function POST(request: NextRequest) {
       success: true,
       results,
       total: results.length,
+      actualImageName,  // 🌟 返回实际图片名称（可能包含时间戳）
     });
 
   } catch (error) {

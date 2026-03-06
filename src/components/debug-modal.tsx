@@ -334,10 +334,11 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-hidden">
-        <DialogHeader>
-          <DialogTitle className="flex items-center justify-between">
-            <span>调试台 - 工作台模式</span>
+      <DialogContent className="w-screen h-screen max-w-none max-h-none p-0">
+        <div className="flex flex-col h-full bg-white dark:bg-slate-950">
+          {/* 标题栏 */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+            <DialogTitle className="text-xl font-semibold">调试台 - 工作台模式</DialogTitle>
             <div className="flex gap-2">
               <Button onClick={handleDetect} size="sm" className="bg-blue-600 hover:bg-blue-700">
                 <Search className="w-4 h-4 mr-1" />
@@ -350,42 +351,44 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
                 <X className="w-4 h-4" />
               </Button>
             </div>
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="flex h-[calc(90vh-80px)] gap-4">
-          {/* 左侧：Canvas 区域 - 可滚动，不缩放 */}
-          <div className="flex-1 bg-gray-100 dark:bg-gray-900 rounded-lg overflow-auto relative">
-            <canvas
-              ref={canvasRef}
-              className="block"
-            />
           </div>
 
+          {/* 主体内容 */}
+          <div className="flex flex-1 overflow-hidden gap-0">
+            {/* 左侧：Canvas 区域 - 可滚动，不缩放 */}
+            <div className="flex-1 bg-gray-100 dark:bg-gray-900 overflow-auto relative">
+              <canvas
+                ref={canvasRef}
+                className="block"
+              />
+            </div>
+
           {/* 右侧：控制面板 */}
-          <div className="w-96 flex flex-col gap-4">
+          <div className="w-96 flex flex-col border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
             {/* 日志信息 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">日志信息</CardTitle>
-              </CardHeader>
-              <CardContent>
+            <div className="border-b border-slate-200 dark:border-slate-800">
+              <div className="px-4 py-3">
+                <h3 className="text-sm font-semibold">日志信息</h3>
+              </div>
+              <div className="px-4 pb-4">
                 <ScrollArea className="h-32 w-full rounded border p-2">
                   <pre className="text-xs">{logInfo}</pre>
                 </ScrollArea>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
 
             {/* 检测到的面板 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">检测结果</CardTitle>
-                <CardDescription className="text-xs">
-                  检测到 {detectedPanels.length} 个面板
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-48 w-full">
+            <div className="border-b border-slate-200 dark:border-slate-800 flex-1 overflow-hidden flex flex-col">
+              <div className="px-4 py-3 flex-shrink-0">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">检测结果</h3>
+                  <span className="text-xs text-slate-500">
+                    检测到 {detectedPanels.length} 个面板
+                  </span>
+                </div>
+              </div>
+              <div className="px-4 pb-4 flex-1 overflow-hidden">
+                <ScrollArea className="h-full w-full">
                   {detectedPanels.map((panel, index) => (
                     <div
                       key={index}
@@ -402,15 +405,15 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
                     </div>
                   ))}
                 </ScrollArea>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
 
             {/* 参数控制 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">参数控制</CardTitle>
-              </CardHeader>
-              <CardContent>
+            <div className="flex-shrink-0">
+              <div className="px-4 py-3">
+                <h3 className="text-sm font-semibold">参数控制</h3>
+              </div>
+              <div className="px-4 pb-4">
                 <ScrollArea className="h-64 w-full pr-4">
                   <div className="space-y-4">
                     {/* 偏移校准 */}
@@ -492,10 +495,11 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
                     </div>
                   </div>
                 </ScrollArea>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
         </div>
+      </div>
       </DialogContent>
     </Dialog>
   );

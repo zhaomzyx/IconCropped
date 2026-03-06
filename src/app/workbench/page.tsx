@@ -610,6 +610,9 @@ export default function WorkbenchPage() {
 
       console.log(`裁切完成，共裁切 ${cropData.total} 个图标`);
 
+      // 🌟 使用实际图片名称（可能包含时间戳）
+      const actualImageName = cropData.actualImageName || currentFilename.split('.')[0];
+
       // 转换结果格式
       const convertedCrops: WikiCroppedImage[] = cropData.results.map((result: any) => ({
         path: result.filename,
@@ -635,7 +638,7 @@ export default function WorkbenchPage() {
       setWikiProcessingStep('✅ 裁切完成');
 
       // 🌟 显示切图完成弹窗
-      alert(`✅ 切图完成！\n\n📊 统计信息：\n- 合成链数量：${panels.length} 条\n- 图标数量：${cropData.total} 个\n\n📁 保存位置：\npublic/wiki-cropped/${currentFilename.split('.')[0]}/`);
+      alert(`✅ 切图完成！\n\n📊 统计信息：\n- 合成链数量：${panels.length} 条\n- 图标数量：${cropData.total} 个\n\n📁 保存位置：\npublic/wiki-cropped/${actualImageName}/`);
     } catch (error) {
       console.error('裁切失败:', error);
       alert('裁切失败：' + (error instanceof Error ? error.message : '未知错误'));
