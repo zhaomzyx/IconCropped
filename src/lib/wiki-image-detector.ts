@@ -12,14 +12,6 @@ import {
 
 // ===== 类型定义 =====
 
-// 🌟 新增：面板元数据接口，让算法知道期待的目标
-export interface MetaPanel {
-  title?: string;
-  total?: number;
-  rows?: number;
-  cols?: number;
-}
-
 export interface DetectedPanel {
   title: string;
   x: number;
@@ -32,7 +24,7 @@ export interface DetectedPanel {
   imageUrl: string;
   blueBox: { x: number; y: number; width: number; height: number };
   greenBox: { x: number; y: number; width: number; height: number };
-  redBoxes: Array<{ x: number; y: number; width: number; height: number; iconIndex?: number; row?: number; col?: number }>;
+  redBoxes: Array<{ x: number; y: number; width: number; height: number }>;
 }
 
 export interface DetectionParams {
@@ -323,13 +315,11 @@ function scanHorizontalLine(
  *
  * @param imageUrl - 图片 URL
  * @param params - 可选的检测参数覆盖
- * @param metaPanels - LLM 识别的面板元数据（用于对齐和截断）
  * @returns 检测到的面板及其裁切坐标
  */
 export async function detectWikiImage(
   imageUrl: string,
-  params?: Partial<DetectionParams>,
-  metaPanels?: MetaPanel[] // 🌟 新增：传入从 LLM 拿到的面板数据
+  params?: Partial<DetectionParams>
 ): Promise<DetectedPanel[]> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -337,18 +327,8 @@ export async function detectWikiImage(
 
     img.onload = () => {
       try {
-        // 🌟 修复脱节 1：自动读取你在调试台调好的 LocalStorage 参数！
-        let storageParams = {};
-        if (typeof window !== 'undefined') {
-          const saved = localStorage.getItem('wiki_slice_config');
-          if (saved) {
-            storageParams = JSON.parse(saved);
-            console.log('[WikiImageDetector] 成功加载调试台参数:', storageParams);
-          }
-        }
-
-        // 优先级：传入 params > LocalStorage参数 > 默认参数
-        const finalParams = { ...DEFAULT_DETECTION_PARAMS, ...storageParams, ...params };
+        // 合并参数
+        const finalParams = { ...DEFAULT_DETECTION_PARAMS, ...params };
 
         // 1. 在内存中创建一个隐形的 Canvas
         const canvas = document.createElement('canvas');
@@ -390,9 +370,6 @@ export async function detectWikiImage(
         for (let i = 0; i < panelVerticalRanges.length; i++) {
           const vRange = panelVerticalRanges[i];
           const midY = Math.round((vRange.startY + vRange.endY) / 2);
-
-          // 🌟 获取当前面板的"上帝视角"信息
-          const meta = metaPanels && metaPanels[i] ? metaPanels[i] : null;
 
           // 执行 X 轴扫描
           const hRange = scanHorizontalLine(
@@ -450,20 +427,14 @@ export async function detectWikiImage(
             });
           }
 
-          // 🌟 修复脱节 2：应用我们在调试台使用的"总数截断"终极必杀技
-          if (meta && meta.total && meta.total < boundsIcons.length) {
-            console.log(`[WikiImageDetector] 根据 total=${meta.total} 截断多余框体`);
-            boundsIcons = boundsIcons.slice(0, meta.total);
-          }
-
           // 计算 rows 和 cols
-          const rows = meta?.rows ?? bounds.rows.length;
-          const cols = meta?.cols ?? bounds.cols.length;
-          const total = meta?.total ?? boundsIcons.length;
+          const rows = bounds.rows.length;
+          const cols = bounds.cols.length;
+          const total = boundsIcons.length;
 
           // 应用 1:1 强制正方形
-          const redBoxes = boundsIcons.map((icon, iconIndex) => {
-            const { leftX, topY, width, height, centerX, centerY, row, col } = icon;
+          const redBoxes = boundsIcons.map((icon) => {
+            const { leftX, topY, width, height, centerX, centerY } = icon;
 
             let drawLeftX = leftX;
             let drawTopY = topY;
@@ -474,32 +445,30 @@ export async function detectWikiImage(
               const squareSize = height;
               drawWidth = squareSize;
               drawHeight = squareSize;
-              drawLeftX = centerX - squareSize / 2 + finalParams.forceSquareOffsetX;
-              drawTopY = centerY - squareSize / 2 + finalParams.forceSquareOffsetY;
+              drawLeftX = centerX - squareSize / 2;
+              drawTopY = centerY - squareSize / 2;
+              drawLeftX += finalParams.forceSquareOffsetX;
+              drawTopY += finalParams.forceSquareOffsetY;
             }
 
-            // 🌟 修复脱节 3：保留真实的行列号和序号，防止后端算错
             return {
               x: drawLeftX,
               y: drawTopY,
               width: drawWidth,
               height: drawHeight,
-              iconIndex: iconIndex,
-              row: row,
-              col: col
             };
           });
 
           // 组装最终数据
           detectedPanels.push({
-            title: meta?.title || `Panel_${i + 1}`, // 优先使用后端识别的名字
+            title: `Panel_${i + 1}`,  // 纯前端模式无法识别标题，使用默认名称
             x: startX,
             y: vRange.startY,
             width: width,
             height: height,
-            rows: rows,
-            cols: cols,
-            total: total,
+            rows,
+            cols,
+            total,
             imageUrl: imageUrl,
             blueBox: {
               x: startX,
@@ -516,7 +485,7 @@ export async function detectWikiImage(
             redBoxes,
           });
 
-          console.log(`[WikiImageDetector] Panel ${i + 1} (${meta?.title || '未知'}): ${redBoxes.length} 个合成物 (${rows}行 × ${cols}列)`);
+          console.log(`[WikiImageDetector] Panel ${i + 1}: ${redBoxes.length} 个合成物 (${rows}行 × ${cols}列)`);
         }
 
         resolve(detectedPanels);

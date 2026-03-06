@@ -265,10 +265,9 @@ export async function POST(request: NextRequest) {
         for (let iconIndex = 0; iconIndex < panel.redBoxes.length; iconIndex++) {
           const redBox = panel.redBoxes[iconIndex];
 
-          // 🌟 修复脱节 3：优先使用前端传过来的真实行列号！
-          // 因为如果前面有空位被过滤了，单纯的除法会导致后面的物品全部分错行和列
-          const row = (redBox as any).row !== undefined ? (redBox as any).row : Math.floor(iconIndex / panel.cols);
-          const col = (redBox as any).col !== undefined ? (redBox as any).col : iconIndex % panel.cols;
+          // 计算行列号
+          const row = Math.floor(iconIndex / panel.cols);
+          const col = iconIndex % panel.cols;
 
           // 详细日志：裁切坐标
           if (iconIndex < 3 || iconIndex === panel.redBoxes.length - 1) { // 只显示前3个和最后一个
