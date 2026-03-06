@@ -99,39 +99,49 @@ export async function POST(request: NextRequest) {
       console.log(`  处理面板 ${j + 1}/${detectedPanels.length}: ${title}`);
       console.log(`    红框数量: ${panel.redBoxes.length}`);
 
+      // 🔧 修改：使用线性序号（从0开始），与调试台保持一致
+      let iconIndex = 0;
+
       // 裁切图标（使用前端 Canvas 检测到的坐标）
       for (const redBox of panel.redBoxes) {
-        const iconFileName = `${title}_${redBox.row}_${redBox.col}.png`;
+        // 🔧 修改：文件名使用线性序号（标题_序号.png）
+        const iconFileName = `${title}_${iconIndex}.png`;
         const iconPath = path.join(wikiDir, iconFileName);
 
-        console.log(`  裁切图标 [${redBox.row},${redBox.col}]: x=${redBox.x}, y=${redBox.y}, size=${redBox.width}x${redBox.height}`);
+        // 🔧 修复：坐标使用 Math.round() 四舍五入，避免浮点数错误
+        const roundedX = Math.round(redBox.x);
+        const roundedY = Math.round(redBox.y);
+        const roundedWidth = Math.round(redBox.width);
+        const roundedHeight = Math.round(redBox.height);
+
+        console.log(`  裁切图标 #${iconIndex}: x=${roundedX}, y=${roundedY}, size=${roundedWidth}x${roundedHeight}`);
 
         // 边界检查
-        if (redBox.x >= 0 && redBox.y >= 0 &&
-            redBox.x + redBox.width <= metadata.width &&
-            redBox.y + redBox.height <= metadata.height) {
+        if (roundedX >= 0 && roundedY >= 0 &&
+            roundedX + roundedWidth <= metadata.width &&
+            roundedY + roundedHeight <= metadata.height) {
           try {
             await sharp(imageBuffer)
               .extract({
-                left: redBox.x,
-                top: redBox.y,
-                width: redBox.width,
-                height: redBox.height
+                left: roundedX,
+                top: roundedY,
+                width: roundedWidth,
+                height: roundedHeight
               })
               .png()
               .toFile(iconPath);
 
             crops.push({
               path: iconFileName,
-              name: `${title}_icon_${redBox.row}_${redBox.col}`,
+              name: `${title}_${iconIndex}`,  // 🔧 修改：使用线性序号
               row: redBox.row,
               col: redBox.col,
               totalRows: redBox.row + 1,
               totalCols: redBox.col + 1,
-              x: redBox.x,
-              y: redBox.y,
-              width: redBox.width,
-              height: redBox.height,
+              x: roundedX,
+              y: roundedY,
+              width: roundedWidth,
+              height: roundedHeight,
               panelName: title,
               title: title,
               wikiName: actualWikiName,
@@ -139,13 +149,15 @@ export async function POST(request: NextRequest) {
               imageUrl: `/api/crops/${actualWikiName}/${filenameWithoutExt}/${iconFileName}`
             });
 
-            console.log(`  Saved icon: ${iconFileName} (row=${redBox.row}, col=${redBox.col}, size=${redBox.width}x${redBox.height})`);
+            console.log(`  Saved icon: ${iconFileName} (index=${iconIndex}, size=${roundedWidth}x${roundedHeight})`);
           } catch (e) {
             console.error(`  Failed to save icon ${iconFileName}:`, e);
           }
         } else {
-          console.warn(`  Icon [${redBox.row},${redBox.col}] out of bounds, skipping`);
+          console.warn(`  Icon #${iconIndex} out of bounds, skipping`);
         }
+
+        iconIndex++;  // 增加线性序号
       }
     }
 
