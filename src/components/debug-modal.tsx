@@ -69,7 +69,7 @@ export interface DetectedPanel {
   imageUrl: string;
   blueBox: { x: number; y: number; width: number; height: number };
   greenBox: { x: number; y: number; width: number; height: number };
-  redBoxes: Array<{ x: number; y: number; width: number; height; number; iconIndex?: number; row?: number; col?: number }>;
+  redBoxes: Array<{ x: number; y: number; width: number; height: number; iconIndex?: number; row?: number; col?: number }>;
 }
 
 interface DebugModalProps {

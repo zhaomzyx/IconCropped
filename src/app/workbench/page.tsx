@@ -607,7 +607,27 @@ export default function WorkbenchPage() {
             console.log(`[步骤1] 检测结果:`, JSON.stringify(detectedPanels, null, 2));
 
             if (detectedPanels.length === 0) {
-              throw new Error('未检测到任何面板，请检查图片是否正确');
+              // 🌟 改进：提供更详细的错误信息和调试选项
+              let errorMsg = `❌ 未检测到任何面板\n\n`;
+              errorMsg += `文件名: ${filename}\n`;
+              errorMsg += `图片URL: ${imageUrl}\n\n`;
+              errorMsg += `可能的原因：\n`;
+              errorMsg += `1. 图片尺寸过大（建议压缩到 3000px 以下）\n`;
+              errorMsg += `2. 图片格式不支持\n`;
+              errorMsg += `3. 默认检测参数不适合此图片\n\n`;
+              errorMsg += `解决方案：\n`;
+              errorMsg += `1. 访问调试台页面手动调整参数 (/debug)\n`;
+              errorMsg += `2. 在浏览器控制台执行以下代码修改参数：\n\n`;
+              errorMsg += `localStorage.setItem('wiki_slice_config', JSON.stringify({\n`;
+              errorMsg += `  boundsMinRowHeight: 5,\n`;
+              errorMsg += `  colorTolerance: 50,\n`;
+              errorMsg += `  scanLineX: 100,\n`;
+              errorMsg += `  scanStartY: 100,\n`;
+              errorMsg += `}));\n\n`;
+              errorMsg += `location.reload();`;
+
+              alert(errorMsg);
+              throw new Error('未检测到任何面板');
             }
 
             // 🌟 累加合成链数量
@@ -1070,13 +1090,24 @@ export default function WorkbenchPage() {
               {/* Wiki处理按钮和进度 */}
               {(fetchedWikiFiles.length > 0 || wikiFiles.length > 0) && (
                 <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center gap-2 mb-3 flex-wrap">
                     <Button
                       onClick={handleProcessWiki}
                       disabled={isProcessingWiki || wikiProcessed}
                       className={wikiProcessed ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}
                     >
                       {isProcessingWiki ? '裁切中...' : wikiProcessed ? '✓ 已裁切' : '开始裁切'}
+                    </Button>
+                    
+                    {/* 🌟 使用调试台按钮 */}
+                    <Button
+                      onClick={() => window.open('/debug', '_blank')}
+                      disabled={isProcessingWiki}
+                      variant="outline"
+                      size="sm"
+                      className="border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950"
+                    >
+                      使用调试台
                     </Button>
                     
                     {wikiProcessed && (
