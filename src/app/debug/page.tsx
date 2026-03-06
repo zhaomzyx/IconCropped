@@ -101,6 +101,7 @@ export default function WikiDebugPage() {
     boundsStepSize: 1,          // 边界检测步长（像素）
     boundsMinRowHeight: 20,     // 最小行高（过滤噪声）
     boundsMinColWidth: 20,      // 最小列宽（过滤噪声）
+    forceSquareIcons: true,     // 强制图标为1:1正方形（基于行高度）
   };
 
   // 复制日志到剪贴板
@@ -758,29 +759,48 @@ export default function WikiDebugPage() {
         boundsIcons.forEach((icon) => {
           const { leftX, topY, width, height, centerX, centerY, row, col } = icon;
 
+          // 如果强制1:1比例，使用行高度作为图标尺寸
+          let drawLeftX = leftX;
+          let drawTopY = topY;
+          let drawWidth = width;
+          let drawHeight = height;
+          let drawCenterX = centerX;
+          let drawCenterY = centerY;
+
+          if (params.forceSquareIcons) {
+            // 使用行高度作为正方形尺寸（通常行检测更稳定）
+            const squareSize = height;
+
+            // 重新计算位置，保持中心点不变
+            drawWidth = squareSize;
+            drawHeight = squareSize;
+            drawLeftX = centerX - squareSize / 2;
+            drawTopY = centerY - squareSize / 2;
+          }
+
           ctx.strokeStyle = '#EF4444';
           ctx.lineWidth = 2;
-          ctx.strokeRect(leftX, topY, width, height);
+          ctx.strokeRect(drawLeftX, drawTopY, drawWidth, drawHeight);
 
           // 绘制序号（行列格式）
           ctx.fillStyle = '#EF4444';
           ctx.font = '12px Arial';
-          ctx.fillText(`[${row},${col}]`, leftX + 3, topY + 15);
+          ctx.fillText(`[${row},${col}]`, drawLeftX + 3, drawTopY + 15);
 
           // 绘制红框坐标
           ctx.fillStyle = '#EF4444';
           ctx.font = '9px monospace';
           ctx.fillText(
-            `(${Math.round(leftX)}, ${Math.round(topY)}) ${Math.round(width)}x${Math.round(height)}`,
-            leftX + 3,
-            topY + height - 3
+            `(${Math.round(drawLeftX)}, ${Math.round(drawTopY)}) ${Math.round(drawWidth)}x${Math.round(drawHeight)}`,
+            drawLeftX + 3,
+            drawTopY + drawHeight - 3
           );
 
           // 绘制中心点标记
           if (isSelected) {
             ctx.fillStyle = '#FF00FF';
             ctx.beginPath();
-            ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
+            ctx.arc(drawCenterX, drawCenterY, 3, 0, 2 * Math.PI);
             ctx.fill();
           }
         });
@@ -1676,6 +1696,23 @@ export default function WikiDebugPage() {
                         />
                       </div>
                       <p className="text-xs text-gray-500 mt-1">过滤噪声的最小列宽（像素）</p>
+                    </div>
+
+                    <div className="pt-4 border-t border-indigo-200">
+                      <Label className="text-xs font-semibold text-indigo-700 mb-3 block">图标形状设置</Label>
+                      <div className="flex items-center justify-between p-3 bg-indigo-100 rounded">
+                        <div>
+                          <Label className="text-sm font-medium text-indigo-800">强制1:1比例</Label>
+                          <p className="text-xs text-indigo-600 mt-1">强制所有图标为正方形（基于行高度）</p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          id="forceSquareIcons"
+                          checked={params.forceSquareIcons}
+                          onChange={(e) => handleParamChange('forceSquareIcons', e.target.checked)}
+                          className="w-5 h-5 text-indigo-600 rounded cursor-pointer"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
