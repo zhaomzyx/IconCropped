@@ -124,6 +124,7 @@ export interface DetectedPanel {
   blueBox: { x: number; y: number; width: number; height: number };
   greenBox: { x: number; y: number; width: number; height: number };
   redBoxes: Array<{ x: number; y: number; width: number; height: number; iconIndex?: number; row?: number; col?: number }>;
+  originalWidth?: number;  // 🌟 新增：归一化前的原始宽度（可选）
 }
 
 export interface DetectionParams {
@@ -672,15 +673,28 @@ export async function detectWikiImage(
  * 如果超过半数的大panel宽度在某个数值±10之间波动，自动将所有大panel宽度设置为这个数值
  *
  * @param panels - 检测到的所有面板
- * @returns 归一化结果（是否应用、目标宽度、影响数量）
+ * @returns 归一化结果（是否应用、目标宽度、影响数量、归一化详情）
  */
+interface NormalizedPanelInfo {
+  panelIndex: number;
+  oldWidth: number;
+  newWidth: number;
+  title: string;
+}
+
 function normalizePanelWidths(panels: DetectedPanel[]): {
   applied: boolean;
   targetWidth: number | null;
   affectedCount: number;
+  normalizedPanels: NormalizedPanelInfo[];  // 🌟 新增：归一化的详细列表
 } {
   if (panels.length === 0) {
-    return { applied: false, targetWidth: null, affectedCount: 0 };
+    return { 
+      applied: false, 
+      targetWidth: null, 
+      affectedCount: 0,
+      normalizedPanels: []  // 🌟 空数组
+    };
   }
 
   // 1. 提取所有面板的宽度
@@ -732,12 +746,18 @@ function normalizePanelWidths(panels: DetectedPanel[]): {
 
   if (!shouldNormalize || targetWidth === null) {
     console.log(`[normalizePanelWidths] 未满足归一化条件（需要≥${threshold}个面板，最多只有${maxCount}个）`);
-    return { applied: false, targetWidth: null, affectedCount: 0 };
+    return { 
+      applied: false, 
+      targetWidth: null, 
+      affectedCount: 0,
+      normalizedPanels: []  // 🌟 空数组
+    };
   }
 
   // 5. 应用归一化：将所有面板宽度设置为目标宽度
   let affectedCount = 0;
   const widthVarianceThreshold = tolerance; // 使用相同的容差
+  const normalizedPanels: NormalizedPanelInfo[] = [];  // 🌟 记录归一化详情
 
   for (let i = 0; i < panels.length; i++) {
     const panel = panels[i];
@@ -746,11 +766,24 @@ function normalizePanelWidths(panels: DetectedPanel[]): {
     // 如果当前宽度与目标宽度的差异在容差范围内，则归一化
     if (Math.abs(currentWidth - targetWidth) <= widthVarianceThreshold) {
       const oldWidth = panel.width;
+      
+      // 🌟 保存原始宽度
+      panel.originalWidth = oldWidth;
+      
+      // 归一化宽度
       panel.width = targetWidth;
 
       // 同步更新 blueBox 和 greenBox 的宽度
       panel.blueBox.width = targetWidth;
       panel.greenBox.width = targetWidth;
+
+      // 🌟 记录归一化详情
+      normalizedPanels.push({
+        panelIndex: i,
+        oldWidth,
+        newWidth: targetWidth,
+        title: panel.title
+      });
 
       affectedCount++;
 
@@ -761,6 +794,7 @@ function normalizePanelWidths(panels: DetectedPanel[]): {
   return {
     applied: true,
     targetWidth,
-    affectedCount
+    affectedCount,
+    normalizedPanels  // 🌟 返回归一化详情
   };
 }
