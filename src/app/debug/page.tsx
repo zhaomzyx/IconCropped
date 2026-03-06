@@ -99,7 +99,8 @@ export default function WikiDebugPage() {
     useBoundsDetection: false,  // 是否使用边界检测方法（替代中心点检测）
     boundsWindowHeight: 5,      // 边界检测窗口高度（用于检测行）
     boundsWindowWidth: 5,       // 边界检测窗口宽度（用于检测列）
-    boundsVarianceThreshold: 50, // 边界检测颜色方差阈值
+    boundsVarianceThresholdRow: 50,  // 边界检测颜色方差阈值（行检测）
+    boundsVarianceThresholdCol: 50,  // 边界检测颜色方差阈值（列检测）
     boundsStepSize: 1,          // 边界检测步长（像素）
     boundsMinRowHeight: 20,     // 最小行高（过滤噪声）
     boundsMinColWidth: 20,      // 最小列宽（过滤噪声）
@@ -735,7 +736,8 @@ export default function WikiDebugPage() {
                 {
                   windowHeight: params.boundsWindowHeight,
                   windowWidth: params.boundsWindowWidth,
-                  varianceThreshold: params.boundsVarianceThreshold,
+                  varianceThresholdRow: params.boundsVarianceThresholdRow,
+                  varianceThresholdCol: params.boundsVarianceThresholdCol,
                   stepSize: params.boundsStepSize,
                   minRowHeight: params.boundsMinRowHeight,
                   minColWidth: params.boundsMinColWidth,
@@ -802,7 +804,8 @@ export default function WikiDebugPage() {
             {
               windowHeight: params.boundsWindowHeight,
               windowWidth: params.boundsWindowWidth,
-              varianceThreshold: params.boundsVarianceThreshold,
+              varianceThresholdRow: params.boundsVarianceThresholdRow,
+              varianceThresholdCol: params.boundsVarianceThresholdCol,
               stepSize: params.boundsStepSize,
               minRowHeight: params.boundsMinRowHeight,
               minColWidth: params.boundsMinColWidth,
@@ -1945,11 +1948,11 @@ export default function WikiDebugPage() {
                     </div>
 
                     <div>
-                      <Label className="text-xs font-medium text-gray-600">颜色方差阈值 (Variance Threshold)</Label>
+                      <Label className="text-xs font-medium text-gray-600">行检测方差阈值 (Row Variance)</Label>
                       <div className="flex items-center gap-3 mt-2">
                         <Slider
-                          value={[params.boundsVarianceThreshold]}
-                          onValueChange={([v]) => handleParamChange('boundsVarianceThreshold', v)}
+                          value={[params.boundsVarianceThresholdRow]}
+                          onValueChange={([v]) => handleParamChange('boundsVarianceThresholdRow', v)}
                           min={10}
                           max={200}
                           step={5}
@@ -1957,12 +1960,33 @@ export default function WikiDebugPage() {
                         />
                         <Input
                           type="number"
-                          value={params.boundsVarianceThreshold}
-                          onChange={(e) => handleParamChange('boundsVarianceThreshold', parseInt(e.target.value) || 0)}
+                          value={params.boundsVarianceThresholdRow}
+                          onChange={(e) => handleParamChange('boundsVarianceThresholdRow', parseInt(e.target.value) || 0)}
                           className="w-20 text-center text-sm"
                         />
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">判断是否为图标区域的最小方差值（阈值越高越严格）</p>
+                      <p className="text-xs text-gray-500 mt-1">判断是否为行区域的最小方差值（阈值越高越严格）</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">列检测方差阈值 (Col Variance)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.boundsVarianceThresholdCol]}
+                          onValueChange={([v]) => handleParamChange('boundsVarianceThresholdCol', v)}
+                          min={10}
+                          max={200}
+                          step={5}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.boundsVarianceThresholdCol}
+                          onChange={(e) => handleParamChange('boundsVarianceThresholdCol', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">判断是否为列区域的最小方差值（阈值越高越严格）</p>
                     </div>
 
                     <div>

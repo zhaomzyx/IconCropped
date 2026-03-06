@@ -507,7 +507,8 @@ export function detectAllBounds(
   params?: {
     windowHeight?: number;
     windowWidth?: number;
-    varianceThreshold?: number;
+    varianceThresholdRow?: number;  // 行检测的方差阈值
+    varianceThresholdCol?: number;  // 列检测的方差阈值
     stepSize?: number;
     minRowHeight?: number;
     minColWidth?: number;
@@ -516,13 +517,15 @@ export function detectAllBounds(
   const {
     windowHeight = 5,
     windowWidth = 5,
-    varianceThreshold = 50,
+    varianceThresholdRow = 50,  // 默认行检测阈值
+    varianceThresholdCol = 50,  // 默认列检测阈值
     stepSize = 1,
     minRowHeight = 20,
     minColWidth = 20
   } = params || {};
 
   console.log(`[边界检测-综合] 开始综合检测...`);
+  console.log(`  行检测方差阈值: ${varianceThresholdRow}, 列检测方差阈值: ${varianceThresholdCol}`);
 
   // 纵向检测（行）
   const rows = detectRowBounds(
@@ -533,7 +536,7 @@ export function detectAllBounds(
     panelWidth,
     panelHeight,
     windowHeight,
-    varianceThreshold,
+    varianceThresholdRow,  // 使用行检测专用阈值
     stepSize,
     minRowHeight
   );
@@ -547,7 +550,7 @@ export function detectAllBounds(
     panelWidth,
     panelHeight,
     windowWidth,
-    varianceThreshold,
+    varianceThresholdCol,  // 使用列检测专用阈值
     stepSize,
     minColWidth
   );
