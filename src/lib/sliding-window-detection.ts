@@ -411,7 +411,7 @@ export interface ColumnBounds {
 
 /**
  * 横向边界检测 - 检测列的边界
- * 
+ *
  * 算法说明：
  * 1. 使用滑动窗口在X轴上扫描
  * 2. 计算每个窗口内的颜色方差（波动）
@@ -419,6 +419,10 @@ export interface ColumnBounds {
  *    - 方差小 → 方差大：列左边界（进入列区域）
  *    - 方差大 → 方差小：列右边界（离开列区域）
  * 4. 过滤噪声（最小列宽）
+ *
+ * 关键改进：
+ * - 使用 scanHeight 参数指定扫描高度（通常为单行高度）
+ * - 避免多行颜色变化的影响，提高列检测准确性
  */
 export function detectColumnBounds(
   pixelData: Buffer,
@@ -430,27 +434,32 @@ export function detectColumnBounds(
   windowWidth: number = 5,        // 检测窗口宽度（较小，用于检测单列）
   varianceThreshold: number = 50, // 颜色方差阈值，判断是否为列区域
   stepSize: number = 1,           // 扫描步长（像素）
-  minColWidth: number = 20        // 最小列宽（过滤噪声）
+  minColWidth: number = 20,       // 最小列宽（过滤噪声）
+  scanHeight?: number             // 扫描高度（可选，如果不指定则使用整个panel高度）
 ): ColumnBounds[] {
   console.log(`[边界检测-横向] 开始扫描...`);
   console.log(`  面板位置: (${panelX}, ${panelY}), 尺寸: ${panelWidth}x${panelHeight}`);
   console.log(`  窗口宽度: ${windowWidth}px, 方差阈值: ${varianceThreshold}, 步长: ${stepSize}px`);
   console.log(`  最小列宽: ${minColWidth}px`);
+  console.log(`  扫描高度: ${scanHeight || panelHeight}px ${scanHeight ? '(基于单行高度)' : '(整个panel高度)'}`);
 
   const cols: ColumnBounds[] = [];
   let inCol = false;
   let currentLeftX = 0;
 
+  // 使用扫描高度（如果指定），否则使用整个panel高度
+  const effectiveScanHeight = scanHeight || panelHeight;
+
   // 从左到右扫描
   for (let x = panelX; x <= panelX + panelWidth; x += stepSize) {
-    // 计算当前X位置的方差
+    // 计算当前X位置的方差（只在扫描高度范围内）
     const variance = calculateVariance(
       pixelData,
       imageWidth,
       x,
       panelY,
       windowWidth,
-      panelHeight
+      effectiveScanHeight
     );
 
     // 检测临界点
@@ -494,8 +503,13 @@ export interface BoundsResult {
 
 /**
  * 综合检测 - 检测所有行和列的边界
- * 
+ *
  * 结合纵向和横向检测结果，提供完整的边界信息
+ *
+ * 关键改进：
+ * - 先检测行
+ * - 使用第一行的高度作为列检测的扫描高度
+ * - 这样列检测只在单行的高度范围内进行，避免多行颜色变化的影响
  */
 export function detectAllBounds(
   pixelData: Buffer,
@@ -541,6 +555,16 @@ export function detectAllBounds(
     minRowHeight
   );
 
+  // 确定列检测的扫描高度
+  // 优先使用第一行的高度，如果没有行则使用默认值或整个panel高度
+  let scanHeight: number | undefined;
+  if (rows.length > 0) {
+    scanHeight = rows[0].height;
+    console.log(`[边界检测-综合] 使用第一行高度作为列扫描高度: ${scanHeight}px`);
+  } else {
+    console.warn(`[边界检测-综合] 未检测到行，列检测将使用整个panel高度 (${panelHeight}px)`);
+  }
+
   // 横向检测（列）
   const cols = detectColumnBounds(
     pixelData,
@@ -552,7 +576,8 @@ export function detectAllBounds(
     windowWidth,
     varianceThresholdCol,  // 使用列检测专用阈值
     stepSize,
-    minColWidth
+    minColWidth,
+    scanHeight  // 使用扫描高度
   );
 
   const result = { rows, cols };
