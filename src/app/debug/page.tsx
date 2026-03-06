@@ -634,14 +634,27 @@ export default function WikiDebugPage() {
         if (widthStats.applied) {
           console.log(`[drawCanvas] ✅ 宽度归一化已应用：目标宽度 ${widthStats.targetWidth}px，影响 ${widthStats.affectedCount} 个面板`);
 
-          // 🌟 更新 panelRanges，让 Canvas 绘制蓝框时使用归一化后的宽度
+          // 🌟 计算居中偏移量：所有大panel都居中对齐
+          const targetWidth = widthStats.targetWidth!;
+          const centeredStartX = Math.round((canvas.width - targetWidth) / 2);
+          const centeredEndX = centeredStartX + targetWidth;
+
+          console.log(`[drawCanvas] 🎯 归一化居中：图片宽度=${canvas.width}px, 统一宽度=${widthStats.targetWidth}px, 左上角X=${centeredStartX}px`);
+
+          // 🌟 更新 panelRanges，让 Canvas 绘制蓝框时使用归一化后的宽度和居中位置
           for (let i = 0; i < currentDetectedPanels.length; i++) {
             const panel = currentDetectedPanels[i];
-            if (panel.width !== panelRanges[i].width) {
-              console.log(`[Canvas绘制] Panel ${i + 1}: 更新蓝框宽度 ${panelRanges[i].width}px → ${panel.width}px`);
-              panelRanges[i].width = panel.width;
-              panelRanges[i].endX = panelRanges[i].startX + panel.width;
-            }
+            panelRanges[i].width = panel.width;
+            panelRanges[i].startX = centeredStartX;
+            panelRanges[i].endX = centeredEndX;
+
+            // 同时更新 currentDetectedPanels 中的坐标
+            panel.x = centeredStartX;
+            panel.width = panel.width;
+            panel.blueBox.x = centeredStartX;
+            panel.greenBox.x = centeredStartX;
+
+            console.log(`[Canvas绘制] Panel ${i + 1}: 居中位置 startX=${centeredStartX}px, endX=${centeredEndX}px, width=${panel.width}px`);
           }
 
           // 添加归一化日志
@@ -1406,14 +1419,27 @@ export default function WikiDebugPage() {
         if (widthStats.applied) {
           console.log(`[drawCanvas] ✅ 宽度归一化已应用：目标宽度 ${widthStats.targetWidth}px，影响 ${widthStats.affectedCount} 个面板`);
 
-          // 🌟 更新 panelRanges，让 Canvas 绘制蓝框时使用归一化后的宽度
+          // 🌟 计算居中偏移量：所有大panel都居中对齐
+          const targetWidth = widthStats.targetWidth!;
+          const centeredStartX = Math.round((canvas.width - targetWidth) / 2);
+          const centeredEndX = centeredStartX + targetWidth;
+
+          console.log(`[drawCanvas] 🎯 归一化居中：图片宽度=${canvas.width}px, 统一宽度=${widthStats.targetWidth}px, 左上角X=${centeredStartX}px`);
+
+          // 🌟 更新 panelRanges，让 Canvas 绘制蓝框时使用归一化后的宽度和居中位置
           for (let i = 0; i < currentDetectedPanels.length; i++) {
             const panel = currentDetectedPanels[i];
-            if (panel.width !== panelRanges[i].width) {
-              console.log(`[Canvas绘制] Panel ${i + 1}: 更新蓝框宽度 ${panelRanges[i].width}px → ${panel.width}px`);
-              panelRanges[i].width = panel.width;
-              panelRanges[i].endX = panelRanges[i].startX + panel.width;
-            }
+            panelRanges[i].width = panel.width;
+            panelRanges[i].startX = centeredStartX;
+            panelRanges[i].endX = centeredEndX;
+
+            // 同时更新 currentDetectedPanels 中的坐标
+            panel.x = centeredStartX;
+            panel.width = panel.width;
+            panel.blueBox.x = centeredStartX;
+            panel.greenBox.x = centeredStartX;
+
+            console.log(`[Canvas绘制] Panel ${i + 1}: 居中位置 startX=${centeredStartX}px, endX=${centeredEndX}px, width=${panel.width}px`);
           }
 
           // 添加归一化日志
