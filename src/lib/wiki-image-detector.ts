@@ -775,13 +775,12 @@ function normalizePanelWidths(panels: DetectedPanel[]): {
     };
   }
 
-  // 5. 应用归一化：将所有面板宽度设置为目标宽度
-  console.log(`[normalizePanelWidths] 🔧 开始应用归一化...`);
+  // 5. 应用归一化：将所有面板宽度设置为目标宽度（强制归一化所有面板）
+  console.log(`[normalizePanelWidths] 🔧 开始应用归一化（强制归一化所有面板）...`);
   console.log(`  目标宽度: ${targetWidth}px`);
-  console.log(`  容差范围: ${targetWidth - tolerance}px ~ ${targetWidth + tolerance}px`);
+  console.log(`  归一化范围: 所有 ${panels.length} 个面板`);
 
   let affectedCount = 0;
-  const widthVarianceThreshold = tolerance; // 使用相同的容差
   const normalizedPanels: NormalizedPanelInfo[] = [];  // 🌟 记录归一化详情
 
   for (let i = 0; i < panels.length; i++) {
@@ -789,35 +788,31 @@ function normalizePanelWidths(panels: DetectedPanel[]): {
     const currentWidth = panel.width;
     const diff = Math.abs(currentWidth - targetWidth);
 
-    // 如果当前宽度与目标宽度的差异在容差范围内，则归一化
-    if (diff <= widthVarianceThreshold) {
-      const oldWidth = panel.width;
+    // 🌟 强制归一化：不管容差范围，归一化所有面板
+    const oldWidth = panel.width;
 
-      // 🌟 保存原始宽度
-      panel.originalWidth = oldWidth;
+    // 🌟 保存原始宽度
+    panel.originalWidth = oldWidth;
 
-      // 归一化宽度
-      panel.width = targetWidth;
+    // 归一化宽度
+    panel.width = targetWidth;
 
-      // 同步更新 blueBox 和 greenBox 的宽度
-      panel.blueBox.width = targetWidth;
-      panel.greenBox.width = targetWidth;
+    // 同步更新 blueBox 和 greenBox 的宽度
+    panel.blueBox.width = targetWidth;
+    panel.greenBox.width = targetWidth;
 
-      // 🌟 记录归一化详情
-      normalizedPanels.push({
-        panelIndex: i,
-        oldWidth,
-        newWidth: targetWidth,
-        title: panel.title
-      });
+    // 🌟 记录归一化详情
+    normalizedPanels.push({
+      panelIndex: i,
+      oldWidth,
+      newWidth: targetWidth,
+      title: panel.title
+    });
 
-      affectedCount++;
+    affectedCount++;
 
-      const diffStr = oldWidth !== targetWidth ? ` (差 ${diff}px)` : '';
-      console.log(`  ✅ Panel ${i + 1} [${panel.title}]: ${oldWidth}px → ${targetWidth}px${diffStr}`);
-    } else {
-      console.log(`  ⏭️  Panel ${i + 1} [${panel.title}]: ${currentWidth}px (超出容差 ${diff}px，跳过)`);
-    }
+    const diffStr = oldWidth !== targetWidth ? ` (差 ${diff}px)` : '';
+    console.log(`  ✅ Panel ${i + 1} [${panel.title}]: ${oldWidth}px → ${targetWidth}px${diffStr}`);
   }
 
   console.log(`[normalizePanelWidths] ✅ 归一化完成！`);
