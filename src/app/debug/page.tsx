@@ -158,7 +158,11 @@ export default function WikiDebugPage() {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
-          return { ...DEFAULT_PARAMS, ...parsed };
+          const mergedParams = { ...DEFAULT_PARAMS, ...parsed };
+          // 🌟 强制设置新参数的默认值（即使localStorage中有旧配置）
+          mergedParams.filterEmptyIcons = DEFAULT_PARAMS.filterEmptyIcons;
+          mergedParams.emptyIconVarianceThreshold = DEFAULT_PARAMS.emptyIconVarianceThreshold;
+          return mergedParams;
         }
       } catch (error) {
         console.error('Failed to load params from localStorage:', error);
