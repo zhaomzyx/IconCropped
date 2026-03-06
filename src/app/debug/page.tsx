@@ -1512,6 +1512,7 @@ export default function WikiDebugPage() {
 
         // 调试模式处理
         logInfo('步骤2: 调用 /api/process-image-stream (debug模式)');
+        logInfo('📋 当前检测参数:', params);
         const processRes = await fetch('/api/process-image-stream', {
           method: 'POST',
           headers: {
@@ -1520,6 +1521,7 @@ export default function WikiDebugPage() {
           body: JSON.stringify({
             filenames: [uploadedFilename],
             debug: true,
+            params: params,  // 传递当前检测参数
           }),
         });
 
@@ -1587,7 +1589,19 @@ export default function WikiDebugPage() {
                 console.error('✗ 收到错误事件:', data);
                 console.error('✗ 错误详情:', JSON.stringify(data));
                 console.error('✗ 原始数据:', currentData);
-                throw new Error(data.message || '处理过程中发生错误');
+
+                let errorMessage = data.message || '处理过程中发生错误';
+
+                // 为Y轴检测失败添加友好提示
+                if (errorMessage.includes('Y轴检测失败') || errorMessage.includes('未检测到任何面板')) {
+                  errorMessage += '\n\n💡 建议：请调整检测参数后再试：\n' +
+                    '1. 调整 scanLineX（当前值：' + params.scanLineX + '）：改变X轴扫描位置\n' +
+                    '2. 调整 scanStartY（当前值：' + params.scanStartY + '）：改变Y轴扫描起始位置\n' +
+                    '3. 调整 colorTolerance（当前值：' + params.colorTolerance + '）：调整颜色容差\n' +
+                    '4. 调整 sustainedPixels（当前值：' + params.sustainedPixels + '）：调整连续像素阈值';
+                }
+
+                throw new Error(errorMessage);
               }
             } catch (e) {
               console.error(`Failed to parse SSE data for event ${currentEvent}:`, e, '原始数据:', currentData.substring(0, 100));
