@@ -126,12 +126,13 @@ async function cropIconFromRedBox(
   wikiName: string
 ): Promise<CropResult> {
   // 裁切红框区域（直接裁切，不添加坐标标注）
+  // 🔧 修复：sharp.extract要求整数参数，将浮点数四舍五入
   const iconBuffer = await sharp(imageBuffer)
     .extract({
-      left: redBox.x,
-      top: redBox.y,
-      width: redBox.width,
-      height: redBox.height,
+      left: Math.round(redBox.x),
+      top: Math.round(redBox.y),
+      width: Math.round(redBox.width),
+      height: Math.round(redBox.height),
     })
     .png()
     .toBuffer();
