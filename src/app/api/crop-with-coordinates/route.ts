@@ -137,8 +137,8 @@ async function cropIconFromRedBox(
     .png()
     .toBuffer();
 
-  // 生成文件名：面板名_行列序号.png
-  const filename = `${panelTitle}_${row + 1}_${col + 1}.png`;
+  // 🔧 修改：文件名使用线性序号（标题_序号.png）
+  const filename = `${panelTitle}_${iconIndex + 1}.png`;
 
   // 保存icon到public/wiki-cropped/wikiName/目录
   const outputDir = path.join(cwd(), 'public', 'wiki-cropped', wikiName);
