@@ -592,9 +592,6 @@ export default function WikiDebugPage() {
       // 3. 遍历所有panel，使用检测到的坐标绘制
       const currentDetectedPanels: DetectedPanel[] = []; // 保存当前绘制的框体坐标
 
-      // 3. 遍历所有panel，使用检测到的坐标绘制
-      const currentDetectedPanels: DetectedPanel[] = []; // 保存当前绘制的框体坐标
-
       for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
         const panel = debugPanels[i];
         const range = panelRanges[i];
