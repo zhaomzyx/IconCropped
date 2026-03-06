@@ -11,8 +11,7 @@ import {
   detectColumnsBySlidingWindow,
   detectIconPositionsBySlidingWindow,
   detectAllBounds,
-  calculateIconPositionsFromBounds,
-  normalizePanelWidths
+  calculateIconPositionsFromBounds
 } from '@/lib/sliding-window-detection';
 
 interface DebugPanel {
@@ -46,7 +45,6 @@ interface DetectedPanel {
   blueBox: { x: number; y: number; width: number; height: number };
   greenBox: { x: number; y: number; width: number; height: number };
   redBoxes: Array<{ x: number; y: number; width: number; height: number }>;
-  originalWidth?: number; // 归一化前的原始宽度（可选）
 }
 
 export default function WikiDebugPage() {
@@ -561,6 +559,18 @@ export default function WikiDebugPage() {
         const panel = debugPanels[index];
         const midY = Math.round((vRange.startY + vRange.endY) / 2);
 
+        if (!panel) {
+          console.warn(`[Panel ${index + 1}] 数据不存在，跳过`);
+          return {
+            startY: vRange.startY,
+            endY: vRange.endY,
+            startX: 0,
+            endX: 0,
+            width: 0,
+            height: vRange.endY - vRange.startY,
+          };
+        }
+
         console.log(`\n[Panel ${index + 1}] ${panel.title}`);
         console.log(`[Panel ${index + 1}] 中间检测线 Y: ${midY}`);
 
@@ -589,7 +599,7 @@ export default function WikiDebugPage() {
         };
       });
 
-      // 3. 🌟 重新组织代码：先创建面板数据，执行归一化，然后再绘制
+      // 3. 重新组织代码：先创建面板数据，然后再绘制
 
       // 3.1 遍历所有panel，创建面板数据（不绘制）
       const currentDetectedPanels: DetectedPanel[] = [];
@@ -628,50 +638,14 @@ export default function WikiDebugPage() {
         });
       }
 
-      // 3.2 🌟 宽度归一化（在绘制之前执行）
-      if (currentDetectedPanels.length > 0) {
-        const widthStats = normalizePanelWidths(currentDetectedPanels);
-        if (widthStats.applied) {
-          console.log(`[drawCanvas] ✅ 宽度归一化已应用：目标宽度 ${widthStats.targetWidth}px，影响 ${widthStats.affectedCount} 个面板`);
-
-          // 🌟 更新 panelRanges，让 Canvas 绘制蓝框时使用归一化后的宽度
-          for (let i = 0; i < currentDetectedPanels.length; i++) {
-            const panel = currentDetectedPanels[i];
-            if (panel.width !== panelRanges[i].width) {
-              console.log(`[Canvas绘制] Panel ${i + 1}: 更新蓝框宽度 ${panelRanges[i].width}px → ${panel.width}px`);
-              panelRanges[i].width = panel.width;
-              panelRanges[i].endX = panelRanges[i].startX + panel.width;
-            }
-          }
-
-          // 添加归一化日志
-          const logMessages = [
-            '',
-            '='.repeat(60),
-            '🎯 宽度归一化结果',
-            '='.repeat(60),
-            `目标宽度: ${widthStats.targetWidth}px`,
-            `影响面板: ${widthStats.affectedCount} / ${currentDetectedPanels.length} 个`,
-            '',
-            '归一化详情:',
-            ...widthStats.normalizedPanels.map(p => `  Panel ${p.panelIndex + 1} [${p.title}]: ${p.oldWidth}px → ${p.newWidth}px`),
-            '='.repeat(60),
-            ''
-          ];
-          logMessages.forEach(msg => console.log(msg));
-        } else {
-          console.log(`[drawCanvas] ⚠️ 宽度归一化未应用（不满足归一化条件）`);
-        }
-      }
-
-      // 3.3 🌟 再次遍历所有panel，使用归一化后的宽度绘制并检测图标
+      // 3.2 遍历所有panel，绘制并检测图标
       for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
         const panel = debugPanels[i];
-        const range = panelRanges[i]; // 🌟 此时 range.width 已经被归一化更新
+        const range = panelRanges[i];
         const isSelected = i === selectedPanelIndex;
-        const currentDetectedPanel = currentDetectedPanels[i]; // 🌟 获取归一化后的面板数据
+        const currentDetectedPanel = currentDetectedPanels[i];
 
-        // 🌟 计算居中的起始X坐标：startX = (canvas.width - normalizedWidth) / 2
+        // 计算居中的起始X坐标
         const centeredStartX = Math.round((canvas.width - range.width) / 2);
 
         // 绘制时的详细日志（只记录选中的面板）
@@ -681,11 +655,11 @@ export default function WikiDebugPage() {
           console.log(`  startY = ${range.startY}, endY = ${range.endY}, height = ${range.height}`);
           console.log(`[X轴检测结果]`);
           console.log(`  startX = ${range.startX}, endX = ${range.endX}, width = ${range.width}`);
-          console.log(`  🌟 归一化后宽度 = ${currentDetectedPanel.width}px`);
-          console.log(`  🌟 居中计算：(${canvas.width} - ${range.width}) / 2 = ${centeredStartX}px`);
+          console.log(`  检测到的宽度 = ${currentDetectedPanel.width}px`);
+          console.log(`  居中计算：(${canvas.width} - ${range.width}) / 2 = ${centeredStartX}px`);
         }
 
-        // 绘制蓝色框（Panel外边缘）- 🌟 使用居中后的X坐标和归一化后的宽度
+        // 绘制蓝色框（Panel外边缘）
         ctx.strokeStyle = isSelected ? '#3B82F6' : '#93C5FD';
         ctx.lineWidth = isSelected ? 3 : 2;
         ctx.strokeRect(centeredStartX, range.startY, range.width, range.height);
@@ -699,7 +673,7 @@ export default function WikiDebugPage() {
           range.startY + 12
         );
 
-        // 绘制绿色框（标题区域）- 🌟 使用居中后的X坐标和归一化后的宽度
+        // 绘制绿色框（标题区域）
         ctx.strokeStyle = '#22C55E';
         ctx.lineWidth = 2;
         ctx.strokeRect(centeredStartX, range.startY, range.width, params.gridStartY);
@@ -740,7 +714,7 @@ export default function WikiDebugPage() {
         // 核心修改 1：让扫描的起始 Y 坐标直接跳过绿框（标题区域）
         const scanY = range.startY + params.gridStartY + padding;
 
-        const scanWidth = range.width - padding * 2; // 🌟 使用归一化后的宽度
+        const scanWidth = range.width - padding * 2; // 使用检测到的宽度
 
         // 核心修改 2：扫描总高度也要相应减去绿框的高度
         const scanHeight = range.height - params.gridStartY - padding * 2;
@@ -1013,7 +987,7 @@ export default function WikiDebugPage() {
         }
       }
 
-      // 3.3 🌟 再次遍历所有panel，使用归一化后的宽度绘制并检测图标
+      // 再次遍历所有panel，绘制并检测图标
       for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
         const panel = debugPanels[i];
         const range = panelRanges[i];
@@ -1045,7 +1019,7 @@ export default function WikiDebugPage() {
         // 绘制绿色框（标题区域）
         ctx.strokeStyle = '#22C55E';
         ctx.lineWidth = 2;
-        // 🌟 绿框宽度使用归一化后的蓝框宽度
+        // 绿框宽度使用蓝框宽度
         const greenBoxWidth = currentDetectedPanels[i]?.blueBox.width || range.width;
         ctx.strokeRect(range.startX, range.startY, greenBoxWidth, params.gridStartY);
 
@@ -1403,64 +1377,6 @@ export default function WikiDebugPage() {
           ctx.font = '12px monospace';
           ctx.fillText(`X=${params.scanLineX}, T=${params.colorTolerance}, S=${params.sustainedPixels}`, params.scanLineX + 5, params.scanStartY - 10);
         }
-
-      // 🌟 宽度归一化
-      let widthStats = { applied: false, targetWidth: 0 as number | null, affectedCount: 0, normalizedPanels: [] as any[] };
-      if (currentDetectedPanels.length > 0) {
-        widthStats = normalizePanelWidths(currentDetectedPanels);
-        if (widthStats.applied) {
-          console.log(`[drawCanvas] ✅ 宽度归一化已应用：目标宽度 ${widthStats.targetWidth}px，影响 ${widthStats.affectedCount} 个面板`);
-
-          // 🌟 更新 panelRanges，让 Canvas 绘制蓝框时使用归一化后的宽度
-          for (let i = 0; i < currentDetectedPanels.length; i++) {
-            const panel = currentDetectedPanels[i];
-            if (panel.width !== panelRanges[i].width) {
-              console.log(`[Canvas绘制] Panel ${i + 1}: 更新蓝框宽度 ${panelRanges[i].width}px → ${panel.width}px`);
-              panelRanges[i].width = panel.width;
-              panelRanges[i].endX = panelRanges[i].startX + panel.width;
-            }
-          }
-
-          // 添加归一化日志
-          const logMessages = [
-            '',
-            '='.repeat(60),
-            '🎯 宽度归一化结果',
-            '='.repeat(60),
-            `目标宽度: ${widthStats.targetWidth}px`,
-            `影响面板: ${widthStats.affectedCount} / ${currentDetectedPanels.length} 个`,
-            '',
-            '归一化详情:',
-            ...widthStats.normalizedPanels.map(p => `  Panel ${p.panelIndex + 1} [${p.title}]: ${p.oldWidth}px → ${p.newWidth}px`),
-            '='.repeat(60),
-            ''
-          ];
-          logMessages.forEach(msg => console.log(msg));
-        } else {
-          console.log(`[drawCanvas] ⚠️ 宽度归一化未应用（不满足归一化条件）`);
-        }
-      }
-
-      // 🌟 水平居中：将所有panel的左边缘X坐标设置为居中位置
-      if (widthStats.applied && widthStats.targetWidth) {
-        const centerX = Math.round((canvas.width - widthStats.targetWidth) / 2);
-        console.log(`\n[水平居中] 图片宽度=${canvas.width}px, 归一化宽度=${widthStats.targetWidth}px, 居中X=${centerX}px`);
-
-        // 更新所有panel的X坐标为居中位置
-        for (let i = 0; i < currentDetectedPanels.length; i++) {
-          const panel = currentDetectedPanels[i];
-          const oldX = panel.x;
-          panel.x = centerX;
-          panel.blueBox.x = centerX;
-          panel.greenBox.x = centerX;
-
-          // 更新panelRanges数组
-          panelRanges[i].startX = centerX;
-          panelRanges[i].endX = centerX + panel.width;
-
-          console.log(`[水平居中] Panel ${i + 1}: X ${oldX}px → ${centerX}px`);
-        }
-      }
 
       // 保存所有框体坐标到状态
       setDetectedPanels(currentDetectedPanels);
