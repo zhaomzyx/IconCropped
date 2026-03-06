@@ -6,6 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  detectRowsBySlidingWindow,
+  detectColumnsBySlidingWindow,
+  detectIconPositionsBySlidingWindow
+} from '@/lib/sliding-window-detection';
 
 interface DebugPanel {
   title: string;
@@ -703,11 +708,18 @@ export default function WikiDebugPage() {
           ctx.fillText(`midY=${midY}`, range.startX + 5, midY - 5);
         }
 
-        // 使用中心点间距计算红框（图标位置）
-        const iconPositions = calculateIconPositions(
-          panel,
+        // 使用滑动窗口检测计算图标位置（新方法）
+        const iconPositions = detectIconPositionsBySlidingWindow(
+          imageData,
+          canvas.width,
+          range.startX,
           range.startY,
-          ctx
+          range.width,
+          range.height,
+          params.slidingWindowRows,
+          params.slidingWindowCols,
+          params.slidingWindowDiffThreshold,
+          params.slidingWindowStepSize
         );
 
         // 保存框体坐标
@@ -726,10 +738,10 @@ export default function WikiDebugPage() {
         };
 
         const redBoxes = iconPositions.map((pos) => ({
-          x: pos.x,
-          y: pos.y,
-          width: pos.width,
-          height: pos.height,
+          x: pos.centerX - 66,  // 假设图标大小为132，中心点偏移66
+          y: pos.centerY - 66,
+          width: 132,           // 固定图标大小
+          height: 132,
         }));
 
         currentDetectedPanels.push({
@@ -739,10 +751,12 @@ export default function WikiDebugPage() {
           redBoxes,
         });
 
-        // 绘制红色框（使用中心点间距计算的图标位置）
+        // 绘制红色框（使用滑动窗口检测计算的图标位置）
         iconPositions.forEach((pos) => {
-          const { x, y, width, height } = pos;
-          const centerX = Math.round(x + width / 2);
+          const { centerX, centerY } = pos;
+          const iconSize = 132;  // 固定图标大小
+          const x = centerX - iconSize / 2;
+          const y = centerY - iconSize / 2;
           const centerY = Math.round(y + height / 2);
 
           ctx.strokeStyle = '#EF4444';
@@ -1304,7 +1318,8 @@ export default function WikiDebugPage() {
                   </div>
                 </div>
 
-                {/* 红框相关 */}
+                {/* 红框相关 - 已隐藏，改用滑动窗口检测 */}
+                {false && (
                 <div className="border-l-4 border-red-500 pl-4">
                   <Label className="text-sm font-semibold text-red-600 mb-3 block">红框相关 (Icon)</Label>
                   <div className="space-y-4">
@@ -1434,7 +1449,7 @@ export default function WikiDebugPage() {
                     </div>
                   </div>
                 </div>
-
+                )}
                 {/* 扫描线相关 */}
                 <div className="border-l-4 border-orange-500 pl-4">
                   <Label className="text-sm font-semibold text-orange-600 mb-3 block">扫描线相关 (Scan)</Label>
@@ -1635,10 +1650,10 @@ export default function WikiDebugPage() {
                 </div>
 
                 {/* 滑动窗口检测相关 */}
-                <div className="border-l-4 border-purple-500 pl-4">
-                  <Label className="text-sm font-semibold text-purple-600 mb-3 block">滑动窗口检测 (Sliding Window)</Label>
-                  <p className="text-xs text-gray-500 mb-3">
-                    使用滑动窗口平均算法检测多行多列图标布局，红色横向矩形窗口检测行，蓝色竖向矩形窗口检测列
+                <div className="border-l-4 border-purple-500 pl-4 bg-purple-50 p-3 rounded">
+                  <Label className="text-sm font-semibold text-purple-600 mb-3 block">滑动窗口检测 (Sliding Window) - 主要检测方法</Label>
+                  <p className="text-xs text-purple-700 mb-3">
+                    ✨ 使用滑动窗口平均算法自动检测多行多列图标布局，无需手动调整间距
                   </p>
                   <div className="space-y-4">
                     <div>
@@ -1933,7 +1948,7 @@ export default function WikiDebugPage() {
             <div className="flex gap-6 text-sm flex-wrap">
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-blue-500" />
-                <span>蓝色框：Panel外边缘</span>
+                <span>蓝色框：Panel外边缘（扫描线自动检测）</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-green-500" />
@@ -1941,7 +1956,7 @@ export default function WikiDebugPage() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-red-500" />
-                <span>红色框：图标裁切区域（基于中心点生成）</span>
+                <span>红色框：图标裁切区域（滑动窗口检测）</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-red-500 border-dashed" />
@@ -1967,7 +1982,7 @@ export default function WikiDebugPage() {
             </div>
             <div className="mt-4 p-3 bg-purple-50 rounded border border-purple-200">
               <p className="text-sm text-purple-900">
-                <strong>🔍 滑动窗口检测：</strong>使用滑动窗口平均算法检测多行多列图标布局。红色横向矩形窗口检测行，蓝色竖向矩形窗口检测列，窗口中心点作为图标起始坐标。
+                <strong>🔍 滑动窗口检测（主要方法）：</strong>使用滑动窗口平均算法自动检测多行多列图标布局，无需手动调整间距。红色横向矩形窗口检测行，蓝色竖向矩形窗口检测列，窗口中心点作为图标起始坐标。
               </p>
             </div>
           </CardContent>
