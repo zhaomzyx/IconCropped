@@ -334,7 +334,7 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-7xl max-h-[90vh] overflow-hidden">
+      <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
             <span>调试台 - 工作台模式</span>
@@ -354,11 +354,11 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
         </DialogHeader>
 
         <div className="flex h-[calc(90vh-80px)] gap-4">
-          {/* 左侧：Canvas 区域 */}
-          <div className="flex-1 bg-gray-100 dark:bg-gray-900 rounded-lg overflow-hidden relative">
+          {/* 左侧：Canvas 区域 - 可滚动，不缩放 */}
+          <div className="flex-1 bg-gray-100 dark:bg-gray-900 rounded-lg overflow-auto relative">
             <canvas
               ref={canvasRef}
-              className="max-w-full max-h-full object-contain"
+              className="block"
             />
           </div>
 
