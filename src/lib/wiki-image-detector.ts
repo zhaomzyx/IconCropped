@@ -89,7 +89,7 @@ export const DEFAULT_DETECTION_PARAMS: DetectionParams = {
   boundsVarianceThresholdRow: 30,
   boundsVarianceThresholdCol: 30,
   boundsStepSize: 1,
-  boundsMinRowHeight: 20,
+  boundsMinRowHeight: 10,  // 降低阈值，支持单行布局
   boundsMinColWidth: 20,
 
   // 1:1强制正方形

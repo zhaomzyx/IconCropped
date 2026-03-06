@@ -555,14 +555,26 @@ export function detectAllBounds(
     minRowHeight
   );
 
-  // 确定列检测的扫描高度
-  // 优先使用第一行的高度，如果没有行则使用默认值或整个panel高度
+  // 🌟 单行布局兜底逻辑：如果行检测失败，尝试假设只有 1 行
+  let effectiveRows = rows;
   let scanHeight: number | undefined;
-  if (rows.length > 0) {
+  
+  if (rows.length === 0) {
+    console.warn(`[边界检测-综合] 未检测到行，尝试单行布局兜底逻辑`);
+    // 假设整个 panel 为 1 行
+    effectiveRows = [{
+      topY: panelY,
+      bottomY: panelY + panelHeight,
+      rowIndex: 0,
+      height: panelHeight
+    }];
+    scanHeight = panelHeight;
+    console.log(`[边界检测-综合] 单行布局兜底：假设 1 行，行高=${panelHeight}px`);
+  } else {
+    // 确定列检测的扫描高度
+    // 优先使用第一行的高度
     scanHeight = rows[0].height;
     console.log(`[边界检测-综合] 使用第一行高度作为列扫描高度: ${scanHeight}px`);
-  } else {
-    console.warn(`[边界检测-综合] 未检测到行，列检测将使用整个panel高度 (${panelHeight}px)`);
   }
 
   // 横向检测（列）
@@ -580,8 +592,8 @@ export function detectAllBounds(
     scanHeight  // 使用扫描高度
   );
 
-  const result = { rows, cols };
-  console.log(`[边界检测-综合] 完成，共检测到 ${rows.length} 行 × ${cols.length} 列`);
+  const result = { rows: effectiveRows, cols };
+  console.log(`[边界检测-综合] 完成，共检测到 ${effectiveRows.length} 行 × ${cols.length} 列`);
 
   return result;
 }
