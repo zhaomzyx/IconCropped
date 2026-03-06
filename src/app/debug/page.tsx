@@ -103,7 +103,7 @@ export default function WikiDebugPage() {
     boundsMinColWidth: 20,      // 最小列宽（过滤噪声）
     forceSquareIcons: true,     // 强制图标为1:1正方形（基于行高度）
     forceSquareOffsetX: 0,      // 1:1强制时的X轴偏移（像素）
-    forceSquareOffsetY: 0,      // 1:1强制时的Y轴偏移（像素）
+    forceSquareOffsetY: 2,      // 1:1强制时的Y轴偏移（像素）
 
     // 空图标过滤参数
     filterEmptyIcons: true,     // 是否过滤空图标（没有内容的方框）

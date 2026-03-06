@@ -28,7 +28,7 @@
     "boundsMinColWidth": 135,
     "forceSquareIcons": true,
     "forceSquareOffsetX": -6,
-    "forceSquareOffsetY": 0,
+    "forceSquareOffsetY": 2,
     "filterEmptyIcons": true,
     "emptyIconVarianceThreshold": 20
   }
