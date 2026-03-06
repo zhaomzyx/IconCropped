@@ -22,6 +22,8 @@ export const DEFAULT_DETECTION_PARAMS = {
   sustainedPixels: 10,
   panelWidth: 820,
   greenBoxWidth: 790,
+  colorToleranceX: 40,
+  sustainedPixelsX: 10,
   iconLineOffset: 137,
   iconLineGap: 113,
   minIconsPerLine: 5,
