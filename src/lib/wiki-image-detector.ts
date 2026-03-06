@@ -189,7 +189,7 @@ export const DEFAULT_DETECTION_PARAMS: DetectionParams = {
   // 1:1强制正方形
   forceSquareIcons: true,
   forceSquareOffsetX: 0,
-  forceSquareOffsetY: 2,
+  forceSquareOffsetY: 12,  // 🌟 调整：将首行检测位置向下移动10px（从2调整为12）
 
   // 空图标过滤
   filterEmptyIcons: true,

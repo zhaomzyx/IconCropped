@@ -53,7 +53,7 @@ const DEFAULT_PARAMS: DebugPanelParams = {
   boundsMinColWidth: 20,
   forceSquareIcons: true,
   forceSquareOffsetX: 0,
-  forceSquareOffsetY: 2,
+  forceSquareOffsetY: 12,  // 🌟 调整：将首行检测位置向下移动10px（从2调整为12）
   filterEmptyIcons: true,
   emptyIconVarianceThreshold: 20,
   enableImageEnhancement: true,  // 🌟 默认启用图像增强
