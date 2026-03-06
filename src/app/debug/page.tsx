@@ -77,9 +77,8 @@ export default function WikiDebugPage() {
     sustainedPixels: 5,      // 连续判定高度（减少以提高灵敏度）
     panelWidth: 876,         // 蓝框宽度（Panel外边缘）
     greenBoxWidth: 876,      // 绿框宽度（标题区域）
-    // X轴检测参数（用于检测panel宽度和小panel位置）
-    colorToleranceX: 30,     // X轴颜色容差值
-    sustainedPixelsX: 5,     // X轴连续判定宽度
+    // X轴检测参数（使用Y轴检测的参数）
+    // X轴检测复用Y轴的 colorTolerance 和 sustainedPixels 参数
     // 多行图标检测参数
     iconLineOffset: 107,     // 第一行图标线相对于panel顶部的偏移
     iconLineGap: 144,        // 多行图标线之间的间距
@@ -617,25 +616,26 @@ export default function WikiDebugPage() {
       const panelRanges = panelVerticalRanges.map((vRange, index) => {
         const panel = debugPanels[index];
         const midY = Math.round((vRange.startY + vRange.endY) / 2);
-        
+
         console.log(`\n[Panel ${index + 1}] ${panel.title}`);
         console.log(`[Panel ${index + 1}] 中间检测线 Y: ${midY}`);
-        
+
         // 在Panel中间横线上扫描，检测Panel的左右边界
+        // 使用Y轴检测的参数（colorTolerance 和 sustainedPixels）
         const hRange = scanHorizontalLine(
           imageData,
           midY,
-          params.colorToleranceX,
-          params.sustainedPixelsX,
+          params.colorTolerance,  // 使用Y轴的 colorTolerance
+          params.sustainedPixels, // 使用Y轴的 sustainedPixels
           canvas.width
         );
-        
+
         if (hRange) {
           console.log(`[Panel ${index + 1}] 检测到 Panel 边界: startX=${hRange.startX}, endX=${hRange.endX}, width=${hRange.endX - hRange.startX}`);
         } else {
           console.warn(`[Panel ${index + 1}] 未检测到 Panel 边界`);
         }
-        
+
         return {
           startY: vRange.startY,
           endY: vRange.endY,
