@@ -11,7 +11,8 @@ import {
   detectColumnsBySlidingWindow,
   detectIconPositionsBySlidingWindow,
   detectAllBounds,
-  calculateIconPositionsFromBounds
+  calculateIconPositionsFromBounds,
+  normalizePanelWidths
 } from '@/lib/sliding-window-detection';
 
 interface DebugPanel {
@@ -38,9 +39,14 @@ interface IconPosition {
 // 保存 Canvas 上绘制的框体坐标
 interface DetectedPanel {
   title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
   blueBox: { x: number; y: number; width: number; height: number };
   greenBox: { x: number; y: number; width: number; height: number };
   redBoxes: Array<{ x: number; y: number; width: number; height: number }>;
+  originalWidth?: number; // 归一化前的原始宽度（可选）
 }
 
 export default function WikiDebugPage() {
@@ -554,10 +560,10 @@ export default function WikiDebugPage() {
       const panelRanges = panelVerticalRanges.map((vRange, index) => {
         const panel = debugPanels[index];
         const midY = Math.round((vRange.startY + vRange.endY) / 2);
-        
+
         console.log(`\n[Panel ${index + 1}] ${panel.title}`);
         console.log(`[Panel ${index + 1}] 中间检测线 Y: ${midY}`);
-        
+
         // 在Panel中间横线上扫描，检测Panel的左右边界
         const hRange = scanHorizontalLine(
           imageData,
@@ -566,13 +572,13 @@ export default function WikiDebugPage() {
           params.sustainedPixelsX,
           canvas.width
         );
-        
+
         if (hRange) {
           console.log(`[Panel ${index + 1}] 检测到 Panel 边界: startX=${hRange.startX}, endX=${hRange.endX}, width=${hRange.endX - hRange.startX}`);
         } else {
           console.warn(`[Panel ${index + 1}] 未检测到 Panel 边界`);
         }
-        
+
         return {
           startY: vRange.startY,
           endY: vRange.endY,
@@ -582,6 +588,9 @@ export default function WikiDebugPage() {
           height: vRange.endY - vRange.startY,
         };
       });
+
+      // 3. 遍历所有panel，使用检测到的坐标绘制
+      const currentDetectedPanels: DetectedPanel[] = []; // 保存当前绘制的框体坐标
 
       // 3. 遍历所有panel，使用检测到的坐标绘制
       const currentDetectedPanels: DetectedPanel[] = []; // 保存当前绘制的框体坐标
@@ -936,6 +945,10 @@ export default function WikiDebugPage() {
 
         currentDetectedPanels.push({
           title: panel.title,
+          x: range.startX,
+          y: range.startY,
+          width: range.width,
+          height: range.height,
           blueBox,
           greenBox,
           redBoxes,
@@ -976,6 +989,32 @@ export default function WikiDebugPage() {
           ctx.fillStyle = '#FFA500';
           ctx.font = '12px monospace';
           ctx.fillText(`X=${params.scanLineX}, T=${params.colorTolerance}, S=${params.sustainedPixels}`, params.scanLineX + 5, params.scanStartY - 10);
+        }
+      }
+
+      // 🌟 宽度归一化
+      if (currentDetectedPanels.length > 0) {
+        const widthStats = normalizePanelWidths(currentDetectedPanels);
+        if (widthStats.applied) {
+          console.log(`[drawCanvas] ✅ 宽度归一化已应用：目标宽度 ${widthStats.targetWidth}px，影响 ${widthStats.affectedCount} 个面板`);
+
+          // 添加归一化日志
+          const logMessages = [
+            '',
+            '='.repeat(60),
+            '🎯 宽度归一化结果',
+            '='.repeat(60),
+            `目标宽度: ${widthStats.targetWidth}px`,
+            `影响面板: ${widthStats.affectedCount} / ${currentDetectedPanels.length} 个`,
+            '',
+            '归一化详情:',
+            ...widthStats.normalizedPanels.map(p => `  Panel ${p.panelIndex + 1} [${p.title}]: ${p.oldWidth}px → ${p.newWidth}px`),
+            '='.repeat(60),
+            ''
+          ];
+          logMessages.forEach(msg => console.log(msg));
+        } else {
+          console.log(`[drawCanvas] ⚠️ 宽度归一化未应用（不满足归一化条件）`);
         }
       }
 
