@@ -355,11 +355,11 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
 
           {/* 主体内容 */}
           <div className="flex flex-1 overflow-hidden gap-0">
-            {/* 左侧：Canvas 区域 - 可滚动，不缩放 */}
-            <div className="flex-1 bg-gray-100 dark:bg-gray-900 overflow-auto relative">
+            {/* 左侧：Canvas 区域 - 可滚动，不缩放，居中显示 */}
+            <div className="flex-1 bg-gray-100 dark:bg-gray-900 overflow-auto flex items-center justify-center p-8 relative">
               <canvas
                 ref={canvasRef}
-                className="block"
+                className="shadow-lg bg-white"
               />
             </div>
 
