@@ -102,6 +102,8 @@ export default function WikiDebugPage() {
     boundsMinRowHeight: 20,     // 最小行高（过滤噪声）
     boundsMinColWidth: 20,      // 最小列宽（过滤噪声）
     forceSquareIcons: true,     // 强制图标为1:1正方形（基于行高度）
+    forceSquareOffsetX: 0,      // 1:1强制时的X轴偏移（像素）
+    forceSquareOffsetY: 0,      // 1:1强制时的Y轴偏移（像素）
 
     // 空图标过滤参数
     filterEmptyIcons: true,     // 是否过滤空图标（没有内容的方框）
@@ -162,6 +164,8 @@ export default function WikiDebugPage() {
           // 🌟 强制设置新参数的默认值（即使localStorage中有旧配置）
           mergedParams.filterEmptyIcons = DEFAULT_PARAMS.filterEmptyIcons;
           mergedParams.emptyIconVarianceThreshold = DEFAULT_PARAMS.emptyIconVarianceThreshold;
+          mergedParams.forceSquareOffsetX = DEFAULT_PARAMS.forceSquareOffsetX;
+          mergedParams.forceSquareOffsetY = DEFAULT_PARAMS.forceSquareOffsetY;
           return mergedParams;
         }
       } catch (error) {
@@ -810,6 +814,9 @@ export default function WikiDebugPage() {
         console.log(`  🌟 合成物数量: ${validIcons.length} 个（过滤掉 ${boundsIcons.length - validIcons.length} 个空方框）`);
         console.log(`  📐 方差计算：基于原始边界（不应用1:1强制）`);
         console.log(`  📐 1:1强制：只在绘制和导出时应用`);
+        if (params.forceSquareIcons) {
+          console.log(`  📐 偏移校准：X=${params.forceSquareOffsetX}px, Y=${params.forceSquareOffsetY}px`);
+        }
 
         // 只在选中时显示检测统计和调试信息（在validIcons声明之后）
         if (isSelected) {
@@ -846,6 +853,10 @@ export default function WikiDebugPage() {
             drawHeight = squareSize;
             drawLeftX = centerX - squareSize / 2;
             drawTopY = centerY - squareSize / 2;
+
+            // 🌟 应用偏移校准
+            drawLeftX += params.forceSquareOffsetX;
+            drawTopY += params.forceSquareOffsetY;
           }
 
           ctx.strokeStyle = '#EF4444';
@@ -896,6 +907,10 @@ export default function WikiDebugPage() {
             drawHeight = squareSize;
             drawLeftX = centerX - squareSize / 2;
             drawTopY = centerY - squareSize / 2;
+
+            // 🌟 应用偏移校准
+            drawLeftX += params.forceSquareOffsetX;
+            drawTopY += params.forceSquareOffsetY;
           }
 
           return {
@@ -1834,11 +1849,46 @@ export default function WikiDebugPage() {
                         />
                       </div>
                       {params.forceSquareIcons && (
-                        <div className="p-3 bg-indigo-50 rounded mb-3">
-                          <p className="text-xs text-indigo-600">
-                            <strong>工作原理：</strong>基于原始边界计算方差和过滤，只在绘制和导出时应用1:1收束，确保输出正方形图标。
-                          </p>
-                        </div>
+                        <>
+                          <div className="p-3 bg-indigo-50 rounded mb-3">
+                            <p className="text-xs text-indigo-600">
+                              <strong>工作原理：</strong>基于原始边界计算方差和过滤，只在绘制和导出时应用1:1收束，确保输出正方形图标。
+                            </p>
+                          </div>
+                          <div className="p-3 bg-blue-50 rounded mb-3 space-y-3">
+                            <Label className="text-sm font-medium text-blue-800 block mb-2">偏移校准（像素）</Label>
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <Label className="text-xs font-medium text-blue-700">X轴偏移</Label>
+                                <span className="text-xs font-bold text-blue-700">{params.forceSquareOffsetX}px</span>
+                              </div>
+                              <Slider
+                                value={[params.forceSquareOffsetX]}
+                                onValueChange={(value) => handleParamChange('forceSquareOffsetX', value[0])}
+                                min={-20}
+                                max={20}
+                                step={1}
+                                className="w-full"
+                              />
+                              <p className="text-xs text-blue-600 mt-1">正值向右，负值向左</p>
+                            </div>
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <Label className="text-xs font-medium text-blue-700">Y轴偏移</Label>
+                                <span className="text-xs font-bold text-blue-700">{params.forceSquareOffsetY}px</span>
+                              </div>
+                              <Slider
+                                value={[params.forceSquareOffsetY]}
+                                onValueChange={(value) => handleParamChange('forceSquareOffsetY', value[0])}
+                                min={-20}
+                                max={20}
+                                step={1}
+                                className="w-full"
+                              />
+                              <p className="text-xs text-blue-600 mt-1">正值向下，负值向上</p>
+                            </div>
+                          </div>
+                        </>
                       )}
                       <div className="space-y-3">
                         <div className="flex items-center justify-between p-3 bg-purple-50 rounded">
