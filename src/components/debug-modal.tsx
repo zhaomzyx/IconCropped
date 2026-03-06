@@ -32,6 +32,7 @@ export interface DebugPanelParams {
   forceSquareOffsetY: number;
   filterEmptyIcons: boolean;
   emptyIconVarianceThreshold: number;
+  enableImageEnhancement: boolean;  // 🌟 新增：是否启用图像增强
 }
 
 // 默认参数
@@ -55,6 +56,7 @@ const DEFAULT_PARAMS: DebugPanelParams = {
   forceSquareOffsetY: 2,
   filterEmptyIcons: true,
   emptyIconVarianceThreshold: 20,
+  enableImageEnhancement: true,  // 🌟 默认启用图像增强
 };
 
 // 检测到的面板数据
@@ -148,6 +150,7 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
         forceSquareOffsetY: params.forceSquareOffsetY,
         filterEmptyIcons: params.filterEmptyIcons,
         emptyIconVarianceThreshold: params.emptyIconVarianceThreshold,
+        enableImageEnhancement: params.enableImageEnhancement,  // 🌟 传递图像增强开关
       };
 
       // 调用检测函数
@@ -475,6 +478,17 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
                         onChange={(e) => handleParamChange('filterEmptyIcons', e.target.checked)}
                       />
                       <Label htmlFor="filterEmptyIcons" className="text-xs">过滤空图标</Label>
+                    </div>
+
+                    {/* 🌟 图像增强 */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="enableImageEnhancement"
+                        checked={params.enableImageEnhancement}
+                        onChange={(e) => handleParamChange('enableImageEnhancement', e.target.checked)}
+                      />
+                      <Label htmlFor="enableImageEnhancement" className="text-xs">图像增强（边缘+对比度）</Label>
                     </div>
                   </div>
                 </ScrollArea>
