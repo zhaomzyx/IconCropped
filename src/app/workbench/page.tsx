@@ -38,50 +38,31 @@ const WikiImagePreview = ({ filename, wikiName, onRemove }: { filename: string; 
 
   return (
     <>
-      <div className="relative group flex items-center gap-2 p-2 bg-white dark:bg-slate-800 rounded border border-blue-200 dark:border-blue-800 hover:border-blue-400 transition-colors">
-        {/* 图片预览区 */}
-        <div className="flex-shrink-0 w-32 h-24 bg-gray-100 dark:bg-gray-900 rounded overflow-hidden">
-          <img
-            src={imageUrl}
-            alt={filename}
-            className="w-full h-full object-contain cursor-pointer"
-            onClick={() => setShowModal(true)}
-            loading="lazy"
-          />
-        </div>
-        
-        {/* 文件信息 */}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate cursor-pointer" onClick={() => setShowModal(true)}>
-            {filename}
-          </p>
-          {imageInfo && (
-            <p className="text-xs text-slate-600 dark:text-slate-400">
-              {imageInfo.width} × {imageInfo.height}
-            </p>
-          )}
-          {isLoading && (
-            <p className="text-xs text-blue-600 dark:text-blue-400">
-              加载中...
-            </p>
-          )}
-        </div>
-
-        {/* 删除按钮 */}
-        <Button
-          variant="ghost"
-          size="sm"
+      <div className="relative group">
+        <img
+          src={imageUrl}
+          alt={filename}
+          className="w-full h-16 object-cover rounded border border-blue-200 dark:border-blue-800 cursor-pointer hover:border-blue-400 transition-colors"
+          onClick={() => setShowModal(true)}
+          loading="lazy"
+        />
+        <button
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          className="h-8 w-8 p-0 flex-shrink-0 hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-600 dark:hover:text-red-400 transition-all duration-200"
+          className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 text-xs shadow-sm hover:shadow"
         >
-          <X className="w-4 h-4" />
-        </Button>
+          ×
+        </button>
+        {isLoading && (
+          <div className="absolute inset-0 bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+            <FileImage className="w-4 h-4 text-blue-400 animate-pulse" />
+          </div>
+        )}
       </div>
 
       {/* 图片详情模态框 */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-white dark:bg-slate-900 rounded-lg p-6 max-w-7xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-900 rounded-lg p-6 max-w-4xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="text-lg font-semibold mb-2">{filename}</h3>
@@ -610,9 +591,6 @@ export default function WorkbenchPage() {
 
       console.log(`裁切完成，共裁切 ${cropData.total} 个图标`);
 
-      // 🌟 使用实际图片名称（可能包含时间戳）
-      const actualImageName = cropData.actualImageName || currentFilename.split('.')[0];
-
       // 转换结果格式
       const convertedCrops: WikiCroppedImage[] = cropData.results.map((result: any) => ({
         path: result.filename,
@@ -638,7 +616,7 @@ export default function WorkbenchPage() {
       setWikiProcessingStep('✅ 裁切完成');
 
       // 🌟 显示切图完成弹窗
-      alert(`✅ 切图完成！\n\n📊 统计信息：\n- 合成链数量：${panels.length} 条\n- 图标数量：${cropData.total} 个\n\n📁 保存位置：\npublic/wiki-cropped/${actualImageName}/`);
+      alert(`✅ 切图完成！\n\n📊 统计信息：\n- 合成链数量：${panels.length} 条\n- 图标数量：${cropData.total} 个\n\n📁 保存位置：\npublic/wiki-cropped/${currentFilename.split('.')[0]}/`);
     } catch (error) {
       console.error('裁切失败:', error);
       alert('裁切失败：' + (error instanceof Error ? error.message : '未知错误'));
@@ -1171,9 +1149,9 @@ export default function WorkbenchPage() {
                           <X className="w-4 h-4" />
                         </Button>
                       </div>
-                      {/* 图片预览列表（单列布局，类似调试台的左侧缩略图栏） */}
-                      <div className="flex flex-col gap-2 max-h-60 overflow-y-auto">
-                        {fetchedWikiFiles.map((filename, index) => (
+                      {/* 图片缩略图网格 */}
+                      <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto">
+                        {fetchedWikiFiles.slice(0, 12).map((filename, index) => (
                           <WikiImagePreview
                             key={index}
                             filename={filename}
@@ -1181,6 +1159,11 @@ export default function WorkbenchPage() {
                             onRemove={() => removeFetchedWikiFile(index)}
                           />
                         ))}
+                        {fetchedWikiFiles.length > 12 && (
+                          <div className="col-span-4 text-center text-xs text-blue-700 dark:text-blue-300">
+                            还有 {fetchedWikiFiles.length - 12} 个文件...
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

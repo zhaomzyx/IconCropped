@@ -10,97 +10,6 @@ import {
   calculateIconPositionsFromBounds
 } from '@/lib/sliding-window-detection';
 
-// ===== 图像增强函数 =====
-
-/**
- * 🌟 图像边缘增强函数
- * 使用 Sobel 算子增强图像边缘，提高检测精度
- *
- * @param imageData - 原始 ImageData
- * @returns 增强后的 ImageData
- */
-function enhanceImageEdges(imageData: ImageData): ImageData {
-  const { data, width, height } = imageData;
-  const enhanced = new ImageData(width, height);
-  const enhancedData = enhanced.data;
-
-  // 复制原始数据
-  for (let i = 0; i < data.length; i++) {
-    enhancedData[i] = data[i];
-  }
-
-  // Sobel 算子卷积核
-  const sobelX = [
-    -1, 0, 1,
-    -2, 0, 2,
-    -1, 0, 1
-  ];
-
-  const sobelY = [
-    -1, -2, -1,
-    0,  0,  0,
-    1,  2,  1
-  ];
-
-  // 对每个像素应用 Sobel 算子
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      let gx = 0, gy = 0;
-
-      // 3x3 窗口卷积
-      for (let ky = -1; ky <= 1; ky++) {
-        for (let kx = -1; kx <= 1; kx++) {
-          const idx = ((y + ky) * width + (x + kx)) * 4;
-          const gray = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
-          const kernelIdx = (ky + 1) * 3 + (kx + 1);
-
-          gx += gray * sobelX[kernelIdx];
-          gy += gray * sobelY[kernelIdx];
-        }
-      }
-
-      // 计算边缘强度
-      const magnitude = Math.sqrt(gx * gx + gy * gy);
-
-      // 应用边缘增强（只增强边缘，保留原始颜色）
-      const idx = (y * width + x) * 4;
-      const edgeFactor = Math.min(magnitude / 100, 1.5); // 限制增强倍数
-
-      enhancedData[idx] = Math.min(255, data[idx] * (1 + edgeFactor * 0.3));
-      enhancedData[idx + 1] = Math.min(255, data[idx + 1] * (1 + edgeFactor * 0.3));
-      enhancedData[idx + 2] = Math.min(255, data[idx + 2] * (1 + edgeFactor * 0.3));
-    }
-  }
-
-  console.log(`[图像增强] Sobel 边缘增强完成`);
-  return enhanced;
-}
-
-/**
- * 🌟 对比度增强函数
- * 简单的对比度增强，使颜色差异更明显
- *
- * @param imageData - 原始 ImageData
- * @param contrast - 对比度系数（1.0 = 原始，>1.0 = 增强）
- * @returns 增强后的 ImageData
- */
-function enhanceContrast(imageData: ImageData, contrast: number = 1.3): ImageData {
-  const { data, width, height } = imageData;
-  const enhanced = new ImageData(width, height);
-  const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
-
-  for (let i = 0; i < data.length; i += 4) {
-    // 只处理 RGB 通道
-    enhanced.data[i] = Math.min(255, Math.max(0, factor * (data[i] - 128) + 128));
-    enhanced.data[i + 1] = Math.min(255, Math.max(0, factor * (data[i + 1] - 128) + 128));
-    enhanced.data[i + 2] = Math.min(255, Math.max(0, factor * (data[i + 2] - 128) + 128));
-    enhanced.data[i + 3] = data[i + 3]; // Alpha 通道保持不变
-  }
-
-  console.log(`[图像增强] 对比度增强完成 (系数: ${contrast})`);
-  return enhanced;
-}
-
 // ===== 类型定义 =====
 
 // 🌟 新增：面板元数据接口，让算法知道期待的目标
@@ -157,9 +66,6 @@ export interface DetectionParams {
   // 空图标过滤
   filterEmptyIcons: boolean;
   emptyIconVarianceThreshold: number;
-
-  // 🌟 图像增强
-  enableImageEnhancement: boolean;  // 是否启用图像增强（边缘增强 + 对比度增强）
 }
 
 // 默认检测参数（基于调试台验证的最优参数）
@@ -189,14 +95,11 @@ export const DEFAULT_DETECTION_PARAMS: DetectionParams = {
   // 1:1强制正方形
   forceSquareIcons: true,
   forceSquareOffsetX: 0,
-  forceSquareOffsetY: 12,  // 🌟 调整：将首行检测位置向下移动10px（从2调整为12）
+  forceSquareOffsetY: 2,
 
   // 空图标过滤
   filterEmptyIcons: true,
   emptyIconVarianceThreshold: 20,
-
-  // 🌟 图像增强
-  enableImageEnhancement: true,  // 默认启用图像增强
 };
 
 // ===== 核心算法函数 =====
@@ -468,17 +371,7 @@ export async function detectWikiImage(
 
         // 2. 将图片绘制到内存 Canvas 并提取像素数据
         ctx.drawImage(img, 0, 0);
-        let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-        // 🌟 2.5：图像增强（边缘增强 + 对比度增强）- 可选功能
-        if (finalParams.enableImageEnhancement) {
-          console.log(`[WikiImageDetector] 开始图像增强...`);
-          imageData = enhanceContrast(imageData, 1.3);  // 对比度增强 30%
-          imageData = enhanceImageEdges(imageData);     // Sobel 边缘增强
-        } else {
-          console.log(`[WikiImageDetector] 跳过图像增强（已禁用）`);
-        }
-
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const pixelBuffer = Buffer.from(imageData.data);
 
         // 3. 执行 Y 轴扫描，找大框
@@ -644,15 +537,6 @@ export async function detectWikiImage(
           console.log(`[WikiImageDetector] Panel ${i + 1} (${meta?.title || '未知'}): ${redBoxes.length} 个合成物 (${rows}行 × ${cols}列)`);
         }
 
-        // 🌟 新增：宽度归一化逻辑
-        // 如果超过半数的大panel宽度在某个数值±10之间波动，自动将所有大panel宽度设置为这个数值
-        if (detectedPanels.length > 0) {
-          const widthStats = normalizePanelWidths(detectedPanels);
-          if (widthStats.applied) {
-            console.log(`[WikiImageDetector] ✅ 宽度归一化已应用：目标宽度 ${widthStats.targetWidth}px，影响 ${widthStats.affectedCount} 个面板`);
-          }
-        }
-
         resolve(detectedPanels);
       } catch (error) {
         reject(error);
@@ -665,102 +549,4 @@ export async function detectWikiImage(
 
     img.src = imageUrl;
   });
-}
-
-/**
- * 🌟 宽度归一化函数
- * 如果超过半数的大panel宽度在某个数值±10之间波动，自动将所有大panel宽度设置为这个数值
- *
- * @param panels - 检测到的所有面板
- * @returns 归一化结果（是否应用、目标宽度、影响数量）
- */
-function normalizePanelWidths(panels: DetectedPanel[]): {
-  applied: boolean;
-  targetWidth: number | null;
-  affectedCount: number;
-} {
-  if (panels.length === 0) {
-    return { applied: false, targetWidth: null, affectedCount: 0 };
-  }
-
-  // 1. 提取所有面板的宽度
-  const widths = panels.map(p => p.width);
-  console.log(`[normalizePanelWidths] 原始宽度分布:`, widths);
-
-  // 2. 统计每个宽度的出现频率（容差±10）
-  const widthFrequency = new Map<number, number>();
-  const tolerance = 10; // 容差±10
-
-  for (let i = 0; i < widths.length; i++) {
-    const width = widths[i];
-    let found = false;
-
-    // 检查是否已经在某个容差范围内
-    for (const [baseWidth, count] of widthFrequency) {
-      if (Math.abs(width - baseWidth) <= tolerance) {
-        widthFrequency.set(baseWidth, count + 1);
-        found = true;
-        break;
-      }
-    }
-
-    // 如果没有找到匹配的容差范围，创建新的分组
-    if (!found) {
-      widthFrequency.set(width, 1);
-    }
-  }
-
-  console.log(`[normalizePanelWidths] 宽度频率统计（容差±${tolerance}）:`);
-  for (const [baseWidth, count] of widthFrequency) {
-    console.log(`  ${baseWidth}px: ${count} 个面板 (${(count / panels.length * 100).toFixed(1)}%)`);
-  }
-
-  // 3. 找出出现频率最高的宽度分组
-  let maxCount = 0;
-  let targetWidth: number | null = null;
-
-  for (const [baseWidth, count] of widthFrequency) {
-    if (count > maxCount) {
-      maxCount = count;
-      targetWidth = baseWidth;
-    }
-  }
-
-  // 4. 判断是否需要归一化（超过半数）
-  const threshold = Math.floor(panels.length / 2) + 1;
-  const shouldNormalize = maxCount >= threshold;
-
-  if (!shouldNormalize || targetWidth === null) {
-    console.log(`[normalizePanelWidths] 未满足归一化条件（需要≥${threshold}个面板，最多只有${maxCount}个）`);
-    return { applied: false, targetWidth: null, affectedCount: 0 };
-  }
-
-  // 5. 应用归一化：将所有面板宽度设置为目标宽度
-  let affectedCount = 0;
-  const widthVarianceThreshold = tolerance; // 使用相同的容差
-
-  for (let i = 0; i < panels.length; i++) {
-    const panel = panels[i];
-    const currentWidth = panel.width;
-
-    // 如果当前宽度与目标宽度的差异在容差范围内，则归一化
-    if (Math.abs(currentWidth - targetWidth) <= widthVarianceThreshold) {
-      const oldWidth = panel.width;
-      panel.width = targetWidth;
-
-      // 同步更新 blueBox 和 greenBox 的宽度
-      panel.blueBox.width = targetWidth;
-      panel.greenBox.width = targetWidth;
-
-      affectedCount++;
-
-      console.log(`[normalizePanelWidths] Panel ${i + 1}: ${oldWidth}px → ${targetWidth}px (${panel.title})`);
-    }
-  }
-
-  return {
-    applied: true,
-    targetWidth,
-    affectedCount
-  };
 }
