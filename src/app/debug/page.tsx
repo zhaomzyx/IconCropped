@@ -1296,7 +1296,7 @@ export default function WikiDebugPage() {
                   <Label className="text-sm font-semibold text-green-600 mb-3 block">绿框相关 (Title)</Label>
                   <div className="space-y-4">
                     <div>
-                      <Label className="text-xs font-medium text-gray-600">首个图标上边距 (Grid Start Y)</Label>
+                      <Label className="text-xs font-medium text-gray-600">标题区域高度 (Grid Start Y)</Label>
                       <div className="flex items-center gap-3 mt-2">
                         <Slider
                           value={[params.gridStartY]}
