@@ -62,8 +62,6 @@ export default function WikiDebugPage() {
 
   // 默认参数常量（基于用户调试优化）
   const DEFAULT_PARAMS = {
-    panelLeftOffset: -28,
-    panelTopOffset: 0,
     gridStartX: 69,
     gridStartY: 107,
     iconSize: 132,
@@ -75,8 +73,6 @@ export default function WikiDebugPage() {
     scanStartY: 200,         // 扫描起始 Y 坐标
     colorTolerance: 30,      // 颜色容差值（降低以提高灵敏度）
     sustainedPixels: 5,      // 连续判定高度（减少以提高灵敏度）
-    panelWidth: 876,         // 蓝框宽度（Panel外边缘）
-    greenBoxWidth: 876,      // 绿框宽度（标题区域）
     // X轴检测参数（用于检测panel宽度和小panel位置）
     colorToleranceX: 30,     // X轴颜色容差值
     sustainedPixelsX: 5,     // X轴连续判定宽度
@@ -198,12 +194,12 @@ export default function WikiDebugPage() {
     ctx: CanvasRenderingContext2D
   ): IconPosition[] => {
     const { width, rows, cols, total } = panel;
-    const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY } = params;
+    const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, iconCenterOffsetX, iconCenterOffsetY } = params;
 
-    // 计算面板的左上角坐标（X 和 Y 都使用相同的基准）
-    const panelX = panel.x + panelLeftOffset;
+    // 计算面板的左上角坐标（直接使用扫描线检测的坐标）
+    const panelX = panel.x;
 
-    // 首个中心点坐标（都基于调整后的 panelX 和 panelY）
+    // 首个中心点坐标（都基于检测到的 panelX 和 panelY）
     const firstCenterX = panelX + gridStartX + iconCenterOffsetX;
     const firstCenterY = panelY + gridStartY + iconCenterOffsetY;
 
@@ -219,11 +215,10 @@ export default function WikiDebugPage() {
     console.log(`  [详细坐标分析]`);
     console.log(`    输入参数:`);
     console.log(`      panel.x=${panel.x}, panel.y=${panel.y}`);
-    console.log(`      panelLeftOffset=${panelLeftOffset}`);
     console.log(`      gridStartX=${gridStartX}, gridStartY=${gridStartY}`);
     console.log(`      iconCenterOffsetX=${iconCenterOffsetX}, iconCenterOffsetY=${iconCenterOffsetY}`);
     console.log(`    计算过程:`);
-    console.log(`      panelX = panel.x + panelLeftOffset = ${panel.x} + ${panelLeftOffset} = ${panelX}`);
+    console.log(`      panelX = panel.x = ${panelX}`);
     console.log(`      panelY = ${panelY}`);
     console.log(`      firstCenterX = panelX + gridStartX + iconCenterOffsetX = ${panelX} + ${gridStartX} + ${iconCenterOffsetX} = ${firstCenterX}`);
     console.log(`      firstCenterY = panelY + gridStartY + iconCenterOffsetY = ${panelY} + ${gridStartY} + ${iconCenterOffsetY} = ${firstCenterY}`);
@@ -1243,96 +1238,49 @@ export default function WikiDebugPage() {
                 <CardTitle>调试参数</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* 蓝框相关 */}
-                <div className="border-l-4 border-blue-500 pl-4">
-                  <Label className="text-sm font-semibold text-blue-600 mb-3 block">蓝框相关 (Panel)</Label>
-                  <div className="space-y-4">
-                    <div>
-                      <Label className="text-xs font-medium text-gray-600">大框 X 起点 (Left Offset)</Label>
-                      <div className="flex items-center gap-3 mt-2">
-                        <Slider
-                          value={[params.panelLeftOffset]}
-                          onValueChange={([v]) => handleParamChange('panelLeftOffset', v)}
-                          min={-200}
-                          max={2000}
-                          step={1}
-                          className="flex-1"
-                        />
-                        <Input
-                          type="number"
-                          value={params.panelLeftOffset}
-                          onChange={(e) => handleParamChange('panelLeftOffset', parseInt(e.target.value) || 0)}
-                          className="w-20 text-center text-sm"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label className="text-xs font-medium text-gray-600">大框 Y 起点 (Top Offset)</Label>
-                      <div className="flex items-center gap-3 mt-2">
-                        <Slider
-                          value={[params.panelTopOffset]}
-                          onValueChange={([v]) => handleParamChange('panelTopOffset', v)}
-                          min={-200}
-                          max={2000}
-                          step={1}
-                          className="flex-1"
-                        />
-                        <Input
-                          type="number"
-                          value={params.panelTopOffset}
-                          onChange={(e) => handleParamChange('panelTopOffset', parseInt(e.target.value) || 0)}
-                          className="w-20 text-center text-sm"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label className="text-xs font-medium text-gray-600">蓝框宽度 (Panel Width)</Label>
-                      <div className="flex items-center gap-3 mt-2">
-                        <Slider
-                          value={[params.panelWidth]}
-                          onValueChange={([v]) => handleParamChange('panelWidth', v)}
-                          min={100}
-                          max={2000}
-                          step={1}
-                          className="flex-1"
-                        />
-                        <Input
-                          type="number"
-                          value={params.panelWidth}
-                          onChange={(e) => handleParamChange('panelWidth', parseInt(e.target.value) || 0)}
-                          className="w-20 text-center text-sm"
-                        />
-                      </div>
-                    </div>
+                {/* 蓝框坐标 - 自动检测 */}
+                <div className="border-l-4 border-blue-500 pl-4 bg-blue-50 p-3 rounded">
+                  <Label className="text-sm font-semibold text-blue-600 mb-3 block">
+                    蓝框坐标（扫描线自动检测）
+                  </Label>
+                  <div className="text-sm text-gray-700 space-y-2">
+                    <p>
+                      <strong>X范围：</strong>
+                      {selectedPanelIndex < detectedPanels.length ? (
+                        <>
+                          {Math.round(detectedPanels[selectedPanelIndex]?.blueBox.x || 0)} ~{' '}
+                          {Math.round((detectedPanels[selectedPanelIndex]?.blueBox.x || 0) + (detectedPanels[selectedPanelIndex]?.blueBox.width || 0))}
+                        </>
+                      ) : '未检测'}
+                    </p>
+                    <p>
+                      <strong>Y范围：</strong>
+                      {selectedPanelIndex < detectedPanels.length ? (
+                        <>
+                          {Math.round(detectedPanels[selectedPanelIndex]?.blueBox.y || 0)} ~{' '}
+                          {Math.round((detectedPanels[selectedPanelIndex]?.blueBox.y || 0) + (detectedPanels[selectedPanelIndex]?.blueBox.height || 0))}
+                        </>
+                      ) : '未检测'}
+                    </p>
+                    <p>
+                      <strong>尺寸：</strong>
+                      {selectedPanelIndex < detectedPanels.length ? (
+                        <>
+                          {Math.round(detectedPanels[selectedPanelIndex]?.blueBox.width || 0)} ×{' '}
+                          {Math.round(detectedPanels[selectedPanelIndex]?.blueBox.height || 0)}
+                        </>
+                      ) : '未检测'}
+                    </p>
                   </div>
+                  <p className="text-xs text-blue-600 mt-2 italic">
+                    注：蓝框坐标由扫描线自动检测，无需手动调整
+                  </p>
                 </div>
 
                 {/* 绿框相关 */}
                 <div className="border-l-4 border-green-500 pl-4">
                   <Label className="text-sm font-semibold text-green-600 mb-3 block">绿框相关 (Title)</Label>
                   <div className="space-y-4">
-                    <div>
-                      <Label className="text-xs font-medium text-gray-600">绿框宽度 (Green Box Width)</Label>
-                      <div className="flex items-center gap-3 mt-2">
-                        <Slider
-                          value={[params.greenBoxWidth]}
-                          onValueChange={([v]) => handleParamChange('greenBoxWidth', v)}
-                          min={100}
-                          max={2000}
-                          step={1}
-                          className="flex-1"
-                        />
-                        <Input
-                          type="number"
-                          value={params.greenBoxWidth}
-                          onChange={(e) => handleParamChange('greenBoxWidth', parseInt(e.target.value) || 0)}
-                          className="w-20 text-center text-sm"
-                        />
-                      </div>
-                    </div>
-
                     <div>
                       <Label className="text-xs font-medium text-gray-600">首个图标上边距 (Grid Start Y)</Label>
                       <div className="flex items-center gap-3 mt-2">
