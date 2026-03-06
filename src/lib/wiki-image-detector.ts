@@ -168,6 +168,8 @@ function colorDiff(
 /**
  * Y轴检测（滑动窗口算法）
  * 找出所有面板的 Y 坐标范围
+ *
+ * 改进：支持大步长扫描，提高超大图片的扫描效率
  */
 interface PanelVerticalRange {
   startY: number;
@@ -181,7 +183,8 @@ function scanVerticalLine(
   colorTolerance: number,
   sustainedPixels: number,
   width: number,
-  height: number
+  height: number,
+  stepSize: number = 1  // 🌟 新增：扫描步长，默认为1（逐像素扫描）
 ): PanelVerticalRange[] {
   const { data } = imageData;
   const panels: PanelVerticalRange[] = [];
@@ -190,6 +193,10 @@ function scanVerticalLine(
   if (scanLineX < 0 || scanLineX >= width || scanStartY < 0 || scanStartY >= height) {
     return panels;
   }
+
+  // 🌟 自动优化步长：对于超大图片（高度 > 5000），使用更大的步长
+  const autoStepSize = height > 5000 ? Math.max(stepSize, 5) : stepSize;
+  console.log(`[scanVerticalLine] 图片高度: ${height}px, 使用步长: ${autoStepSize}px`);
 
   const getPixelColor = (x: number, y: number): [number, number, number] => {
     const index = (y * width + x) * 4;
@@ -203,30 +210,32 @@ function scanVerticalLine(
   let consecutivePanel = 0;
   let currentStartY = 0;
 
-  for (let y = scanStartY; y < height; y++) {
+  // 🌟 使用优化后的步长扫描
+  for (let y = scanStartY; y < height; y += autoStepSize) {
     const currentColor = getPixelColor(scanLineX, y);
     const diff = colorDiff(currentColor, backgroundColor);
 
     if (diff > colorTolerance) {
-      consecutivePanel++;
+      consecutivePanel += autoStepSize;
       consecutiveBg = 0;
 
       if (!inPanel && consecutivePanel >= sustainedPixels) {
         inPanel = true;
-        currentStartY = y - sustainedPixels + 1;
+        currentStartY = y - consecutivePanel + autoStepSize;
       }
     } else {
-      consecutiveBg++;
+      consecutiveBg += autoStepSize;
       consecutivePanel = 0;
 
       if (inPanel && consecutiveBg >= sustainedPixels) {
         inPanel = false;
-        const endY = y - sustainedPixels + 1;
+        const endY = y - consecutiveBg + autoStepSize;
         panels.push({ startY: currentStartY, endY });
       }
     }
   }
 
+  console.log(`[scanVerticalLine] 扫描完成，检测到 ${panels.length} 个面板`);
   return panels;
 }
 
