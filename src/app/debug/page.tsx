@@ -1910,7 +1910,7 @@ export default function WikiDebugPage() {
               <CardHeader>
                 <CardTitle>调试视图</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex justify-center items-center">
                 <canvas
                   ref={canvasRef}
                   className="border border-gray-300"
