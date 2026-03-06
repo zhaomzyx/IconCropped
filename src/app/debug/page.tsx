@@ -1766,10 +1766,11 @@ export default function WikiDebugPage() {
                 </div>
 
                 {/* 滑动窗口检测相关 */}
+                {!params.useBoundsDetection && (
                 <div className="border-l-4 border-purple-500 pl-4 bg-purple-50 p-3 rounded">
-                  <Label className="text-sm font-semibold text-purple-600 mb-3 block">滑动窗口检测 (Sliding Window) - 主要检测方法</Label>
+                  <Label className="text-sm font-semibold text-purple-600 mb-3 block">滑动窗口检测 (Sliding Window) - 中心点检测方法</Label>
                   <p className="text-xs text-purple-700 mb-3">
-                    ✨ 使用滑动窗口平均算法自动检测多行多列图标布局，无需手动调整间距
+                    ✨ 使用滑动窗口平均算法自动检测多行多列图标布局，返回固定大小（132×132）的裁切区域
                   </p>
                   <div className="space-y-4">
                     <div>
@@ -1878,6 +1879,7 @@ export default function WikiDebugPage() {
                     </div>
                   </div>
                 </div>
+                )}
 
                 {/* 边界检测相关 */}
                 <div className="border-l-4 border-indigo-500 pl-4 bg-indigo-50 p-3 rounded">
@@ -1904,6 +1906,7 @@ export default function WikiDebugPage() {
                     </p>
                   </div>
 
+                  {params.useBoundsDetection && (
                   <div className="space-y-4">
                     <div>
                       <Label className="text-xs font-medium text-gray-600">检测窗口高度 (Window Height)</Label>
@@ -2052,6 +2055,7 @@ export default function WikiDebugPage() {
                       <p className="text-xs text-gray-500 mt-1">过滤噪声的最小列宽（像素）</p>
                     </div>
                   </div>
+                  )}
                 </div>
 
                 {/* 预设管理 */}
