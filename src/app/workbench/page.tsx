@@ -624,6 +624,13 @@ export default function WorkbenchPage() {
               wikiName: actualWikiName || 'default',
             }, null, 2));
 
+            // 🌟 打点2 - 发起请求前
+            console.log(`[打点2 - 发起请求前] 准备发给后端的 payload:`, JSON.stringify({
+              imageUrl: imageUrl, // 检查原图URL是否正确
+              panelsCount: detectedPanels.length, // 检查一共有几个大面板
+              firstPanelRedBoxesCount: detectedPanels[0]?.redBoxes?.length // 检查第一个面板里有没有红框坐标
+            }, null, 2));
+
             const cropResponse = await fetch('/api/crop-with-coordinates', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

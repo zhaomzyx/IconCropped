@@ -172,6 +172,17 @@ export async function POST(request: NextRequest) {
       wikiName = 'default'  // Wiki名称
     } = body;
 
+    // 🌟 打点3 - 后端接收端
+    console.log(`[打点3 - 后端接收端] 收到前端发来的切图请求！`);
+    console.log(`  - 目标图片: ${imageUrl}`);
+    console.log(`  - 收到的面板数量: ${debugPanels?.length}`);
+    if (debugPanels && debugPanels.length > 0) {
+      console.log(`  - 第一个面板的红框(redBoxes)数量: ${debugPanels[0].redBoxes?.length}`);
+      if (!debugPanels[0].redBoxes || debugPanels[0].redBoxes.length === 0) {
+        console.warn(`  🚨 警告：后端收到的 redBoxes 是空的！切图肯定会失败！`);
+      }
+    }
+
     if (!imageUrl || !debugPanels || !Array.isArray(debugPanels)) {
       return NextResponse.json(
         { error: 'Missing required parameters: imageUrl, debugPanels' },

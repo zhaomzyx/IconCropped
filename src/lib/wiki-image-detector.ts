@@ -499,6 +499,15 @@ export async function detectWikiImage(
             };
           });
 
+          // 🌟 打点1 - 检测器内部
+          console.log(`[打点1 - 检测器内部] Panel ${i + 1} 准备输出:`, {
+            title: meta?.title,
+            metaTotal: meta?.total,
+            calculatedRows: rows,
+            calculatedCols: cols,
+            finalRedBoxesCount: redBoxes.length // 最关键！看看算出来了几个红框
+          });
+
           // 组装最终数据
           detectedPanels.push({
             title: meta?.title || `Panel_${i + 1}`, // 优先使用后端识别的名字
