@@ -137,8 +137,8 @@ async function cropIconFromRedBox(
     .png()
     .toBuffer();
 
-  // 🔧 修改：文件名使用线性序号（标题_序号.png）
-  const filename = `${panelTitle}_${iconIndex + 1}.png`;
+  // 🔧 修改：文件名使用线性序号（标题_序号.png），序号从0开始
+  const filename = `${panelTitle}_${iconIndex}.png`;
 
   // 保存icon到public/wiki-cropped/wikiName/目录
   const outputDir = path.join(cwd(), 'public', 'wiki-cropped', wikiName);
@@ -151,7 +151,7 @@ async function cropIconFromRedBox(
 
   return {
     filename,
-    name: `${panelTitle}_${iconIndex + 1}`,
+    name: `${panelTitle}_${iconIndex}`,
     panelIndex: 0, // 暂时设为0，后续可以根据需要调整
     iconIndex,
     row,
