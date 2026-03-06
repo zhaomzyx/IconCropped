@@ -362,7 +362,7 @@ export async function detectWikiImage(
           return;
         }
 
-        console.log(`[WikiImageDetector] 检测到 ${panelVerticalRanges.length} 个 panel`);
+        console.log(`[WikiImageDetector] Y轴扫描检测到 ${panelVerticalRanges.length} 个潜在区域`);
 
         // 4. 遍历处理每个 Panel
         const detectedPanels: DetectedPanel[] = [];
