@@ -9,7 +9,9 @@ import { Label } from '@/components/ui/label';
 import {
   detectRowsBySlidingWindow,
   detectColumnsBySlidingWindow,
-  detectIconPositionsBySlidingWindow
+  detectIconPositionsBySlidingWindow,
+  detectAllBounds,
+  calculateIconPositionsFromBounds
 } from '@/lib/sliding-window-detection';
 
 interface DebugPanel {
@@ -92,6 +94,15 @@ export default function WikiDebugPage() {
     slidingWindowDiffThreshold: 30,  // 滑动窗口颜色差异阈值
     slidingWindowStepSize: 5,   // 滑动窗口步长（像素）
     slidingWindowMinGap: 50,    // 最小行/列间距（像素）
+
+    // 边界检测参数
+    useBoundsDetection: false,  // 是否使用边界检测方法（替代中心点检测）
+    boundsWindowHeight: 5,      // 边界检测窗口高度（用于检测行）
+    boundsWindowWidth: 5,       // 边界检测窗口宽度（用于检测列）
+    boundsVarianceThreshold: 50, // 边界检测颜色方差阈值
+    boundsStepSize: 1,          // 边界检测步长（像素）
+    boundsMinRowHeight: 20,     // 最小行高（过滤噪声）
+    boundsMinColWidth: 20,      // 最小列宽（过滤噪声）
   };
 
   // 复制日志到剪贴板
@@ -708,19 +719,58 @@ export default function WikiDebugPage() {
           ctx.fillText(`midY=${midY}`, range.startX + 5, midY - 5);
         }
 
-        // 使用滑动窗口检测计算图标位置（新方法）
-        const iconPositions = detectIconPositionsBySlidingWindow(
-          Buffer.from(imageData.data),
-          canvas.width,
-          range.startX,
-          range.startY,
-          range.width,
-          range.height,
-          params.slidingWindowRows,
-          params.slidingWindowCols,
-          params.slidingWindowDiffThreshold,
-          params.slidingWindowStepSize
-        );
+        // 选择检测方法：边界检测 或 中心点检测
+        const iconPositions = params.useBoundsDetection
+          ? (() => {
+              // 使用边界检测方法（新方法）
+              console.log(`[检测方法] 使用边界检测方法`);
+
+              const bounds = detectAllBounds(
+                Buffer.from(imageData.data),
+                canvas.width,
+                range.startX,
+                range.startY,
+                range.width,
+                range.height,
+                {
+                  windowHeight: params.boundsWindowHeight,
+                  windowWidth: params.boundsWindowWidth,
+                  varianceThreshold: params.boundsVarianceThreshold,
+                  stepSize: params.boundsStepSize,
+                  minRowHeight: params.boundsMinRowHeight,
+                  minColWidth: params.boundsMinColWidth,
+                }
+              );
+
+              // 从边界计算图标位置
+              const boundsIcons = calculateIconPositionsFromBounds(bounds);
+
+              // 转换为 IconPosition 格式
+              return boundsIcons.map((icon) => ({
+                centerX: icon.centerX,
+                centerY: icon.centerY,
+                row: icon.row,
+                col: icon.col,
+                diffValue: 0,
+              }));
+            })()
+          : (() => {
+              // 使用中心点检测方法（滑动窗口）
+              console.log(`[检测方法] 使用中心点检测方法（滑动窗口）`);
+
+              return detectIconPositionsBySlidingWindow(
+                Buffer.from(imageData.data),
+                canvas.width,
+                range.startX,
+                range.startY,
+                range.width,
+                range.height,
+                params.slidingWindowRows,
+                params.slidingWindowCols,
+                params.slidingWindowDiffThreshold,
+                params.slidingWindowStepSize
+              );
+            })();
 
         // 保存框体坐标
         const blueBox = {
@@ -737,53 +787,116 @@ export default function WikiDebugPage() {
           height: params.gridStartY,
         };
 
-        const iconSize = 132;  // 固定图标大小
+        // 根据检测方法选择红框绘制方式
+        let redBoxes: Array<{ x: number; y: number; width: number; height: number }> = [];
 
-        const redBoxes = iconPositions.map((pos) => ({
-          x: pos.centerX - iconSize / 2,
-          y: pos.centerY - iconSize / 2,
-          width: iconSize,
-          height: iconSize,
-        }));
+        if (params.useBoundsDetection) {
+          // 边界检测方法：使用边界检测返回的精确边界
+          const bounds = detectAllBounds(
+            Buffer.from(imageData.data),
+            canvas.width,
+            range.startX,
+            range.startY,
+            range.width,
+            range.height,
+            {
+              windowHeight: params.boundsWindowHeight,
+              windowWidth: params.boundsWindowWidth,
+              varianceThreshold: params.boundsVarianceThreshold,
+              stepSize: params.boundsStepSize,
+              minRowHeight: params.boundsMinRowHeight,
+              minColWidth: params.boundsMinColWidth,
+            }
+          );
+          const boundsIcons = calculateIconPositionsFromBounds(bounds);
+
+          redBoxes = boundsIcons.map((icon) => ({
+            x: icon.leftX,
+            y: icon.topY,
+            width: icon.width,
+            height: icon.height,
+          }));
+
+          // 绘制红色框（使用边界检测计算的精确边界）
+          boundsIcons.forEach((icon) => {
+            const { leftX, topY, width, height, centerX, centerY, row, col } = icon;
+
+            ctx.strokeStyle = '#EF4444';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(leftX, topY, width, height);
+
+            // 绘制序号
+            ctx.fillStyle = '#EF4444';
+            ctx.font = '12px Arial';
+            ctx.fillText(`#${row * bounds.cols.length + col + 1}`, leftX + 3, topY + 15);
+
+            // 绘制红框坐标
+            ctx.fillStyle = '#EF4444';
+            ctx.font = '9px monospace';
+            ctx.fillText(
+              `(${Math.round(leftX)}, ${Math.round(topY)}) ${Math.round(width)}x${Math.round(height)}`,
+              leftX + 3,
+              topY + height - 3
+            );
+
+            // 绘制中心点标记
+            if (isSelected) {
+              ctx.fillStyle = '#FF00FF';
+              ctx.beginPath();
+              ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
+              ctx.fill();
+            }
+          });
+        } else {
+          // 中心点检测方法：使用固定大小（132×132）
+          const iconSize = 132;  // 固定图标大小
+
+          redBoxes = iconPositions.map((pos) => ({
+            x: pos.centerX - iconSize / 2,
+            y: pos.centerY - iconSize / 2,
+            width: iconSize,
+            height: iconSize,
+          }));
+
+          // 绘制红色框（使用滑动窗口检测计算的图标位置）
+          iconPositions.forEach((pos) => {
+            const { centerX, centerY } = pos;
+            const x = centerX - iconSize / 2;
+            const y = centerY - iconSize / 2;
+
+            ctx.strokeStyle = '#EF4444';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, iconSize, iconSize);
+
+            // 绘制序号
+            ctx.fillStyle = '#EF4444';
+            ctx.font = '12px Arial';
+            ctx.fillText(`#${pos.row * panel.cols + pos.col + 1}`, x + 3, y + 15);
+
+            // 绘制红框坐标
+            ctx.fillStyle = '#EF4444';
+            ctx.font = '9px monospace';
+            ctx.fillText(
+              `(${Math.round(x)}, ${Math.round(y)}) ${Math.round(iconSize)}x${Math.round(iconSize)}`,
+              x + 3,
+              y + iconSize - 3
+            );
+
+            // 绘制中心点标记
+            if (isSelected) {
+              ctx.fillStyle = '#FF00FF';
+              ctx.beginPath();
+              ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
+              ctx.fill();
+            }
+          });
+        }
 
         currentDetectedPanels.push({
           title: panel.title,
           blueBox,
           greenBox,
           redBoxes,
-        });
-
-        // 绘制红色框（使用滑动窗口检测计算的图标位置）
-        iconPositions.forEach((pos) => {
-          const { centerX, centerY } = pos;
-          const x = centerX - iconSize / 2;
-          const y = centerY - iconSize / 2;
-
-          ctx.strokeStyle = '#EF4444';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x, y, iconSize, iconSize);
-
-          // 绘制序号
-          ctx.fillStyle = '#EF4444';
-          ctx.font = '12px Arial';
-          ctx.fillText(`#${pos.row * panel.cols + pos.col + 1}`, x + 3, y + 15);
-
-          // 绘制红框坐标
-          ctx.fillStyle = '#EF4444';
-          ctx.font = '9px monospace';
-          ctx.fillText(
-            `(${Math.round(x)}, ${Math.round(y)}) ${Math.round(iconSize)}x${Math.round(iconSize)}`,
-            x + 3,
-            y + iconSize - 3
-          );
-
-          // 绘制中心点标记
-          if (isSelected) {
-            ctx.fillStyle = '#FF00FF';
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
-            ctx.fill();
-          }
         });
 
         // 绘制扫描线（用于调试）
@@ -1010,7 +1123,7 @@ export default function WikiDebugPage() {
   };
 
   // 调试参数变更处理
-  const handleParamChange = (key: keyof typeof DEFAULT_PARAMS, value: number) => {
+  const handleParamChange = (key: keyof typeof DEFAULT_PARAMS, value: number | boolean) => {
     const newParams = { ...params, [key]: value };
     setParams(newParams);
     // 实时保存到 localStorage
@@ -1759,6 +1872,160 @@ export default function WikiDebugPage() {
                         />
                       </div>
                       <p className="text-xs text-gray-500 mt-1">行/列之间的最小间距（像素）</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 边界检测相关 */}
+                <div className="border-l-4 border-indigo-500 pl-4 bg-indigo-50 p-3 rounded">
+                  <Label className="text-sm font-semibold text-indigo-600 mb-3 block">边界检测 (Bounds Detection) - 精确边界检测</Label>
+                  <p className="text-xs text-indigo-700 mb-3">
+                    ✨ 使用滑动窗口颜色波动精确检测行和列的边界，返回精确的顶点、底点、左边界、右边界
+                  </p>
+                  
+                  <div className="mb-4">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="useBoundsDetection"
+                        checked={params.useBoundsDetection}
+                        onChange={(e) => handleParamChange('useBoundsDetection', e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 rounded"
+                      />
+                      <Label htmlFor="useBoundsDetection" className="text-sm font-medium text-indigo-700 cursor-pointer">
+                        启用边界检测（替代中心点检测）
+                      </Label>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      启用后，将使用边界检测方法计算图标位置，自动适配不同大小的图标
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">检测窗口高度 (Window Height)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.boundsWindowHeight]}
+                          onValueChange={([v]) => handleParamChange('boundsWindowHeight', v)}
+                          min={1}
+                          max={20}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.boundsWindowHeight}
+                          onChange={(e) => handleParamChange('boundsWindowHeight', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">纵向检测窗口高度（像素），用于检测单行</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">检测窗口宽度 (Window Width)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.boundsWindowWidth]}
+                          onValueChange={([v]) => handleParamChange('boundsWindowWidth', v)}
+                          min={1}
+                          max={20}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.boundsWindowWidth}
+                          onChange={(e) => handleParamChange('boundsWindowWidth', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">横向检测窗口宽度（像素），用于检测单列</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">颜色方差阈值 (Variance Threshold)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.boundsVarianceThreshold]}
+                          onValueChange={([v]) => handleParamChange('boundsVarianceThreshold', v)}
+                          min={10}
+                          max={200}
+                          step={5}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.boundsVarianceThreshold}
+                          onChange={(e) => handleParamChange('boundsVarianceThreshold', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">判断是否为图标区域的最小方差值（阈值越高越严格）</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">扫描步长 (Step Size)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.boundsStepSize]}
+                          onValueChange={([v]) => handleParamChange('boundsStepSize', v)}
+                          min={1}
+                          max={10}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.boundsStepSize}
+                          onChange={(e) => handleParamChange('boundsStepSize', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">滑动窗口每次移动的像素数（步长越小越精确但越慢）</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">最小行高 (Min Row Height)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.boundsMinRowHeight]}
+                          onValueChange={([v]) => handleParamChange('boundsMinRowHeight', v)}
+                          min={5}
+                          max={100}
+                          step={5}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.boundsMinRowHeight}
+                          onChange={(e) => handleParamChange('boundsMinRowHeight', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">过滤噪声的最小行高（像素）</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">最小列宽 (Min Col Width)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.boundsMinColWidth]}
+                          onValueChange={([v]) => handleParamChange('boundsMinColWidth', v)}
+                          min={5}
+                          max={100}
+                          step={5}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.boundsMinColWidth}
+                          onChange={(e) => handleParamChange('boundsMinColWidth', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">过滤噪声的最小列宽（像素）</p>
                     </div>
                   </div>
                 </div>

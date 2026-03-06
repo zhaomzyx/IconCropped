@@ -269,3 +269,340 @@ export function detectIconPositionsBySlidingWindow(
   console.log(`[滑动窗口检测] 综合检测完成，共生成 ${icons.length} 个图标位置`);
   return icons;
 }
+
+// ========== 边界检测方法（新） ==========
+
+// 计算区域的颜色方差（用于检测内容与背景）
+function calculateVariance(
+  pixelData: Buffer,
+  width: number,
+  startX: number,
+  startY: number,
+  windowWidth: number,
+  windowHeight: number
+): number {
+  let rSum = 0, gSum = 0, bSum = 0;
+  let count = 0;
+  const pixels = [];
+
+  // 计算平均值
+  for (let y = startY; y < startY + windowHeight; y++) {
+    for (let x = startX; x < startX + windowWidth; x++) {
+      const index = (y * width + x) * 4;
+      const r = pixelData[index];
+      const g = pixelData[index + 1];
+      const b = pixelData[index + 2];
+      pixels.push({ r, g, b });
+      rSum += r;
+      gSum += g;
+      bSum += b;
+      count++;
+    }
+  }
+
+  if (count === 0) return 0;
+
+  const rAvg = rSum / count;
+  const gAvg = gSum / count;
+  const bAvg = bSum / count;
+
+  // 计算方差
+  let variance = 0;
+  for (const p of pixels) {
+    variance += Math.pow(p.r - rAvg, 2) + Math.pow(p.g - gAvg, 2) + Math.pow(p.b - bAvg, 2);
+  }
+  variance = variance / count;
+
+  return variance;
+}
+
+// 行边界检测结果
+export interface RowBounds {
+  topY: number;        // 行顶点的Y坐标
+  bottomY: number;     // 行底点的Y坐标
+  rowIndex: number;    // 行索引（从0开始）
+  height: number;      // 行高度
+}
+
+/**
+ * 纵向边界检测 - 检测行的边界
+ * 
+ * 算法说明：
+ * 1. 使用滑动窗口在Y轴上扫描
+ * 2. 计算每个窗口内的颜色方差（波动）
+ * 3. 检测临界点：
+ *    - 方差小 → 方差大：行顶点（进入行区域）
+ *    - 方差大 → 方差小：行底点（离开行区域）
+ * 4. 过滤噪声（最小行高）
+ */
+export function detectRowBounds(
+  pixelData: Buffer,
+  imageWidth: number,
+  panelX: number,
+  panelY: number,
+  panelWidth: number,
+  panelHeight: number,
+  windowHeight: number = 5,        // 检测窗口高度（较小，用于检测单行）
+  varianceThreshold: number = 50,  // 颜色方差阈值，判断是否为行区域
+  stepSize: number = 1,            // 扫描步长（像素）
+  minRowHeight: number = 20        // 最小行高（过滤噪声）
+): RowBounds[] {
+  console.log(`[边界检测-纵向] 开始扫描...`);
+  console.log(`  面板位置: (${panelX}, ${panelY}), 尺寸: ${panelWidth}x${panelHeight}`);
+  console.log(`  窗口高度: ${windowHeight}px, 方差阈值: ${varianceThreshold}, 步长: ${stepSize}px`);
+  console.log(`  最小行高: ${minRowHeight}px`);
+
+  const rows: RowBounds[] = [];
+  let inRow = false;
+  let currentTopY = 0;
+
+  // 从上到下扫描
+  for (let y = panelY; y <= panelY + panelHeight; y += stepSize) {
+    // 计算当前Y位置的方差
+    const variance = calculateVariance(
+      pixelData,
+      imageWidth,
+      panelX,
+      y,
+      panelWidth,
+      windowHeight
+    );
+
+    // 检测临界点
+    if (variance > varianceThreshold) {
+      // 进入行区域（波动大）
+      if (!inRow) {
+        inRow = true;
+        currentTopY = y;  // 记录顶点
+        console.log(`  检测到行顶点: Y=${currentTopY}, 方差=${variance.toFixed(2)}`);
+      }
+    } else {
+      // 离开行区域（波动小）
+      if (inRow) {
+        inRow = false;
+        const rowHeight = y - currentTopY;
+
+        // 过滤噪声：只有行高足够才记录
+        if (rowHeight >= minRowHeight) {
+          rows.push({
+            topY: currentTopY,
+            bottomY: y,
+            rowIndex: rows.length,
+            height: rowHeight
+          });
+          console.log(`  检测到行底点: Y=${y}, 行高=${rowHeight}px`);
+        } else {
+          console.log(`  忽略噪声行: 行高=${rowHeight}px < 最小行高=${minRowHeight}px`);
+        }
+      }
+    }
+  }
+
+  console.log(`[边界检测-纵向] 完成，共检测到 ${rows.length} 行`);
+  return rows;
+}
+// 列边界检测结果
+export interface ColumnBounds {
+  leftX: number;        // 列左边界的X坐标
+  rightX: number;       // 列右边界的X坐标
+  colIndex: number;     // 列索引（从0开始）
+  width: number;        // 列宽度
+}
+
+/**
+ * 横向边界检测 - 检测列的边界
+ * 
+ * 算法说明：
+ * 1. 使用滑动窗口在X轴上扫描
+ * 2. 计算每个窗口内的颜色方差（波动）
+ * 3. 检测临界点：
+ *    - 方差小 → 方差大：列左边界（进入列区域）
+ *    - 方差大 → 方差小：列右边界（离开列区域）
+ * 4. 过滤噪声（最小列宽）
+ */
+export function detectColumnBounds(
+  pixelData: Buffer,
+  imageWidth: number,
+  panelX: number,
+  panelY: number,
+  panelWidth: number,
+  panelHeight: number,
+  windowWidth: number = 5,        // 检测窗口宽度（较小，用于检测单列）
+  varianceThreshold: number = 50, // 颜色方差阈值，判断是否为列区域
+  stepSize: number = 1,           // 扫描步长（像素）
+  minColWidth: number = 20        // 最小列宽（过滤噪声）
+): ColumnBounds[] {
+  console.log(`[边界检测-横向] 开始扫描...`);
+  console.log(`  面板位置: (${panelX}, ${panelY}), 尺寸: ${panelWidth}x${panelHeight}`);
+  console.log(`  窗口宽度: ${windowWidth}px, 方差阈值: ${varianceThreshold}, 步长: ${stepSize}px`);
+  console.log(`  最小列宽: ${minColWidth}px`);
+
+  const cols: ColumnBounds[] = [];
+  let inCol = false;
+  let currentLeftX = 0;
+
+  // 从左到右扫描
+  for (let x = panelX; x <= panelX + panelWidth; x += stepSize) {
+    // 计算当前X位置的方差
+    const variance = calculateVariance(
+      pixelData,
+      imageWidth,
+      x,
+      panelY,
+      windowWidth,
+      panelHeight
+    );
+
+    // 检测临界点
+    if (variance > varianceThreshold) {
+      // 进入列区域（波动大）
+      if (!inCol) {
+        inCol = true;
+        currentLeftX = x;  // 记录左边界
+        console.log(`  检测到列左边界: X=${currentLeftX}, 方差=${variance.toFixed(2)}`);
+      }
+    } else {
+      // 离开列区域（波动小）
+      if (inCol) {
+        inCol = false;
+        const colWidth = x - currentLeftX;
+
+        // 过滤噪声：只有列宽足够才记录
+        if (colWidth >= minColWidth) {
+          cols.push({
+            leftX: currentLeftX,
+            rightX: x,
+            colIndex: cols.length,
+            width: colWidth
+          });
+          console.log(`  检测到列右边界: X=${x}, 列宽=${colWidth}px`);
+        } else {
+          console.log(`  忽略噪声列: 列宽=${colWidth}px < 最小列宽=${minColWidth}px`);
+        }
+      }
+    }
+  }
+
+  console.log(`[边界检测-横向] 完成，共检测到 ${cols.length} 列`);
+  return cols;
+}
+// 边界检测结果
+export interface BoundsResult {
+  rows: RowBounds[];
+  cols: ColumnBounds[];
+}
+
+/**
+ * 综合检测 - 检测所有行和列的边界
+ * 
+ * 结合纵向和横向检测结果，提供完整的边界信息
+ */
+export function detectAllBounds(
+  pixelData: Buffer,
+  imageWidth: number,
+  panelX: number,
+  panelY: number,
+  panelWidth: number,
+  panelHeight: number,
+  params?: {
+    windowHeight?: number;
+    windowWidth?: number;
+    varianceThreshold?: number;
+    stepSize?: number;
+    minRowHeight?: number;
+    minColWidth?: number;
+  }
+): BoundsResult {
+  const {
+    windowHeight = 5,
+    windowWidth = 5,
+    varianceThreshold = 50,
+    stepSize = 1,
+    minRowHeight = 20,
+    minColWidth = 20
+  } = params || {};
+
+  console.log(`[边界检测-综合] 开始综合检测...`);
+
+  // 纵向检测（行）
+  const rows = detectRowBounds(
+    pixelData,
+    imageWidth,
+    panelX,
+    panelY,
+    panelWidth,
+    panelHeight,
+    windowHeight,
+    varianceThreshold,
+    stepSize,
+    minRowHeight
+  );
+
+  // 横向检测（列）
+  const cols = detectColumnBounds(
+    pixelData,
+    imageWidth,
+    panelX,
+    panelY,
+    panelWidth,
+    panelHeight,
+    windowWidth,
+    varianceThreshold,
+    stepSize,
+    minColWidth
+  );
+
+  const result = { rows, cols };
+  console.log(`[边界检测-综合] 完成，共检测到 ${rows.length} 行 × ${cols.length} 列`);
+
+  return result;
+}
+
+/**
+ * 基于边界检测计算图标位置
+ * 
+ * 使用边界检测结果（rowBounds + colBounds）计算图标的位置
+ */
+export interface IconBoundsPosition {
+  leftX: number;         // 图标左边界
+  topY: number;          // 图标顶边界
+  rightX: number;        // 图标右边界
+  bottomY: number;       // 图标底边界
+  centerX: number;       // 图标中心X
+  centerY: number;       // 图标中心Y
+  width: number;         // 图标宽度
+  height: number;        // 图标高度
+  row: number;           // 行索引
+  col: number;           // 列索引
+}
+
+export function calculateIconPositionsFromBounds(
+  bounds: BoundsResult
+): IconBoundsPosition[] {
+  const icons: IconBoundsPosition[] = [];
+
+  for (const row of bounds.rows) {
+    for (const col of bounds.cols) {
+      const width = col.width;
+      const height = row.height;
+      const centerX = col.leftX + Math.floor(width / 2);
+      const centerY = row.topY + Math.floor(height / 2);
+
+      icons.push({
+        leftX: col.leftX,
+        topY: row.topY,
+        rightX: col.rightX,
+        bottomY: row.bottomY,
+        centerX,
+        centerY,
+        width,
+        height,
+        row: row.rowIndex,
+        col: col.colIndex
+      });
+    }
+  }
+
+  console.log(`[边界检测-计算] 从边界生成 ${icons.length} 个图标位置`);
+  return icons;
+}
