@@ -323,7 +323,7 @@ export function calculateIconPositions(
   imageWidth: number,
   imageHeight: number
 ): IconPosition[] {
-  const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY, varianceThreshold } = params;
+  const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, iconCenterOffsetX, iconCenterOffsetY, varianceThreshold } = params;
 
   // 终极解法：我们不再死板相信 LLM 的 rows！
   // 给他一个允许的最大行数（比如 10 行），让我们的"空位探测器"自动去喊停！
@@ -331,8 +331,8 @@ export function calculateIconPositions(
   const cols = panel.cols || 5;
   const maxCount = panel.total || (rows * cols);
 
-  // 计算面板的左上角坐标（与调试台一致）
-  const panelX = panel.x + panelLeftOffset;
+  // 计算面板的左上角坐标（直接使用扫描线检测的坐标）
+  const panelX = panel.x;
 
   // 首个中心点坐标（与调试台一致）
   const firstCenterX = panelX + gridStartX + iconCenterOffsetX;

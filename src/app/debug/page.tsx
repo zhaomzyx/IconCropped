@@ -710,7 +710,7 @@ export default function WikiDebugPage() {
 
         // 使用滑动窗口检测计算图标位置（新方法）
         const iconPositions = detectIconPositionsBySlidingWindow(
-          imageData,
+          Buffer.from(imageData.data),
           canvas.width,
           range.startX,
           range.startY,
@@ -737,11 +737,13 @@ export default function WikiDebugPage() {
           height: params.gridStartY,
         };
 
+        const iconSize = 132;  // 固定图标大小
+
         const redBoxes = iconPositions.map((pos) => ({
-          x: pos.centerX - 66,  // 假设图标大小为132，中心点偏移66
-          y: pos.centerY - 66,
-          width: 132,           // 固定图标大小
-          height: 132,
+          x: pos.centerX - iconSize / 2,
+          y: pos.centerY - iconSize / 2,
+          width: iconSize,
+          height: iconSize,
         }));
 
         currentDetectedPanels.push({
@@ -754,14 +756,12 @@ export default function WikiDebugPage() {
         // 绘制红色框（使用滑动窗口检测计算的图标位置）
         iconPositions.forEach((pos) => {
           const { centerX, centerY } = pos;
-          const iconSize = 132;  // 固定图标大小
           const x = centerX - iconSize / 2;
           const y = centerY - iconSize / 2;
-          const centerY = Math.round(y + height / 2);
 
           ctx.strokeStyle = '#EF4444';
           ctx.lineWidth = 2;
-          ctx.strokeRect(x, y, width, height);
+          ctx.strokeRect(x, y, iconSize, iconSize);
 
           // 绘制序号
           ctx.fillStyle = '#EF4444';
@@ -772,9 +772,9 @@ export default function WikiDebugPage() {
           ctx.fillStyle = '#EF4444';
           ctx.font = '9px monospace';
           ctx.fillText(
-            `(${Math.round(x)}, ${Math.round(y)}) ${Math.round(width)}x${Math.round(height)}`,
+            `(${Math.round(x)}, ${Math.round(y)}) ${Math.round(iconSize)}x${Math.round(iconSize)}`,
             x + 3,
-            y + height - 3
+            y + iconSize - 3
           );
 
           // 绘制中心点标记
