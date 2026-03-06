@@ -86,6 +86,7 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
   const [detectedPanels, setDetectedPanels] = useState<DetectedPanel[]>([]);
   const [selectedPanelIndex, setSelectedPanelIndex] = useState<number>(-1);
   const [logInfo, setLogInfo] = useState<string>('');
+  const [isAutoDetecting, setIsAutoDetecting] = useState(false);  // 🌟 新增：标记是否正在自动检测
 
   // 初始化参数
   useEffect(() => {
@@ -101,26 +102,29 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
     }
   }, []);
 
-  // 加载图片并检测
+  // 加载图片并自动检测
   useEffect(() => {
     if (!isOpen || !imageUrl) return;
 
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => {
+    img.onload = async () => {
       drawCanvas(img);
+
+      // 🌟 自动执行检测（只在 Modal 首次打开时）
+      if (!isAutoDetecting) {
+        setIsAutoDetecting(true);
+        await performAutoDetect();
+      }
     };
     img.src = imageUrl;
   }, [isOpen, imageUrl, params]);
 
-  // 🌟 新增：检测面板函数
-  const handleDetect = useCallback(async () => {
-    if (!imageUrl) {
-      alert('请先加载图片！');
-      return;
-    }
+  // 🌟 新增：自动检测函数
+  const performAutoDetect = useCallback(async () => {
+    if (!imageUrl) return;
 
-    setLogInfo('正在检测面板...');
+    setLogInfo('🔍 自动检测中...');
 
     try {
       // 将调试台参数转换为检测参数
@@ -151,7 +155,21 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
 
       setDetectedPanels(panels);
       setSelectedPanelIndex(-1);
-      setLogInfo(`检测完成！共检测到 ${panels.length} 个面板\n\n宽度统计：\n${panels.map((p, i) => `${i + 1}. ${p.title}: ${p.width}px`).join('\n')}`);
+
+      // 检查是否有归一化应用
+      const widthStats = getNormalizationStats(panels);
+      let logMessage = `✅ 自动检测完成！共检测到 ${panels.length} 个面板\n\n`;
+      
+      if (widthStats.applied) {
+        logMessage += `🎯 宽度归一化已应用：目标宽度 ${widthStats.targetWidth}px，影响 ${widthStats.affectedCount} 个面板\n\n`;
+      }
+      
+      logMessage += `宽度统计：\n${panels.slice(0, 10).map((p, i) => `${i + 1}. ${p.title}: ${p.width}px`).join('\n')}`;
+      if (panels.length > 10) {
+        logMessage += `\n... 还有 ${panels.length - 10} 个面板`;
+      }
+
+      setLogInfo(logMessage);
 
       // 重新绘制 Canvas 以显示检测结果
       const img = new Image();
@@ -162,11 +180,67 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
       img.src = imageUrl;
 
     } catch (error) {
-      console.error('检测失败:', error);
-      alert('检测失败：' + (error instanceof Error ? error.message : '未知错误'));
-      setLogInfo('检测失败：' + (error instanceof Error ? error.message : '未知错误'));
+      console.error('自动检测失败:', error);
+      const errorMsg = '❌ 自动检测失败：' + (error instanceof Error ? error.message : '未知错误');
+      setLogInfo(errorMsg);
     }
   }, [imageUrl, params]);
+
+  // 🌟 新增：获取归一化统计信息
+  const getNormalizationStats = (panels: DetectedPanel[]) => {
+    if (panels.length === 0) return { applied: false, targetWidth: null, affectedCount: 0 };
+
+    const widths = panels.map(p => p.width);
+    const tolerance = 10;
+    const widthFrequency = new Map<number, number>();
+
+    for (const width of widths) {
+      let found = false;
+      for (const [baseWidth, count] of widthFrequency) {
+        if (Math.abs(width - baseWidth) <= tolerance) {
+          widthFrequency.set(baseWidth, count + 1);
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        widthFrequency.set(width, 1);
+      }
+    }
+
+    let maxCount = 0;
+    let targetWidth: number | null = null;
+
+    for (const [baseWidth, count] of widthFrequency) {
+      if (count > maxCount) {
+        maxCount = count;
+        targetWidth = baseWidth;
+      }
+    }
+
+    const threshold = Math.floor(panels.length / 2) + 1;
+    const shouldNormalize = maxCount >= threshold;
+
+    if (!shouldNormalize || targetWidth === null) {
+      return { applied: false, targetWidth: null, affectedCount: 0 };
+    }
+
+    let affectedCount = 0;
+    for (const panel of panels) {
+      if (Math.abs(panel.width - targetWidth) <= tolerance) {
+        affectedCount++;
+      }
+    }
+
+    return { applied: true, targetWidth, affectedCount };
+  };
+
+  // 🌟 新增：检测面板函数
+  // 🌟 手动触发检测（按钮点击）
+  const handleDetect = useCallback(async () => {
+    setLogInfo('🔄 手动重新检测中...');
+    await performAutoDetect();
+  }, [performAutoDetect]);
 
   // 🌟 新增：绘制 Canvas 并显示检测结果
   const drawCanvasWithDetection = (img: HTMLImageElement, panels: DetectedPanel[]) => {
@@ -264,7 +338,7 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
             <div className="flex gap-2">
               <Button onClick={handleDetect} size="sm" className="bg-blue-600 hover:bg-blue-700">
                 <Search className="w-4 h-4 mr-1" />
-                开始检测
+                重新检测
               </Button>
               <Button onClick={handleExport} size="sm" className="bg-green-600 hover:bg-green-700">
                 导出工作台
