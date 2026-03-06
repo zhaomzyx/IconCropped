@@ -490,12 +490,22 @@ JSON格式要求：
       throw new Error('无法解析LLM返回的JSON，返回内容不符合预期格式');
     }
 
+    // 🔧 修复LLM常见的JSON错误
+    let fixedJson = jsonMatch[0];
+
+    // 修复1: 修复缺失的 "y" 键名 (例如 "x":64,"38","width":900 → "x":64,"y":38,"width":900)
+    // 模式: 在数字后面跟着双引号的数字，表示缺失了键名
+    fixedJson = fixedJson.replace(/",(\d+),"/g, '","y":$1,"');
+
+    console.log(`  Fixed JSON (first 500 chars):`, fixedJson.substring(0, 500));
+
     let panels;
     try {
-      panels = JSON.parse(jsonMatch[0]);
+      panels = JSON.parse(fixedJson);
     } catch (parseError) {
       console.error(`  JSON parse error for panel detection:`, parseError);
       console.error(`  JSON text:`, jsonMatch[0]);
+      console.error(`  Fixed JSON:`, fixedJson);
       throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
     }
 
