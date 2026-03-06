@@ -86,8 +86,6 @@ export default function WikiDebugPage() {
     // X轴检测参数（用于检测panel宽度和小panel位置）
     colorToleranceX: 30,     // X轴颜色容差值
     sustainedPixelsX: 5,     // X轴连续判定宽度
-    // 🌟 X轴偏移校准（用于调整蓝框的X坐标）
-    offsetX: 0,              // 蓝框X轴偏移（像素，正数向右，负数向左）
     // 多行图标检测参数
     iconLineOffset: 107,     // 第一行图标线相对于panel顶部的偏移
     iconLineGap: 144,        // 多行图标线之间的间距
@@ -322,14 +320,6 @@ export default function WikiDebugPage() {
       }
     }
 
-    // 🌟 修复：如果循环结束时仍在 panel 内，手动关闭最后一个 panel
-    if (inPanel) {
-      const endY = height;
-      console.log(`[Y轴检测] Panel ${panels.length + 1} 下Y轴: ${endY} (到底部), 高度: ${endY - currentStartY}`);
-      panels.push({ startY: currentStartY, endY: endY });
-      console.log(`[Y轴检测] ✅ 已手动关闭最后一个 panel（扫描到图片底部）`);
-    }
-
     console.log(`[Y轴检测] 共检测到 ${panels.length} 个panel`);
     return panels;
   }, []);
@@ -356,27 +346,14 @@ export default function WikiDebugPage() {
   ): PanelHorizontalRange | null => {
     const { data } = imageData;
 
-    // 获取像素颜色
+    // 获取背景色（从左边开始）
     const getPixelColor = (x: number, y: number): [number, number, number] => {
       const index = (y * width + x) * 4;
       return [data[index], data[index + 1], data[index + 2]];
     };
 
-    // 🌟 优化：从左侧多个位置采样背景色，确保背景色准确
-    // 从左侧 5px-20px 位置采样，避免可能的装饰边框
-    const samplePositions = [5, 10, 15, 20];
-    const backgroundColors = samplePositions.map(x => getPixelColor(x, scanY));
-    
-    // 计算平均背景色
-    const backgroundColor = [
-      Math.round(backgroundColors.reduce((sum, c) => sum + c[0], 0) / backgroundColors.length),
-      Math.round(backgroundColors.reduce((sum, c) => sum + c[1], 0) / backgroundColors.length),
-      Math.round(backgroundColors.reduce((sum, c) => sum + c[2], 0) / backgroundColors.length)
-    ] as [number, number, number];
-    
-    console.log(`[X轴检测] 扫描线 Y: ${scanY}`);
-    console.log(`[X轴检测] 采样位置: x=${samplePositions.join(', ')}`);
-    console.log(`[X轴检测] 背景色: (${backgroundColor.join(', ')}) (平均值)`);
+    const backgroundColor = getPixelColor(0, scanY);
+    console.log(`[X轴检测] 扫描线 Y: ${scanY}, 背景色: (${backgroundColor.join(', ')})`);
     console.log(`[X轴检测] 参数: colorTolerance=${colorTolerance}, sustainedPixels=${sustainedPixels}`);
 
     // 滑动窗口算法
@@ -582,10 +559,9 @@ export default function WikiDebugPage() {
       // 2. X轴检测：对每个panel检测X坐标范围（仅检测Panel边界）
       const panelRanges = panelVerticalRanges.map((vRange, index) => {
         const panel = debugPanels[index];
-        const safePanel = panel || { title: `Panel_${index + 1}` };
         const midY = Math.round((vRange.startY + vRange.endY) / 2);
 
-        console.log(`\n[Panel ${index + 1}] ${safePanel.title}`);
+        console.log(`\n[Panel ${index + 1}] ${panel.title}`);
         console.log(`[Panel ${index + 1}] 中间检测线 Y: ${midY}`);
 
         // 在Panel中间横线上扫描，检测Panel的左右边界
@@ -620,11 +596,10 @@ export default function WikiDebugPage() {
 
       for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
         const panel = debugPanels[i];
-        const safePanel = panel || { title: `Panel_${i + 1}` };
         const range = panelRanges[i];
         const isSelected = i === selectedPanelIndex;
 
-        console.log(`\n[Panel ${i + 1}] ${safePanel.title}: 初始宽度 = ${range.width}px`);
+        console.log(`\n[Panel ${i + 1}] ${panel.title}: 初始宽度 = ${range.width}px`);
 
         // 保存框体坐标
         const blueBox = {
@@ -642,7 +617,7 @@ export default function WikiDebugPage() {
         };
 
         currentDetectedPanels.push({
-          title: safePanel.title,
+          title: panel.title,
           x: range.startX,
           y: range.startY,
           width: range.width,
@@ -692,14 +667,13 @@ export default function WikiDebugPage() {
       // 3.3 🌟 再次遍历所有panel，使用归一化后的宽度绘制并检测图标
       for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
         const panel = debugPanels[i];
-        const safePanel = panel || { title: `Panel_${i + 1}` };
         const range = panelRanges[i]; // 🌟 此时 range.width 已经被归一化更新
         const isSelected = i === selectedPanelIndex;
         const currentDetectedPanel = currentDetectedPanels[i]; // 🌟 获取归一化后的面板数据
 
         // 绘制时的详细日志（只记录选中的面板）
         if (isSelected) {
-          console.log(`\n========== [drawCanvas] 面板 ${i + 1} (${safePanel.title}) 坐标计算 ==========`);
+          console.log(`\n========== [drawCanvas] 面板 ${i + 1} (${panel.title}) 坐标计算 ==========`);
           console.log(`[Y轴检测结果]`);
           console.log(`  startY = ${range.startY}, endY = ${range.endY}, height = ${range.height}`);
           console.log(`[X轴检测结果]`);
@@ -707,25 +681,24 @@ export default function WikiDebugPage() {
           console.log(`  🌟 归一化后宽度 = ${currentDetectedPanel.width}px`);
         }
 
-        // 绘制蓝色框（Panel外边缘）- 🌟 使用归一化后的宽度 + X轴偏移
-        const adjustedStartX = range.startX + params.offsetX;
+        // 绘制蓝色框（Panel外边缘）- 🌟 使用归一化后的宽度
         ctx.strokeStyle = isSelected ? '#3B82F6' : '#93C5FD';
         ctx.lineWidth = isSelected ? 3 : 2;
-        ctx.strokeRect(adjustedStartX, range.startY, range.width, range.height);
+        ctx.strokeRect(range.startX, range.startY, range.width, range.height);
 
         // 绘制蓝框坐标
         ctx.fillStyle = isSelected ? '#3B82F6' : '#93C5FD';
         ctx.font = '10px monospace';
         ctx.fillText(
-          `(${Math.round(adjustedStartX)}, ${Math.round(range.startY)}) ${Math.round(range.width)}x${Math.round(range.height)}`,
-          adjustedStartX + 5,
+          `(${Math.round(range.startX)}, ${Math.round(range.startY)}) ${Math.round(range.width)}x${Math.round(range.height)}`,
+          range.startX + 5,
           range.startY + 12
         );
 
-        // 绘制绿色框（标题区域）- 🌟 使用归一化后的宽度 + X轴偏移
+        // 绘制绿色框（标题区域）- 🌟 使用归一化后的宽度
         ctx.strokeStyle = '#22C55E';
         ctx.lineWidth = 2;
-        ctx.strokeRect(adjustedStartX, range.startY, range.width, params.gridStartY);
+        ctx.strokeRect(range.startX, range.startY, range.width, params.gridStartY);
 
         // 绘制绿框坐标
         ctx.fillStyle = '#22C55E';
@@ -1523,7 +1496,6 @@ export default function WikiDebugPage() {
 
         // 调试模式处理
         logInfo('步骤2: 调用 /api/process-image-stream (debug模式)');
-        logInfo('📋 当前检测参数:', params);
         const processRes = await fetch('/api/process-image-stream', {
           method: 'POST',
           headers: {
@@ -1532,7 +1504,6 @@ export default function WikiDebugPage() {
           body: JSON.stringify({
             filenames: [uploadedFilename],
             debug: true,
-            params: params,  // 传递当前检测参数
           }),
         });
 
@@ -1598,21 +1569,7 @@ export default function WikiDebugPage() {
                 logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
               } else if (currentEvent === 'error') {
                 console.error('✗ 收到错误事件:', data);
-                console.error('✗ 错误详情:', JSON.stringify(data));
-                console.error('✗ 原始数据:', currentData);
-
-                let errorMessage = data.message || '处理过程中发生错误';
-
-                // 为Y轴检测失败添加友好提示
-                if (errorMessage.includes('Y轴检测失败') || errorMessage.includes('未检测到任何面板')) {
-                  errorMessage += '\n\n💡 建议：请调整检测参数后再试：\n' +
-                    '1. 调整 scanLineX（当前值：' + params.scanLineX + '）：改变X轴扫描位置\n' +
-                    '2. 调整 scanStartY（当前值：' + params.scanStartY + '）：改变Y轴扫描起始位置\n' +
-                    '3. 调整 colorTolerance（当前值：' + params.colorTolerance + '）：调整颜色容差\n' +
-                    '4. 调整 sustainedPixels（当前值：' + params.sustainedPixels + '）：调整连续像素阈值';
-                }
-
-                throw new Error(errorMessage);
+                throw new Error(data.message || '处理过程中发生错误');
               }
             } catch (e) {
               console.error(`Failed to parse SSE data for event ${currentEvent}:`, e, '原始数据:', currentData.substring(0, 100));

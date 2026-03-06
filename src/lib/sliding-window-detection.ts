@@ -715,14 +715,10 @@ export interface NormalizationResult {
  * @returns 归一化结果（是否应用、目标宽度、影响数量、归一化详情）
  */
 export function normalizePanelWidths(
-  panels: NormalizablePanel[],
-  imageWidth?: number
+  panels: NormalizablePanel[]
 ): NormalizationResult {
   console.log('='.repeat(60));
   console.log('[normalizePanelWidths] 🎯 开始宽度归一化分析');
-  if (imageWidth) {
-    console.log(`[normalizePanelWidths] 📐 图片宽度: ${imageWidth}px`);
-  }
   console.log('='.repeat(60));
 
   if (panels.length === 0) {
@@ -848,30 +844,6 @@ export function normalizePanelWidths(
 
     const diffStr = oldWidth !== targetWidth ? ` (差 ${diff}px)` : '';
     console.log(`  ✅ Panel ${i + 1} [${panel.title}]: ${oldWidth}px → ${targetWidth}px${diffStr}`);
-  }
-
-  // 🌟 新增：居中逻辑（归一化完成后，强制将所有大panel居中）
-  if (imageWidth !== undefined && targetWidth !== null) {
-    console.log(`[normalizePanelWidths] 🎯 开始居中计算...`);
-    console.log(`  图片宽度: ${imageWidth}px`);
-    console.log(`  目标宽度: ${targetWidth}px`);
-
-    // 计算左边距：(图片宽度 - 归一化宽度) / 2
-    const leftMargin = Math.round((imageWidth - targetWidth) / 2);
-    console.log(`  大panel的左上角和左下角的x值: ${leftMargin}px`);
-
-    // 调整所有大panel的 x 坐标
-    for (let i = 0; i < panels.length; i++) {
-      const panel = panels[i];
-      const oldX = panel.x;
-      panel.x = leftMargin;
-      panel.blueBox.x = leftMargin;
-      panel.greenBox.x = leftMargin;
-
-      console.log(`  ✅ Panel ${i + 1} [${panel.title}]: X坐标 ${oldX}px → ${leftMargin}px`);
-    }
-
-    console.log(`[normalizePanelWidths] ✅ 居中完成！所有大panel已居中`);
   }
 
   console.log(`[normalizePanelWidths] ✅ 归一化完成！`);
