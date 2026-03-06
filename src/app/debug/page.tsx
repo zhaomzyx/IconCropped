@@ -1764,6 +1764,7 @@ export default function WikiDebugPage() {
                     </div>
                   </div>
                 </div>
+                )}
 
                 {/* 滑动窗口检测相关 */}
                 {!params.useBoundsDetection && (
