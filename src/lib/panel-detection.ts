@@ -30,6 +30,13 @@ export const DEFAULT_DETECTION_PARAMS = {
   gapX: 10,
   gapY: 0,
   varianceThreshold: 50,  // 空位探测器的方差阈值（与调试台一致）
+
+  // 滑动窗口检测参数
+  slidingWindowRows: 20,      // 红色横向矩形窗口高度（N行）
+  slidingWindowCols: 20,      // 蓝色竖向矩形窗口宽度（M列）
+  slidingWindowDiffThreshold: 30,  // 滑动窗口颜色差异阈值
+  slidingWindowStepSize: 5,   // 滑动窗口步长（像素）
+  slidingWindowMinGap: 50,    // 最小行/列间距（像素）
 };
 
 // 面板垂直范围

@@ -84,6 +84,13 @@ export default function WikiDebugPage() {
     iconLineOffset: 107,     // 第一行图标线相对于panel顶部的偏移
     iconLineGap: 144,        // 多行图标线之间的间距
     minIconsPerLine: 5,      // 每行最小图标数量（达到此数量才检测下一行）
+
+    // 滑动窗口检测参数
+    slidingWindowRows: 20,      // 红色横向矩形窗口高度（N行）
+    slidingWindowCols: 20,      // 蓝色竖向矩形窗口宽度（M列）
+    slidingWindowDiffThreshold: 30,  // 滑动窗口颜色差异阈值
+    slidingWindowStepSize: 5,   // 滑动窗口步长（像素）
+    slidingWindowMinGap: 50,    // 最小行/列间距（像素）
   };
 
   // 复制日志到剪贴板
@@ -1679,6 +1686,120 @@ export default function WikiDebugPage() {
                   </div>
                 </div>
 
+                {/* 滑动窗口检测相关 */}
+                <div className="border-l-4 border-purple-500 pl-4">
+                  <Label className="text-sm font-semibold text-purple-600 mb-3 block">滑动窗口检测 (Sliding Window)</Label>
+                  <p className="text-xs text-gray-500 mb-3">
+                    使用滑动窗口平均算法检测多行多列图标布局，红色横向矩形窗口检测行，蓝色竖向矩形窗口检测列
+                  </p>
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">窗口高度-行检测 (Window Height-Row)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.slidingWindowRows]}
+                          onValueChange={([v]) => handleParamChange('slidingWindowRows', v)}
+                          min={5}
+                          max={100}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.slidingWindowRows}
+                          onChange={(e) => handleParamChange('slidingWindowRows', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">红色横向矩形窗口高度（N行）</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">窗口宽度-列检测 (Window Width-Col)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.slidingWindowCols]}
+                          onValueChange={([v]) => handleParamChange('slidingWindowCols', v)}
+                          min={5}
+                          max={100}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.slidingWindowCols}
+                          onChange={(e) => handleParamChange('slidingWindowCols', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">蓝色竖向矩形窗口宽度（M列）</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">颜色差异阈值 (Diff Threshold)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.slidingWindowDiffThreshold]}
+                          onValueChange={([v]) => handleParamChange('slidingWindowDiffThreshold', v)}
+                          min={5}
+                          max={100}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.slidingWindowDiffThreshold}
+                          onChange={(e) => handleParamChange('slidingWindowDiffThreshold', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">相邻窗口平均颜色的最小差异值</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">步长 (Step Size)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.slidingWindowStepSize]}
+                          onValueChange={([v]) => handleParamChange('slidingWindowStepSize', v)}
+                          min={1}
+                          max={20}
+                          step={1}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.slidingWindowStepSize}
+                          onChange={(e) => handleParamChange('slidingWindowStepSize', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">滑动窗口每次移动的像素数</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-medium text-gray-600">最小间距 (Min Gap)</Label>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Slider
+                          value={[params.slidingWindowMinGap]}
+                          onValueChange={([v]) => handleParamChange('slidingWindowMinGap', v)}
+                          min={10}
+                          max={200}
+                          step={5}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          value={params.slidingWindowMinGap}
+                          onChange={(e) => handleParamChange('slidingWindowMinGap', parseInt(e.target.value) || 0)}
+                          className="w-20 text-center text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">行/列之间的最小间距（像素）</p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* 预设管理 */}
                 <div className="pt-4 border-t">
                   <Label className="text-sm font-semibold mb-3 block">预设管理</Label>
@@ -1875,6 +1996,14 @@ export default function WikiDebugPage() {
                 <span>红色框：图标裁切区域（基于中心点生成）</span>
               </div>
               <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-red-500 border-dashed" />
+                <span>红色虚线框：滑动窗口-行检测（横向矩形）</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-blue-500 border-dashed" />
+                <span>蓝色虚线框：滑动窗口-列检测（竖向矩形）</span>
+              </div>
+              <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-orange-500 border-dashed" />
                 <span>橙色虚线：扫描线</span>
               </div>
@@ -1886,6 +2015,11 @@ export default function WikiDebugPage() {
             <div className="mt-4 p-3 bg-blue-50 rounded border border-blue-200">
               <p className="text-sm text-blue-900">
                 <strong>💡 坐标显示说明：</strong>各框左上角会显示坐标值（格式：x,y）。裁切后的图片会自动在左下角添加红色坐标信息，便于对照验证。
+              </p>
+            </div>
+            <div className="mt-4 p-3 bg-purple-50 rounded border border-purple-200">
+              <p className="text-sm text-purple-900">
+                <strong>🔍 滑动窗口检测：</strong>使用滑动窗口平均算法检测多行多列图标布局。红色横向矩形窗口检测行，蓝色竖向矩形窗口检测列，窗口中心点作为图标起始坐标。
               </p>
             </div>
           </CardContent>
