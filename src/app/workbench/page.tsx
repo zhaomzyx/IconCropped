@@ -582,8 +582,83 @@ export default function WorkbenchPage() {
           setWikiProcessingStep(`🖼️ 正在处理第 ${i + 1}/${wikiFilenames.length} 张图片...`);
 
           try {
-            // 步骤1：调用前端 Canvas 滑动窗口算法（隐藏处理），获取图片上的所有信息
-            setWikiProcessingStep(`🔍 图片 ${i + 1}/${wikiFilenames.length} - 正在识别大板块和裁切坐标...`);
+            // 🌟 步骤0：LLM识别大板块（获取准确的Panel元数据）
+            setWikiProcessingStep(`🔍 图片 ${i + 1}/${wikiFilenames.length} - 正在识别大板块（LLM视觉识别）...`);
+
+            console.log(`[步骤0] 开始LLM识别，图片: ${filename}`);
+
+            // 构建process-image-stream请求参数
+            const processBody: any = {
+              filenames: [filename],
+              debug: true,  // 使用debug模式获取Panel元数据
+            };
+
+            // 如果是从Wiki URL获取的文件，提供wikiName
+            if (filename.startsWith('wiki-') && fetchedWikiFiles.includes(filename)) {
+              processBody.wikiName = actualWikiName;
+            }
+
+            // 调用process-image-stream获取LLM识别结果
+            const processRes = await fetch('/api/process-image-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(processBody),
+            });
+
+            if (!processRes.ok) {
+              throw new Error(`LLM识别失败: ${processRes.status}`);
+            }
+
+            // 读取SSE流
+            const reader = processRes.body?.getReader();
+            if (!reader) throw new Error('No reader');
+
+            const decoder = new TextDecoder();
+            let fullSSEContent = '';
+            let llmDetectedPanels: any[] = [];
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              const chunk = decoder.decode(value, { stream: true });
+              fullSSEContent += chunk;
+            }
+
+            // 解析SSE流，提取debug_complete事件
+            const lines = fullSSEContent.split('\n');
+            let currentEvent = '';
+            let currentData = '';
+            let isReadingData = false;
+
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+
+              if (trimmedLine.startsWith('event:')) {
+                currentEvent = trimmedLine.substring(6).trim();
+                currentData = '';
+                isReadingData = false;
+              } else if (trimmedLine.startsWith('data:')) {
+                currentData = trimmedLine.substring(5).trim();
+                isReadingData = true;
+              } else if (trimmedLine === '' && currentEvent && currentData) {
+                if (currentEvent === 'debug_complete') {
+                  const data = JSON.parse(currentData);
+                  llmDetectedPanels = data.debugPanels;
+                  console.log(`[步骤0] LLM识别完成，检测到 ${llmDetectedPanels.length} 个Panel`);
+                }
+                currentEvent = '';
+                currentData = '';
+                isReadingData = false;
+              }
+            }
+
+            if (llmDetectedPanels.length === 0) {
+              console.warn(`[步骤0] LLM未检测到Panel，使用纯前端检测`);
+            }
+
+            // 步骤1：调用前端 Canvas 滑动窗口算法（基于LLM识别的Panel元数据）
+            setWikiProcessingStep(`🔍 图片 ${i + 1}/${wikiFilenames.length} - 正在识别裁切坐标...`);
 
             console.log(`[步骤1] 开始前端检测，图片: ${filename}`);
 
@@ -597,11 +672,21 @@ export default function WorkbenchPage() {
               // 用户手动上传的文件通过 /api/uploads/wiki/ 访问
               imageUrl = `/api/uploads/wiki/${filename}`;
             }
-            
+
             console.log(`[步骤1] 图片URL: ${imageUrl}`);
 
-            // 使用纯前端检测算法
-            const detectedPanels = await detectWikiImage(imageUrl);
+            // 🌟 构建MetaPanel数据（从LLM识别结果中提取）
+            const metaPanels = llmDetectedPanels.map((panel: any) => ({
+              title: panel.title,
+              total: panel.total,
+              rows: panel.rows,
+              cols: panel.cols,
+            }));
+
+            console.log(`[步骤1] 传入的MetaPanel:`, JSON.stringify(metaPanels, null, 2));
+
+            // 使用纯前端检测算法，传入MetaPanel
+            const detectedPanels = await detectWikiImage(imageUrl, {}, metaPanels);
 
             console.log(`[步骤1] 前端检测完成，检测到 ${detectedPanels.length} 个面板`);
             console.log(`[步骤1] 检测结果:`, JSON.stringify(detectedPanels, null, 2));
