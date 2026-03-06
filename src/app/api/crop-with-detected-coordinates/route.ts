@@ -33,9 +33,18 @@ interface RedBox {
   col: number;
 }
 
+interface Coordinate {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface DetectedPanel {
   title: string;
-  redBoxes: RedBox[];
+  blueBox?: Coordinate;    // 🔧 添加：蓝框
+  greenBox?: Coordinate;   // 🔧 添加：绿框
+  redBoxes: RedBox[];      // 红框
 }
 
 // 使用前端 Canvas 检测的坐标进行裁切
@@ -55,16 +64,46 @@ export async function POST(request: NextRequest) {
     console.log(`  Wiki名称: ${wikiName || 'default'}`);
     console.log(`  检测到的面板数量: ${detectedPanels.length}`);
 
-    // 构建Wiki图片路径
+    // 🔧 添加：显示接收到的面板数据
+    console.log(`\n接收到的面板数据:`);
+    detectedPanels.forEach((panel, i) => {
+      console.log(`\n面板 ${i + 1}: ${panel.title}`);
+      if (panel.blueBox) {
+        console.log(`  蓝框: x=${panel.blueBox.x}, y=${panel.blueBox.y}, w=${panel.blueBox.width}, h=${panel.blueBox.height}`);
+      }
+      if (panel.greenBox) {
+        console.log(`  绿框: x=${panel.greenBox.x}, y=${panel.greenBox.y}, w=${panel.greenBox.width}, h=${panel.greenBox.height}`);
+      }
+      console.log(`  红框数量: ${panel.redBoxes.length}`);
+      if (panel.redBoxes.length > 0) {
+        panel.redBoxes.slice(0, 3).forEach((box: any, idx: number) => {
+          console.log(`    红框 #${idx + 1}: x=${box.x}, y=${box.y}, w=${box.width}, h=${box.height}, row=${box.row}, col=${box.col}`);
+        });
+      }
+    });
+
+    // 🔧 修复：统一使用 /tmp/uploads/wiki/ 路径，与调试台保持一致
     let wikiFilePath: string;
     let actualWikiName: string;
 
-    if (wikiName) {
-      wikiFilePath = path.join(cwd(), 'public', 'WikiPic', wikiName, filename);
-      actualWikiName = wikiName;
-    } else {
-      wikiFilePath = `/tmp/uploads/wiki/${filename}`;
-      actualWikiName = filename.replace(/\.[^/.]+$/, '');
+    // 优先使用 /tmp/uploads/wiki/ 路径（上传的图片路径）
+    const uploadPath = path.join('/tmp/uploads/wiki', filename);
+    try {
+      await fs.access(uploadPath);
+      wikiFilePath = uploadPath;
+      actualWikiName = wikiName || 'default';
+      console.log(`  从上传路径读取: ${wikiFilePath}`);
+    } catch (error) {
+      // 如果上传路径不存在，尝试从 public/WikiPic/ 读取
+      if (wikiName) {
+        wikiFilePath = path.join(cwd(), 'public', 'WikiPic', wikiName, filename);
+        actualWikiName = wikiName;
+        console.log(`  从WikiPic路径读取: ${wikiFilePath}`);
+      } else {
+        wikiFilePath = `/tmp/uploads/wiki/${filename}`;
+        actualWikiName = filename.replace(/\.[^/.]+$/, '');
+        console.log(`  使用默认路径: ${wikiFilePath}`);
+      }
     }
 
     console.log(`  Wiki图片路径: ${wikiFilePath}`);

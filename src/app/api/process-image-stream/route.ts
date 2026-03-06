@@ -490,23 +490,34 @@ JSON格式要求：
       throw new Error('无法解析LLM返回的JSON，返回内容不符合预期格式');
     }
 
-    // 🔧 修复LLM常见的JSON错误
-    let fixedJson = jsonMatch[0];
-
-    // 修复1: 修复缺失的 "y" 键名 (例如 "x":64,"38","width":900 → "x":64,"y":38,"width":900)
-    // 模式: 在数字后面跟着双引号的数字，表示缺失了键名
-    fixedJson = fixedJson.replace(/",(\d+),"/g, '","y":$1,"');
-
-    console.log(`  Fixed JSON (first 500 chars):`, fixedJson.substring(0, 500));
-
     let panels;
     try {
-      panels = JSON.parse(fixedJson);
+      panels = JSON.parse(jsonMatch[0]);
     } catch (parseError) {
       console.error(`  JSON parse error for panel detection:`, parseError);
       console.error(`  JSON text:`, jsonMatch[0]);
-      console.error(`  Fixed JSON:`, fixedJson);
-      throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
+
+      // 🔧 尝试修复常见的JSON格式错误
+      let fixedJsonText = jsonMatch[0];
+
+      // 修复1: 将 "x":123,"456" 替换为 "x":123,"y":456
+      fixedJsonText = fixedJsonText.replace(/"x"\s*:\s*(\d+)\s*,\s*"(\d+)"/g, '"x":$1,"y":$2');
+
+      // 修复2: 将 "title":"XXX","123","456" 替换为 "title":"XXX","x":123,"y":456
+      fixedJsonText = fixedJsonText.replace(/"title"\s*:\s*"([^"]+)"\s*,\s*"(\d+)"\s*,\s*"(\d+)"/g, '"title":"$1","x":$2,"y":$3');
+
+      // 修复3: 将 "title":"XXX","x":123,"456" 替换为 "title":"XXX","x":123,"y":456
+      fixedJsonText = fixedJsonText.replace(/"title"\s*:\s*"([^"]+)"\s*,\s*"x"\s*:\s*(\d+)\s*,\s*"(\d+)"/g, '"title":"$1","x":$2,"y":$3');
+
+      console.log(`  尝试修复后的JSON:`, fixedJsonText.substring(0, 500));
+
+      try {
+        panels = JSON.parse(fixedJsonText);
+        console.log(`  ✅ JSON修复成功！`);
+      } catch (retryError) {
+        console.error(`  JSON修复后仍然失败:`, retryError);
+        throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
+      }
     }
 
     console.log(`  LLM detected ${panels.length} panels:`, panels.map((p: any) => p.title).join(', '));

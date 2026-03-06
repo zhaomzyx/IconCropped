@@ -161,11 +161,21 @@ export default function WikiDebugPage() {
         if (saved) {
           const parsed = JSON.parse(saved);
           const mergedParams = { ...DEFAULT_PARAMS, ...parsed };
-          // 🌟 强制设置新参数的默认值（即使localStorage中有旧配置）
-          mergedParams.filterEmptyIcons = DEFAULT_PARAMS.filterEmptyIcons;
-          mergedParams.emptyIconVarianceThreshold = DEFAULT_PARAMS.emptyIconVarianceThreshold;
-          mergedParams.forceSquareOffsetX = DEFAULT_PARAMS.forceSquareOffsetX;
-          mergedParams.forceSquareOffsetY = DEFAULT_PARAMS.forceSquareOffsetY;
+          // 🌟 确保新参数有默认值（如果localStorage中没有）
+          if (parsed.filterEmptyIcons === undefined) {
+            mergedParams.filterEmptyIcons = DEFAULT_PARAMS.filterEmptyIcons;
+          }
+          if (parsed.emptyIconVarianceThreshold === undefined) {
+            mergedParams.emptyIconVarianceThreshold = DEFAULT_PARAMS.emptyIconVarianceThreshold;
+          }
+          // ⚠️ 不再强制覆盖偏移校准参数，允许用户自定义
+          // if (parsed.forceSquareOffsetX === undefined) {
+          //   mergedParams.forceSquareOffsetX = DEFAULT_PARAMS.forceSquareOffsetX;
+          // }
+          // if (parsed.forceSquareOffsetY === undefined) {
+          //   mergedParams.forceSquareOffsetY = DEFAULT_PARAMS.forceSquareOffsetY;
+          // }
+          console.log('[DebugPage] 从LocalStorage加载参数:', mergedParams);
           return mergedParams;
         }
       } catch (error) {
@@ -1171,6 +1181,29 @@ export default function WikiDebugPage() {
     }
   };
 
+  // 应用优化参数（基于实际调试测试）
+  const handleApplyOptimizedParams = () => {
+    const OPTIMIZED_PARAMS = {
+      boundsVarianceThresholdCol: 100,
+      boundsMinRowHeight: 135,
+      boundsMinColWidth: 135,
+      forceSquareOffsetX: -6,
+      forceSquareOffsetY: 0,
+      emptyIconVarianceThreshold: 20,
+    };
+
+    if (window.confirm('确定要应用优化参数吗？\n\n这将更新以下参数：\n' +
+      Object.entries(OPTIMIZED_PARAMS)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join('\n'))) {
+      const newParams = { ...params, ...OPTIMIZED_PARAMS };
+      setParams(newParams);
+      // 保存到 localStorage
+      saveParamsToStorage(newParams);
+      alert('优化参数已应用！');
+    }
+  };
+
   // 导出配置
   const handleExportConfig = () => {
     const config = {
@@ -1210,11 +1243,30 @@ export default function WikiDebugPage() {
 
         // 检查是否是有效的配置文件
         if (parsed.params && typeof parsed.params === 'object') {
-          const newParams = { ...DEFAULT_PARAMS, ...parsed.params };
+          // 🌟 只合并当前调试台支持的参数，过滤废弃参数
+          const validParams: Partial<typeof DEFAULT_PARAMS> = {};
+          Object.keys(DEFAULT_PARAMS).forEach(key => {
+            if (key in parsed.params) {
+              validParams[key as keyof typeof DEFAULT_PARAMS] = parsed.params[key];
+            }
+          });
+
+          const newParams = { ...DEFAULT_PARAMS, ...validParams };
+
+          // 🌟 检测到废弃参数时给出提示
+          const deprecatedKeys = Object.keys(parsed.params).filter(
+            key => !(key in DEFAULT_PARAMS)
+          );
+          if (deprecatedKeys.length > 0) {
+            console.warn('[导入配置] 检测到废弃参数，已忽略:', deprecatedKeys);
+            alert(`配置导入成功！\n\n注意：已忽略 ${deprecatedKeys.length} 个废弃参数：\n${deprecatedKeys.join(', ')}`);
+          } else {
+            alert('配置导入成功！');
+          }
+
           setParams(newParams);
           // 保存到 localStorage
           saveParamsToStorage(newParams);
-          alert('配置导入成功！');
         } else {
           throw new Error('配置格式无效');
         }
@@ -1931,7 +1983,7 @@ export default function WikiDebugPage() {
                 {/* 预设管理 */}
                 <div className="pt-4 border-t">
                   <Label className="text-sm font-semibold mb-3 block">预设管理</Label>
-                  <div className="flex gap-2 flex-wrap">
+                  <div className="flex gap-2 flex-wrap mb-3">
                     <Button
                       variant="outline"
                       size="sm"
@@ -1957,6 +2009,19 @@ export default function WikiDebugPage() {
                       导入配置
                     </Button>
                   </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleApplyOptimizedParams}
+                      className="flex-1 min-w-[120px] bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      ✨ 应用优化参数
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    应用基于实际调试测试的优化参数（偏移校准、边界检测等）
+                  </p>
                   <input
                     ref={fileInputRef}
                     type="file"
