@@ -9,6 +9,7 @@ import { detectPanels, DEFAULT_DETECTION_PARAMS, DetectedPanel } from '@/lib/pan
 // 发送SSE事件
 function sendEvent(stream: ReadableStreamDefaultController<any>, event: string, data: any) {
   const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  console.log(`[sendEvent] 发送事件: ${event}, 数据: ${JSON.stringify(data)}`);
   stream.enqueue(new TextEncoder().encode(message));
 }
 
@@ -331,8 +332,9 @@ export async function POST(request: NextRequest) {
 
           } catch (error: any) {
             console.error(`Failed to process image ${i}:`, error);
+            const errorMessage = error.message || error.toString() || '处理失败';
             sendEvent(controller, 'error', {
-              message: `✗ 图片 ${i + 1}/${filenames.length} 处理失败：${error.message}`,
+              message: `✗ 图片 ${i + 1}/${filenames.length} 处理失败：${errorMessage}`,
               currentImage: i + 1,
               totalImages: filenames.length,
               filename: filename
@@ -358,8 +360,10 @@ export async function POST(request: NextRequest) {
 
       } catch (error: any) {
         console.error('Process image stream error:', error);
+        const errorMessage = error.message || error.toString() || '处理失败';
+        console.error(`[sendEvent] 发送 error 事件，message: ${errorMessage}`);
         sendEvent(controller, 'error', {
-          message: error.message || '处理失败',
+          message: errorMessage,
           stack: error.stack
         });
         controller.close();

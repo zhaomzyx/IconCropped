@@ -1585,6 +1585,8 @@ export default function WikiDebugPage() {
                 logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
               } else if (currentEvent === 'error') {
                 console.error('✗ 收到错误事件:', data);
+                console.error('✗ 错误详情:', JSON.stringify(data));
+                console.error('✗ 原始数据:', currentData);
                 throw new Error(data.message || '处理过程中发生错误');
               }
             } catch (e) {
