@@ -781,17 +781,6 @@ export default function WikiDebugPage() {
           }
         });
 
-        // 只在选中时显示检测统计和调试信息
-        if (isSelected) {
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-          ctx.fillRect(scanX + scanWidth - 150, scanY, 150, 55);
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = '12px Arial';
-          ctx.fillText(`检测到: ${bounds.rows.length}行 × ${bounds.cols.length}列`, scanX + scanWidth - 145, scanY + 15);
-          ctx.fillText(`预计图标: ${bounds.rows.length * bounds.cols.length}个`, scanX + scanWidth - 145, scanY + 32);
-          ctx.fillText(`列扫描高度: ${Math.round(colScanHeight)}px`, scanX + scanWidth - 145, scanY + 49);
-        }
-
         // 绘制红色框（使用边界检测计算的精确边界）
         // 🌟 新功能：过滤空图标（没有内容的方框）
         const validIcons = boundsIcons.filter((icon) => {
@@ -832,10 +821,26 @@ export default function WikiDebugPage() {
         });
 
         console.log(`[空图标过滤] 原始图标数=${boundsIcons.length}, 有效图标数=${validIcons.length}, 过滤掉=${boundsIcons.length - validIcons.length}个`);
+        console.log(`[合成链信息] 该合成链包含 ${validIcons.length} 个合成物（小panel）`);
+        console.log(`  🌟 合成物数量: ${validIcons.length} 个（过滤掉 ${boundsIcons.length - validIcons.length} 个空方框）`);
+
+        // 只在选中时显示检测统计和调试信息（在validIcons声明之后）
+        if (isSelected) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.fillRect(scanX + scanWidth - 160, scanY, 160, 70);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = '12px Arial';
+          ctx.fillText(`检测到: ${bounds.rows.length}行 × ${bounds.cols.length}列`, scanX + scanWidth - 155, scanY + 15);
+          ctx.fillText(`预计图标: ${bounds.rows.length * bounds.cols.length}个`, scanX + scanWidth - 155, scanY + 32);
+          ctx.fillText(`合成物数量: ${validIcons.length}个`, scanX + scanWidth - 155, scanY + 49);
+          ctx.fillText(`列扫描高度: ${Math.round(colScanHeight)}px`, scanX + scanWidth - 155, scanY + 66);
+        }
 
         // 绘制有效的红色框
-        validIcons.forEach((icon) => {
+        validIcons.forEach((icon, iconIndex) => {
           const { leftX, topY, width, height, centerX, centerY, row, col } = icon;
+
+          console.log(`  合成物 #${iconIndex}: 行${row}列${col}, 位置(${Math.round(centerX)}, ${Math.round(centerY)})`);
 
           // 如果强制1:1比例，使用行高度作为图标尺寸
           let drawLeftX = leftX;
@@ -860,10 +865,15 @@ export default function WikiDebugPage() {
           ctx.lineWidth = 2;
           ctx.strokeRect(drawLeftX, drawTopY, drawWidth, drawHeight);
 
-          // 绘制序号（行列格式）
+          // 🌟 绘制线性序号（从左到右、从上到下，从0开始）
           ctx.fillStyle = '#EF4444';
-          ctx.font = '12px Arial';
-          ctx.fillText(`[${row},${col}]`, drawLeftX + 3, drawTopY + 15);
+          ctx.font = 'bold 14px Arial';
+          ctx.fillText(`${iconIndex}`, drawLeftX + 5, drawTopY + 18);
+
+          // 绘制行列信息（小字，右下角）
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.6)';
+          ctx.font = '8px monospace';
+          ctx.fillText(`[${row},${col}]`, drawLeftX + drawWidth - 25, drawTopY + drawHeight - 3);
 
           // 绘制红框坐标
           ctx.fillStyle = '#EF4444';
@@ -884,7 +894,7 @@ export default function WikiDebugPage() {
         });
 
         // 生成 redBoxes 数据（用于导出）
-        const redBoxes = validIcons.map((icon) => {
+        const redBoxes = validIcons.map((icon, iconIndex) => {
           const { leftX, topY, width, height, centerX, centerY, row, col } = icon;
 
           // 计算绘制时的实际坐标（考虑1:1强制）
@@ -906,6 +916,9 @@ export default function WikiDebugPage() {
             y: drawTopY,
             width: drawWidth,
             height: drawHeight,
+            iconIndex,  // 🌟 添加线性序号（从0开始）
+            row,         // 保留行列信息
+            col,
           };
         });
 
@@ -1251,6 +1264,7 @@ export default function WikiDebugPage() {
         logInfo(`  width=${detectedPanel.greenBox.width}, height=${detectedPanel.greenBox.height}`);
         logInfo(`[红框坐标]`);
         logInfo(`  检测到 ${detectedPanel.redBoxes.length} 个图标`);
+        logInfo(`  🌟 合成物数量: ${detectedPanel.redBoxes.length} 个`);
         logInfo(`  最终坐标:`);
         logInfo(`    BlueBox: x=${Math.round(detectedPanel.blueBox.x)}, y=${Math.round(detectedPanel.blueBox.y)}, w=${Math.round(detectedPanel.blueBox.width)}, h=${Math.round(detectedPanel.blueBox.height)}`);
         logInfo(`    GreenBox: x=${Math.round(detectedPanel.greenBox.x)}, y=${Math.round(detectedPanel.greenBox.y)}, w=${Math.round(detectedPanel.greenBox.width)}, h=${Math.round(detectedPanel.greenBox.height)}`);
@@ -1265,6 +1279,7 @@ export default function WikiDebugPage() {
           rows: panel.rows,
           cols: panel.cols,
           total: panel.total,
+          compositeCount: detectedPanel.redBoxes.length,  // 🌟 合成物数量（有效图标数量）
           imageUrl: imageUrl,
           blueBox: detectedPanel.blueBox,
           greenBox: detectedPanel.greenBox,
@@ -1274,7 +1289,7 @@ export default function WikiDebugPage() {
 
       // 显示调试信息
       const debugInfo = exportPanels.map((p, i) =>
-        `面板${i + 1}: x=${p.x}, y=${p.y}, w=${p.width}, h=${p.height}, icons=${p.redBoxes?.length || 0}`
+        `面板${i + 1}: x=${p.x}, y=${p.y}, w=${p.width}, h=${p.height}, 合成物=${p.compositeCount}个`
       ).join('\n');
 
       logInfo('=== 裁切坐标信息 ===\n' + debugInfo);
@@ -1363,16 +1378,22 @@ export default function WikiDebugPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {debugPanels.map((panel, idx) => (
-                    <Button
-                      key={idx}
-                      variant={selectedPanelIndex === idx ? 'default' : 'outline'}
-                      onClick={() => setSelectedPanelIndex(idx)}
-                      className="w-full"
-                    >
-                      {panel.title} ({panel.rows}x{panel.cols})
-                    </Button>
-                  ))}
+                  {debugPanels.map((panel, idx) => {
+                    const compositeCount = detectedPanels[idx]?.redBoxes?.length || 0;
+                    return (
+                      <Button
+                        key={idx}
+                        variant={selectedPanelIndex === idx ? 'default' : 'outline'}
+                        onClick={() => setSelectedPanelIndex(idx)}
+                        className="w-full justify-between"
+                      >
+                        <span>{panel.title} ({panel.rows}x{panel.cols})</span>
+                        <span className="ml-2 bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs">
+                          {compositeCount}个合成物
+                        </span>
+                      </Button>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -1413,6 +1434,14 @@ export default function WikiDebugPage() {
                           {Math.round(detectedPanels[selectedPanelIndex]?.blueBox.width || 0)} ×{' '}
                           {Math.round(detectedPanels[selectedPanelIndex]?.blueBox.height || 0)}
                         </>
+                      ) : '未检测'}
+                    </p>
+                    <p>
+                      <strong>🌟 合成物数量：</strong>
+                      {selectedPanelIndex < detectedPanels.length ? (
+                        <span className="text-purple-600 font-bold">
+                          {detectedPanels[selectedPanelIndex]?.redBoxes?.length || 0} 个
+                        </span>
                       ) : '未检测'}
                     </p>
                   </div>
