@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Upload, ArrowLeft, CheckCircle, AlertCircle, Link2, X, ChevronDown, FileImage, Package, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 import { ResourceItem, WikiCroppedImage, MappingRelation } from '@/types';
+import {
+  detectRowsBySlidingWindow,
+  detectColumnsBySlidingWindow,
+  detectIconPositionsBySlidingWindow,
+  detectAllBounds,
+  calculateIconPositionsFromBounds
+} from '@/lib/sliding-window-detection';
 
 // Wiki图片预览组件
 const WikiImagePreview = ({ filename, wikiName, onRemove }: { filename: string; wikiName?: string; onRemove: () => void }) => {
@@ -117,6 +124,54 @@ interface ProcessSummary {
   matchResult: any;
 }
 
+// 检测相关的类型定义
+interface DetectedPanel {
+  title: string;
+  blueBox: { x: number; y: number; width: number; height: number };
+  greenBox: { x: number; y: number; width: number; height: number };
+  redBoxes: Array<{ x: number; y: number; width: number; height: number }>;
+}
+
+interface PanelVerticalRange {
+  startY: number;
+  endY: number;
+}
+
+interface IconBoundary {
+  startX: number;
+  endX: number;
+  centerX: number;
+}
+
+interface PanelHorizontalRange {
+  startX: number;
+  endX: number;
+  icons: IconBoundary[];
+}
+
+// 默认检测参数（与调试台一致）
+const DEFAULT_DETECT_PARAMS = {
+  gridStartY: 107,
+  scanLineX: 49,
+  scanStartY: 200,
+  colorTolerance: 30,
+  sustainedPixels: 5,
+  colorToleranceX: 30,
+  sustainedPixelsX: 5,
+  boundsWindowHeight: 5,
+  boundsWindowWidth: 5,
+  boundsVarianceThresholdRow: 30,
+  boundsVarianceThresholdCol: 30,
+  boundsStepSize: 1,
+  boundsMinRowHeight: 20,
+  boundsMinColWidth: 20,
+  forceSquareIcons: true,
+  forceSquareOffsetX: 0,
+  forceSquareOffsetY: 0,
+  filterEmptyIcons: true,
+  emptyIconVarianceThreshold: 20,
+};
+
 export default function WorkbenchPage() {
   const [dragActive, setDragActive] = useState(false);
   const [wikiFiles, setWikiFiles] = useState<File[]>([]);
@@ -143,6 +198,359 @@ export default function WorkbenchPage() {
   const [isProcessingLocal, setIsProcessingLocal] = useState(false);  // 本地资源分析中
   const [wikiProcessingStep, setWikiProcessingStep] = useState('');  // Wiki处理步骤
   const [localProcessingStep, setLocalProcessingStep] = useState('');  // 本地资源处理步骤
+
+  // 添加隐藏的 Canvas 用于检测
+  const detectionCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // ===== 前端检测算法相关函数 =====
+
+  // 计算颜色方差（用于判断是否为空图标）
+  const calculateColorVariance = useCallback((imageData: ImageData, x: number, y: number, width: number, height: number): number => {
+    const { data } = imageData;
+    let rSum = 0, gSum = 0, bSum = 0;
+    let count = 0;
+
+    // 计算平均值
+    for (let py = y; py < y + height; py++) {
+      for (let px = x; px < x + width; px++) {
+        if (px < 0 || py < 0 || px >= imageData.width || py >= imageData.height) continue;
+        const idx = (py * imageData.width + px) * 4;
+        rSum += data[idx];
+        gSum += data[idx + 1];
+        bSum += data[idx + 2];
+        count++;
+      }
+    }
+
+    if (count === 0) return 0;
+
+    const rAvg = rSum / count;
+    const gAvg = gSum / count;
+    const bAvg = bSum / count;
+
+    // 计算方差
+    let variance = 0;
+    for (let py = y; py < y + height; py++) {
+      for (let px = x; px < x + width; px++) {
+        if (px < 0 || py < 0 || px >= imageData.width || py >= imageData.height) continue;
+        const idx = (py * imageData.width + px) * 4;
+        variance += Math.pow(data[idx] - rAvg, 2);
+        variance += Math.pow(data[idx + 1] - gAvg, 2);
+        variance += Math.pow(data[idx + 2] - bAvg, 2);
+      }
+    }
+
+    return variance / (count * 3);
+  }, []);
+
+  // 计算颜色差异
+  const colorDiff = (color1: [number, number, number], color2: [number, number, number]): number => {
+    return Math.max(
+      Math.abs(color1[0] - color2[0]),
+      Math.abs(color1[1] - color2[1]),
+      Math.abs(color1[2] - color2[2])
+    );
+  };
+
+  // Y轴检测（滑动窗口算法）
+  const scanVerticalLine = useCallback((
+    imageData: ImageData,
+    scanLineX: number,
+    scanStartY: number,
+    colorTolerance: number,
+    sustainedPixels: number,
+    width: number,
+    height: number
+  ): PanelVerticalRange[] => {
+    const { data } = imageData;
+    const panels: PanelVerticalRange[] = [];
+
+    if (scanLineX < 0 || scanLineX >= width || scanStartY < 0 || scanStartY >= height) {
+      return panels;
+    }
+
+    const getPixelColor = (x: number, y: number): [number, number, number] => {
+      const index = (y * width + x) * 4;
+      return [data[index], data[index + 1], data[index + 2]];
+    };
+
+    const backgroundColor = getPixelColor(scanLineX, scanStartY);
+
+    let inPanel = false;
+    let consecutiveBg = 0;
+    let consecutivePanel = 0;
+    let currentStartY = 0;
+
+    for (let y = scanStartY; y < height; y++) {
+      const currentColor = getPixelColor(scanLineX, y);
+      const diff = colorDiff(currentColor, backgroundColor);
+
+      if (diff > colorTolerance) {
+        consecutivePanel++;
+        consecutiveBg = 0;
+
+        if (!inPanel && consecutivePanel >= sustainedPixels) {
+          inPanel = true;
+          currentStartY = y - sustainedPixels + 1;
+        }
+      } else {
+        consecutiveBg++;
+        consecutivePanel = 0;
+
+        if (inPanel && consecutiveBg >= sustainedPixels) {
+          inPanel = false;
+          const endY = y - sustainedPixels + 1;
+          panels.push({ startY: currentStartY, endY });
+        }
+      }
+    }
+
+    return panels;
+  }, []);
+
+  // X轴检测（滑动窗口算法）
+  const scanHorizontalLine = useCallback((
+    imageData: ImageData,
+    scanY: number,
+    colorTolerance: number,
+    sustainedPixels: number,
+    width: number
+  ): PanelHorizontalRange | null => {
+    const { data } = imageData;
+
+    const getPixelColor = (x: number, y: number): [number, number, number] => {
+      const index = (y * width + x) * 4;
+      return [data[index], data[index + 1], data[index + 2]];
+    };
+
+    const backgroundColor = getPixelColor(0, scanY);
+
+    let inPanel = false;
+    let consecutiveBg = 0;
+    let consecutivePanel = 0;
+    let panelStartX = 0;
+    let panelEndX = 0;
+    let currentIconStart = 0;
+    const icons: IconBoundary[] = [];
+
+    for (let x = 0; x < width; x++) {
+      const currentColor = getPixelColor(x, scanY);
+      const diff = colorDiff(currentColor, backgroundColor);
+
+      if (diff > colorTolerance) {
+        consecutivePanel++;
+        consecutiveBg = 0;
+
+        if (!inPanel && consecutivePanel >= sustainedPixels) {
+          inPanel = true;
+          const iconStartX = x - sustainedPixels + 1;
+          currentIconStart = iconStartX;
+
+          if (icons.length === 0) {
+            panelStartX = iconStartX;
+          }
+        }
+      } else {
+        consecutiveBg++;
+        consecutivePanel = 0;
+
+        if (inPanel && consecutiveBg >= sustainedPixels) {
+          inPanel = false;
+          const iconEndX = x - sustainedPixels + 1;
+          const iconCenterX = (currentIconStart + iconEndX) / 2;
+          icons.push({ startX: currentIconStart, endX: iconEndX, centerX: iconCenterX });
+        }
+      }
+    }
+
+    if (inPanel) {
+      panelEndX = width;
+      const iconCenterX = (currentIconStart + panelEndX) / 2;
+      icons.push({ startX: currentIconStart, endX: panelEndX, centerX: iconCenterX });
+    } else {
+      if (icons.length > 0) {
+        const lastIcon = icons[icons.length - 1];
+        panelEndX = lastIcon.endX;
+      }
+    }
+
+    if (icons.length === 0) return null;
+
+    return { startX: panelStartX, endX: panelEndX, icons };
+  }, []);
+
+  // 使用前端 Canvas 滑动窗口算法检测图片（核心函数）
+  const detectImageWithCanvas = useCallback(async (
+    imageUrl: string
+  ): Promise<DetectedPanel[]> => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('无法创建 Canvas 上下文'));
+        return;
+      }
+
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const params = DEFAULT_DETECT_PARAMS;
+
+        // 1. Y轴检测：获得每个panel的Y坐标范围
+        const panelVerticalRanges = scanVerticalLine(
+          imageData,
+          params.scanLineX,
+          params.scanStartY,
+          params.colorTolerance,
+          params.sustainedPixels,
+          canvas.width,
+          canvas.height
+        );
+
+        if (panelVerticalRanges.length === 0) {
+          console.warn('[前端检测] 未检测到任何 panel');
+          resolve([]);
+          return;
+        }
+
+        console.log(`[前端检测] 检测到 ${panelVerticalRanges.length} 个 panel`);
+
+        // 2. X轴检测：对每个panel检测X坐标范围
+        const panelRanges = panelVerticalRanges.map((vRange, index) => {
+          const midY = Math.round((vRange.startY + vRange.endY) / 2);
+          const hRange = scanHorizontalLine(
+            imageData,
+            midY,
+            params.colorToleranceX,
+            params.sustainedPixelsX,
+            canvas.width
+          );
+
+          return {
+            startY: vRange.startY,
+            endY: vRange.endY,
+            startX: hRange?.startX ?? 0,
+            endX: hRange?.endX ?? 0,
+            width: hRange ? hRange.endX - hRange.startX : 0,
+            height: vRange.endY - vRange.startY,
+          };
+        });
+
+        // 3. 使用边界检测方法检测图标位置
+        const detectedPanels: DetectedPanel[] = [];
+
+        for (let i = 0; i < panelRanges.length; i++) {
+          const range = panelRanges[i];
+
+          // 蓝框（Panel外边缘）
+          const blueBox = {
+            x: range.startX,
+            y: range.startY,
+            width: range.width,
+            height: range.height,
+          };
+
+          // 绿框（标题区域）
+          const greenBox = {
+            x: range.startX,
+            y: range.startY,
+            width: range.width,
+            height: params.gridStartY,
+          };
+
+          // 边界检测参数
+          const padding = 10;
+          const scanX = range.startX + padding;
+          const scanY = range.startY + params.gridStartY + padding;
+          const scanWidth = range.width - padding * 2;
+          const scanHeight = range.height - params.gridStartY - padding * 2;
+
+          const bounds = detectAllBounds(
+            Buffer.from(imageData.data),
+            canvas.width,
+            scanX,
+            scanY,
+            scanWidth,
+            scanHeight,
+            {
+              windowHeight: params.boundsWindowHeight,
+              windowWidth: params.boundsWindowWidth,
+              varianceThresholdRow: params.boundsVarianceThresholdRow,
+              varianceThresholdCol: params.boundsVarianceThresholdCol,
+              stepSize: params.boundsStepSize,
+              minRowHeight: params.boundsMinRowHeight,
+              minColWidth: params.boundsMinColWidth,
+            }
+          );
+
+          const boundsIcons = calculateIconPositionsFromBounds(bounds);
+
+          // 过滤空图标
+          const validIcons = boundsIcons.filter((icon) => {
+            if (!params.filterEmptyIcons) return true;
+            const variance = calculateColorVariance(
+              imageData,
+              icon.leftX,
+              icon.topY,
+              icon.width,
+              icon.height
+            );
+            return variance >= params.emptyIconVarianceThreshold;
+          });
+
+          // 生成 redBoxes（考虑1:1强制）
+          const redBoxes = validIcons.map((icon) => {
+            const { leftX, topY, width, height, centerX, centerY } = icon;
+
+            let drawLeftX = leftX;
+            let drawTopY = topY;
+            let drawWidth = width;
+            let drawHeight = height;
+
+            if (params.forceSquareIcons) {
+              const squareSize = height;
+              drawWidth = squareSize;
+              drawHeight = squareSize;
+              drawLeftX = centerX - squareSize / 2;
+              drawTopY = centerY - squareSize / 2;
+              drawLeftX += params.forceSquareOffsetX;
+              drawTopY += params.forceSquareOffsetY;
+            }
+
+            return {
+              x: drawLeftX,
+              y: drawTopY,
+              width: drawWidth,
+              height: drawHeight,
+            };
+          });
+
+          detectedPanels.push({
+            title: `Panel_${i + 1}`,  // 前端无法识别标题，使用默认名称
+            blueBox,
+            greenBox,
+            redBoxes,
+          });
+
+          console.log(`[前端检测] Panel ${i + 1}: ${redBoxes.length} 个合成物`);
+        }
+
+        resolve(detectedPanels);
+      };
+
+      img.onerror = () => {
+        reject(new Error('图片加载失败'));
+      };
+
+      img.src = imageUrl;
+    });
+  }, [scanVerticalLine, scanHorizontalLine, calculateColorVariance]);
 
   // 预设Wiki URL列表
   const presetWikiUrls = [
@@ -537,162 +945,47 @@ export default function WorkbenchPage() {
         // 🔧 添加：确定实际的 wikiName
         const actualWikiName = fetchedWikiName || 'default';
 
-        // 逐张处理 Wiki 图片
+        // 逐张处理 Wiki 图片（使用前端 Canvas 滑动窗口算法）
         for (let i = 0; i < wikiFilenames.length; i++) {
           const filename = wikiFilenames[i];
           setWikiProcessingStep(`🖼️ 正在处理第 ${i + 1}/${wikiFilenames.length} 张图片...`);
 
           try {
-            // 1. 调用 debug=true 模式获取面板元数据和裁切坐标
+            // 步骤1：调用前端 Canvas 滑动窗口算法（隐藏处理），获取图片上的所有信息
             setWikiProcessingStep(`🔍 图片 ${i + 1}/${wikiFilenames.length} - 正在识别大板块和裁切坐标...`);
 
-            const debugResponse = await fetch('/api/process-image-stream', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                filenames: [filename],
-                wikiName: fetchedWikiName,  // 传递 wikiName 参数
-                debug: true,
-                params: customParams,  // 传递自定义参数
-              }),
-            });
+            console.log(`[步骤1] 开始前端 Canvas 检测，图片: ${filename}`);
 
-            if (!debugResponse.ok) {
-              throw new Error(`获取面板元数据失败: ${debugResponse.status}`);
+            // 构建图片URL
+            const imageUrl = `/api/uploads/wiki/${filename}`;
+            console.log(`[步骤1] 图片URL: ${imageUrl}`);
+
+            // 使用前端 Canvas 滑动窗口算法检测
+            const detectedPanels = await detectImageWithCanvas(imageUrl);
+
+            console.log(`[步骤1] 前端检测完成，检测到 ${detectedPanels.length} 个面板`);
+            console.log(`[步骤1] 检测结果:`, JSON.stringify(detectedPanels, null, 2));
+
+            if (detectedPanels.length === 0) {
+              throw new Error('未检测到任何面板，请检查图片是否正确');
             }
 
-            const reader = debugResponse.body?.getReader();
-            if (!reader) {
-              throw new Error('无法读取响应流');
-            }
-
-            const decoder = new TextDecoder();
-            let debugPanels: any[] = [];
-            let detectedPanels: any[] = [];
-            let imageMetadata: any = null;
-            let fullSSEContent = '';  // 收集完整的 SSE 内容
-
-            console.log('📡 开始读取 SSE 流...');
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) {
-                console.log('📡 SSE 流读取完成，总共接收 ' + fullSSEContent.length + ' 字节');
-                break;
-              }
-
-              const chunk = decoder.decode(value, { stream: true });
-              fullSSEContent += chunk;
-              console.log('📡 接收到 chunk (' + chunk.length + ' 字节)');
-            }
-
-            // 使用更健壮的 SSE 解析逻辑（支持多行 JSON）
-            console.log('📡 开始解析 SSE 流...');
-
-            // 按 SSE 协议规范解析：每个事件以 "event:" 开头，以空行结束
-            const lines = fullSSEContent.split('\n');
-            let currentEvent = '';
-            let currentData = '';
-            let isReadingData = false;
-
-            for (const line of lines) {
-              const trimmedLine = line.trim();
-
-              if (trimmedLine.startsWith('event:')) {
-                currentEvent = trimmedLine.substring(6).trim();
-                currentData = '';
-                isReadingData = false;
-              } else if (trimmedLine.startsWith('data:')) {
-                currentData = trimmedLine.substring(5).trim();
-                isReadingData = true;
-              } else if (trimmedLine === '' && currentEvent && currentData) {
-                // 空行表示事件结束，处理当前事件
-                console.log(`📡 解析到事件: ${currentEvent}`);
-
-                try {
-                  const data = JSON.parse(currentData);
-                  console.log(`📡 SSE 事件: ${currentEvent}, 数据解析成功`);
-
-                  if (currentEvent === 'debug_complete') {
-                    debugPanels = data.debugPanels || [];
-                    detectedPanels = data.detectedPanels || [];
-                    imageMetadata = data.imageMetadata;
-                    console.log(`✓ 接收到 debug_complete 事件`);
-                    console.log(`  debugPanels 数量: ${debugPanels.length}`);
-                    console.log(`  detectedPanels 数量: ${detectedPanels.length}`);
-                  } else if (currentEvent === 'error') {
-                    throw new Error(data.message || '处理失败');
-                  }
-                } catch (e) {
-                  console.error(`📡 事件 ${currentEvent} 的 JSON 解析失败:`, e, '原始数据:', currentData.substring(0, 100));
-                }
-
-                currentEvent = '';
-                currentData = '';
-                isReadingData = false;
-              } else if (isReadingData && trimmedLine.startsWith('{')) {
-                // 多行 JSON 数据（虽然当前后端不使用，但为了兼容性）
-                currentData += '\n' + trimmedLine;
-              }
-            }
-
-            // 处理最后一个事件（如果没有空行结束）
-            if (currentEvent && currentData) {
-              console.log(`📡 解析到最后一个事件: ${currentEvent}`);
-              try {
-                const data = JSON.parse(currentData);
-                if (currentEvent === 'debug_complete') {
-                  debugPanels = data.debugPanels || [];
-                  detectedPanels = data.detectedPanels || [];
-                  imageMetadata = data.imageMetadata;
-                  console.log(`✓ 接收到 debug_complete 事件`);
-                  console.log(`  debugPanels 数量: ${debugPanels.length}`);
-                  console.log(`  detectedPanels 数量: ${detectedPanels.length}`);
-                } else if (currentEvent === 'error') {
-                  throw new Error(data.message || '处理失败');
-                }
-              } catch (e) {
-                console.error(`📡 事件 ${currentEvent} 的 JSON 解析失败:`, e, '原始数据:', currentData.substring(0, 100));
-              }
-            }
-
-            console.log('📡 SSE 流解析完成');
-
-            console.log(`获取到 ${debugPanels.length} 个面板的元数据`);
-            console.log('📋 调试台返回的面板元数据:', debugPanels);
-            console.log(`获取到 ${detectedPanels.length} 个面板的裁切坐标`);
-            console.log('🎨 调试台返回的裁切坐标:', JSON.stringify(detectedPanels, null, 2));
-
-            // 🔧 清理 redBoxes 中的 row 和 col 字段，确保符合 API 格式
-            const cleanedDetectedPanels = detectedPanels.map((panel: any) => ({
-              ...panel,
-              redBoxes: panel.redBoxes?.map((box: any) => ({
-                x: box.x,
-                y: box.y,
-                width: box.width,
-                height: box.height,
-              })) || [],
-            }));
-
-            console.log(`🎨 清理后的裁切坐标:`, JSON.stringify(cleanedDetectedPanels, null, 2));
-
-            // 2. 将裁切坐标传给后端接口进行裁切
+            // 步骤2：根据获取的信息进行裁切
             setWikiProcessingStep(`✂️ 图片 ${i + 1}/${wikiFilenames.length} - 正在裁切图标...`);
 
-            console.log(`📤 准备发送裁切请求到后端接口`);
-            console.log('📤 发送给后端的裁切坐标:', JSON.stringify({
-              imageUrl: `/api/uploads/wiki/${filename}`,
-              debugPanels: cleanedDetectedPanels,
+            console.log(`[步骤2] 开始裁切，图片: ${filename}`);
+            console.log(`[步骤2] 发送给后端的裁切坐标:`, JSON.stringify({
+              imageUrl,
+              debugPanels: detectedPanels,
               wikiName: actualWikiName || 'default',
             }, null, 2));
 
-            // 🔧 修改：使用与调试台相同的 API，确保结果一致
             const cropResponse = await fetch('/api/crop-with-coordinates', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                imageUrl: `/api/uploads/wiki/${filename}`,
-                debugPanels: cleanedDetectedPanels,
+                imageUrl,
+                debugPanels: detectedPanels,
                 wikiName: actualWikiName || 'default',
               }),
             });
@@ -707,7 +1000,9 @@ export default function WorkbenchPage() {
               throw new Error(cropData.error || '裁切失败');
             }
 
-            // 🔧 修改：API返回的格式是 { results, total }，需要转换成 crops 格式
+            console.log(`[步骤2] 裁切完成，共裁切 ${cropData.total} 个图标`);
+
+            // 转换结果格式
             const convertedCrops: WikiCroppedImage[] = cropData.results.map((result: any) => ({
               path: result.filename,
               name: result.name,
@@ -715,7 +1010,7 @@ export default function WorkbenchPage() {
               col: result.col,
               totalRows: result.row + 1,
               totalCols: result.col + 1,
-              x: 0,  // 裁切后的图标不需要原始坐标
+              x: 0,
               y: 0,
               width: 0,
               height: 0,
@@ -728,6 +1023,8 @@ export default function WorkbenchPage() {
 
             allWikiCrops = [...allWikiCrops, ...convertedCrops];
             setWikiProcessingStep(`✓ 图片 ${i + 1}/${wikiFilenames.length} 处理完成，已切割 ${cropData.total} 个图标`);
+
+            // 步骤3：裁切完后通知下一张图片进行此流程（自动进入下一次循环）
           } catch (error) {
             console.error(`处理图片 ${filename} 失败:`, error);
             

@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
       }
       console.log(`  红框数量: ${panel.redBoxes.length}`);
       if (panel.redBoxes.length > 0) {
-        panel.redBoxes.slice(0, 3).forEach((box, idx) => {
+        panel.redBoxes.slice(0, 3).forEach((box: any, idx: number) => {
           console.log(`    红框 #${idx + 1}: x=${box.x}, y=${box.y}, w=${box.width}, h=${box.height}, row=${box.row}, col=${box.col}`);
         });
       }
