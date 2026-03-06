@@ -102,6 +102,10 @@ export default function WikiDebugPage() {
     boundsMinRowHeight: 20,     // 最小行高（过滤噪声）
     boundsMinColWidth: 20,      // 最小列宽（过滤噪声）
     forceSquareIcons: true,     // 强制图标为1:1正方形（基于行高度）
+
+    // 空图标过滤参数
+    filterEmptyIcons: true,     // 是否过滤空图标（没有内容的方框）
+    emptyIconVarianceThreshold: 20,  // 判断空图标的方差阈值（低于此值视为空）
   };
 
   // 复制日志到剪贴板
@@ -716,13 +720,6 @@ export default function WikiDebugPage() {
           height: params.gridStartY,
         };
 
-        const redBoxes = boundsIcons.map((icon) => ({
-          x: icon.leftX,
-          y: icon.topY,
-          width: icon.width,
-          height: icon.height,
-        }));
-
         // 绘制行列边界线（始终显示，选中的更明显）
         const rowStrokeColor = isSelected ? '#22C55E' : 'rgba(34, 197, 94, 0.4)';
         const rowLineWidth = isSelected ? 2 : 1;
@@ -792,7 +789,48 @@ export default function WikiDebugPage() {
         }
 
         // 绘制红色框（使用边界检测计算的精确边界）
-        boundsIcons.forEach((icon) => {
+        // 🌟 新功能：过滤空图标（没有内容的方框）
+        const validIcons = boundsIcons.filter((icon) => {
+          if (!params.filterEmptyIcons) return true;
+
+          // 计算绘制时的实际坐标（考虑1:1强制）
+          const { leftX, topY, width, height, centerX, centerY, row, col } = icon;
+
+          let drawLeftX = leftX;
+          let drawTopY = topY;
+          let drawWidth = width;
+          let drawHeight = height;
+
+          if (params.forceSquareIcons) {
+            const squareSize = height;
+            drawWidth = squareSize;
+            drawHeight = squareSize;
+            drawLeftX = centerX - squareSize / 2;
+            drawTopY = centerY - squareSize / 2;
+          }
+
+          // 计算绘制区域的方差
+          const variance = calculateColorVariance(
+            imageData,
+            drawLeftX,
+            drawTopY,
+            drawWidth,
+            drawHeight
+          );
+
+          // 如果方差小于阈值，认为是空图标，过滤掉
+          const isEmpty = variance < params.emptyIconVarianceThreshold;
+          if (isEmpty) {
+            console.log(`  [过滤空图标] [${icon.row},${icon.col}] 方差=${variance.toFixed(2)} < 阈值=${params.emptyIconVarianceThreshold}`);
+          }
+
+          return !isEmpty;
+        });
+
+        console.log(`[空图标过滤] 原始图标数=${boundsIcons.length}, 有效图标数=${validIcons.length}, 过滤掉=${boundsIcons.length - validIcons.length}个`);
+
+        // 绘制有效的红色框
+        validIcons.forEach((icon) => {
           const { leftX, topY, width, height, centerX, centerY, row, col } = icon;
 
           // 如果强制1:1比例，使用行高度作为图标尺寸
@@ -839,6 +877,32 @@ export default function WikiDebugPage() {
             ctx.arc(drawCenterX, drawCenterY, 3, 0, 2 * Math.PI);
             ctx.fill();
           }
+        });
+
+        // 生成 redBoxes 数据（用于导出）
+        const redBoxes = validIcons.map((icon) => {
+          const { leftX, topY, width, height, centerX, centerY, row, col } = icon;
+
+          // 计算绘制时的实际坐标（考虑1:1强制）
+          let drawLeftX = leftX;
+          let drawTopY = topY;
+          let drawWidth = width;
+          let drawHeight = height;
+
+          if (params.forceSquareIcons) {
+            const squareSize = height;
+            drawWidth = squareSize;
+            drawHeight = squareSize;
+            drawLeftX = centerX - squareSize / 2;
+            drawTopY = centerY - squareSize / 2;
+          }
+
+          return {
+            x: drawLeftX,
+            y: drawTopY,
+            width: drawWidth,
+            height: drawHeight,
+          };
         });
 
         currentDetectedPanels.push({
@@ -1736,7 +1800,7 @@ export default function WikiDebugPage() {
 
                     <div className="pt-4 border-t border-indigo-200">
                       <Label className="text-xs font-semibold text-indigo-700 mb-3 block">图标形状设置</Label>
-                      <div className="flex items-center justify-between p-3 bg-indigo-100 rounded">
+                      <div className="flex items-center justify-between p-3 bg-indigo-100 rounded mb-3">
                         <div>
                           <Label className="text-sm font-medium text-indigo-800">强制1:1比例</Label>
                           <p className="text-xs text-indigo-600 mt-1">强制所有图标为正方形（基于行高度）</p>
@@ -1748,6 +1812,40 @@ export default function WikiDebugPage() {
                           onChange={(e) => handleParamChange('forceSquareIcons', e.target.checked)}
                           className="w-5 h-5 text-indigo-600 rounded cursor-pointer"
                         />
+                      </div>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 bg-purple-50 rounded">
+                          <div>
+                            <Label className="text-sm font-medium text-purple-800">过滤空图标</Label>
+                            <p className="text-xs text-purple-600 mt-1">自动过滤没有内容的方框</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            id="filterEmptyIcons"
+                            checked={params.filterEmptyIcons}
+                            onChange={(e) => handleParamChange('filterEmptyIcons', e.target.checked)}
+                            className="w-5 h-5 text-purple-600 rounded cursor-pointer"
+                          />
+                        </div>
+                        {params.filterEmptyIcons && (
+                          <div className="p-3 bg-purple-50 rounded">
+                            <div className="flex items-center justify-between mb-2">
+                              <Label className="text-sm font-medium text-purple-800">空图标方差阈值</Label>
+                              <span className="text-sm font-bold text-purple-700">{params.emptyIconVarianceThreshold}</span>
+                            </div>
+                            <Slider
+                              value={[params.emptyIconVarianceThreshold]}
+                              onValueChange={(value) => handleParamChange('emptyIconVarianceThreshold', value[0])}
+                              min={5}
+                              max={100}
+                              step={5}
+                              className="w-full"
+                            />
+                            <p className="text-xs text-purple-600 mt-1">
+                              方差低于此值的方框会被过滤掉（建议值：15-30）
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
