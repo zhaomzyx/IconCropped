@@ -86,8 +86,6 @@ export default function WikiDebugPage() {
     // X轴检测参数（用于检测panel宽度和小panel位置）
     colorToleranceX: 30,     // X轴颜色容差值
     sustainedPixelsX: 5,     // X轴连续判定宽度
-    // 🌟 X轴偏移校准（用于调整蓝框的X坐标）
-    offsetX: 0,              // 蓝框X轴偏移（像素，正数向右，负数向左）
     // 多行图标检测参数
     iconLineOffset: 107,     // 第一行图标线相对于panel顶部的偏移
     iconLineGap: 144,        // 多行图标线之间的间距
@@ -348,27 +346,14 @@ export default function WikiDebugPage() {
   ): PanelHorizontalRange | null => {
     const { data } = imageData;
 
-    // 获取像素颜色
+    // 获取背景色（从左边开始）
     const getPixelColor = (x: number, y: number): [number, number, number] => {
       const index = (y * width + x) * 4;
       return [data[index], data[index + 1], data[index + 2]];
     };
 
-    // 🌟 优化：从左侧多个位置采样背景色，确保背景色准确
-    // 从左侧 5px-20px 位置采样，避免可能的装饰边框
-    const samplePositions = [5, 10, 15, 20];
-    const backgroundColors = samplePositions.map(x => getPixelColor(x, scanY));
-    
-    // 计算平均背景色
-    const backgroundColor = [
-      Math.round(backgroundColors.reduce((sum, c) => sum + c[0], 0) / backgroundColors.length),
-      Math.round(backgroundColors.reduce((sum, c) => sum + c[1], 0) / backgroundColors.length),
-      Math.round(backgroundColors.reduce((sum, c) => sum + c[2], 0) / backgroundColors.length)
-    ] as [number, number, number];
-    
-    console.log(`[X轴检测] 扫描线 Y: ${scanY}`);
-    console.log(`[X轴检测] 采样位置: x=${samplePositions.join(', ')}`);
-    console.log(`[X轴检测] 背景色: (${backgroundColor.join(', ')}) (平均值)`);
+    const backgroundColor = getPixelColor(0, scanY);
+    console.log(`[X轴检测] 扫描线 Y: ${scanY}, 背景色: (${backgroundColor.join(', ')})`);
     console.log(`[X轴检测] 参数: colorTolerance=${colorTolerance}, sustainedPixels=${sustainedPixels}`);
 
     // 滑动窗口算法
@@ -696,25 +681,24 @@ export default function WikiDebugPage() {
           console.log(`  🌟 归一化后宽度 = ${currentDetectedPanel.width}px`);
         }
 
-        // 绘制蓝色框（Panel外边缘）- 🌟 使用归一化后的宽度 + X轴偏移
-        const adjustedStartX = range.startX + params.offsetX;
+        // 绘制蓝色框（Panel外边缘）- 🌟 使用归一化后的宽度
         ctx.strokeStyle = isSelected ? '#3B82F6' : '#93C5FD';
         ctx.lineWidth = isSelected ? 3 : 2;
-        ctx.strokeRect(adjustedStartX, range.startY, range.width, range.height);
+        ctx.strokeRect(range.startX, range.startY, range.width, range.height);
 
         // 绘制蓝框坐标
         ctx.fillStyle = isSelected ? '#3B82F6' : '#93C5FD';
         ctx.font = '10px monospace';
         ctx.fillText(
-          `(${Math.round(adjustedStartX)}, ${Math.round(range.startY)}) ${Math.round(range.width)}x${Math.round(range.height)}`,
-          adjustedStartX + 5,
+          `(${Math.round(range.startX)}, ${Math.round(range.startY)}) ${Math.round(range.width)}x${Math.round(range.height)}`,
+          range.startX + 5,
           range.startY + 12
         );
 
-        // 绘制绿色框（标题区域）- 🌟 使用归一化后的宽度 + X轴偏移
+        // 绘制绿色框（标题区域）- 🌟 使用归一化后的宽度
         ctx.strokeStyle = '#22C55E';
         ctx.lineWidth = 2;
-        ctx.strokeRect(adjustedStartX, range.startY, range.width, params.gridStartY);
+        ctx.strokeRect(range.startX, range.startY, range.width, params.gridStartY);
 
         // 绘制绿框坐标
         ctx.fillStyle = '#22C55E';
