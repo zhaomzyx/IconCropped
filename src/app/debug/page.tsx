@@ -201,101 +201,6 @@ export default function WikiDebugPage() {
     return variance / (count * 3); // 返回平均方差
   };
 
-  // 计算图标位置（支持 total 限制 + 空图标过滤）- 使用中心点定位
-  const calculateIconPositions = useCallback((
-    panel: DebugPanel,
-    panelY: number,
-    ctx: CanvasRenderingContext2D
-  ): IconPosition[] => {
-    const { width, rows, cols, total } = panel;
-    const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, iconCenterOffsetX, iconCenterOffsetY } = params;
-
-    // 计算面板的左上角坐标（直接使用扫描线检测的坐标）
-    const panelX = panel.x;
-
-    // 首个中心点坐标（都基于检测到的 panelX 和 panelY）
-    const firstCenterX = panelX + gridStartX + iconCenterOffsetX;
-    const firstCenterY = panelY + gridStartY + iconCenterOffsetY;
-
-    const positions: IconPosition[] = [];
-    let count = 0;
-    const maxCount = total ?? (rows * cols); // 如果没有 total，则使用 rows * cols
-    const coreSize = 30; // 核心区域大小（正方形）
-    const varianceThreshold = 50; // 方差阈值，小于此值判定为空图标（降低阈值以提高灵敏度）
-
-    // 获取完整的像素数据
-    const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-    console.log(`  [详细坐标分析]`);
-    console.log(`    输入参数:`);
-    console.log(`      panel.x=${panel.x}, panel.y=${panel.y}`);
-    console.log(`      gridStartX=${gridStartX}, gridStartY=${gridStartY}`);
-    console.log(`      iconCenterOffsetX=${iconCenterOffsetX}, iconCenterOffsetY=${iconCenterOffsetY}`);
-    console.log(`    计算过程:`);
-    console.log(`      panelX = panel.x = ${panelX}`);
-    console.log(`      panelY = ${panelY}`);
-    console.log(`      firstCenterX = panelX + gridStartX + iconCenterOffsetX = ${panelX} + ${gridStartX} + ${iconCenterOffsetX} = ${firstCenterX}`);
-    console.log(`      firstCenterY = panelY + gridStartY + iconCenterOffsetY = ${panelY} + ${gridStartY} + ${iconCenterOffsetY} = ${firstCenterY}`);
-    console.log(`    首个图标左上角:`);
-    console.log(`      x = firstCenterX - iconSize/2 = ${firstCenterX} - ${iconSize/2} = ${firstCenterX - iconSize/2}`);
-    console.log(`      y = firstCenterY - iconSize/2 = ${firstCenterY} - ${iconSize/2} = ${firstCenterY - iconSize/2}`);
-
-    console.log(`  开始扫描图标位置，rows=${rows}, cols=${cols}, maxCount=${maxCount}`);
-    console.log(`  方差阈值: ${varianceThreshold}, 核心区域大小: ${coreSize}x${coreSize}`);
-    console.log(`  首个中心点: (${firstCenterX}, ${firstCenterY}), 中心点间距: X=${centerGapX}, Y=${centerGapY}`);
-
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        // 检查是否超过总数
-        if (count >= maxCount) {
-          break;
-        }
-
-        // 计算中心点坐标
-        const centerX = Math.round(firstCenterX + col * centerGapX);
-        const centerY = Math.round(firstCenterY + row * centerGapY);
-
-        // 从中心点计算左上角坐标（用于红框绘制）
-        const x = centerX - Math.round(iconSize / 2);
-        const y = centerY - Math.round(iconSize / 2);
-
-        // 获取icon中心区域的像素（用于检测空图标）
-        const coreX = centerX - Math.floor(coreSize / 2);
-        const coreY = centerY - Math.floor(coreSize / 2);
-
-        // 计算中心区域的颜色方差
-        const variance = calculateColorVariance(imageData, coreX, coreY, coreSize, coreSize);
-
-        const hasIcon = variance >= varianceThreshold;
-
-        console.log(`  [${row}, ${col}] 中心点: center(${centerX}, ${centerY}), 左上角: x=${x}, y=${y}, 方差=${variance.toFixed(2)}, ${hasIcon ? '✓ 有图标' : '✗ 空图标'}`);
-
-        if (hasIcon) {
-          positions.push({
-            x,  // 左上角 X
-            y,  // 左上角 Y
-            width: iconSize,
-            height: iconSize,
-            row,
-            col,
-          });
-          count++;
-        } else {
-          // 遇到空图标，直接结束当前面板的扫描
-          console.log(`  遇到空图标，结束面板扫描。共找到 ${positions.length} 个有效图标`);
-          return positions;
-        }
-      }
-      // 外层循环也需要检查，避免不必要的行
-      if (count >= maxCount) {
-        break;
-      }
-    }
-
-    console.log(`  扫描完成，共找到 ${positions.length} 个有效图标`);
-    return positions;
-  }, [params]);
-
   // 计算颜色差异
   const colorDiff = (color1: [number, number, number], color2: [number, number, number]): number => {
     return Math.max(
@@ -720,13 +625,23 @@ export default function WikiDebugPage() {
         // 使用边界检测方法检测图标位置
         console.log(`[检测方法] 使用边界检测方法`);
 
+        // 缩小扫描范围10像素，减少边界噪音
+        const padding = 10;
+        const scanX = range.startX + padding;
+        const scanY = range.startY + padding;
+        const scanWidth = range.width - padding * 2;
+        const scanHeight = range.height - padding * 2;
+
+        console.log(`[扫描范围] 原始: (${range.startX}, ${range.startY}) ${range.width}x${range.height}`);
+        console.log(`[扫描范围] 缩小: (${scanX}, ${scanY}) ${scanWidth}x${scanHeight}`);
+
         const bounds = detectAllBounds(
           Buffer.from(imageData.data),
           canvas.width,
-          range.startX,
-          range.startY,
-          range.width,
-          range.height,
+          scanX,
+          scanY,
+          scanWidth,
+          scanHeight,
           {
             windowHeight: params.boundsWindowHeight,
             windowWidth: params.boundsWindowWidth,
@@ -740,11 +655,28 @@ export default function WikiDebugPage() {
 
         console.log(`[边界检测] Panel: ${panel.title}`);
         console.log(`  检测到 ${bounds.rows.length} 行, ${bounds.cols.length} 列`);
+
+        // 警告：如果没有检测到行列
+        if (bounds.rows.length === 0) {
+          console.warn(`  ⚠️ 未检测到任何行！请调整行检测参数：`);
+          console.warn(`    - 增大窗口高度 (当前: ${params.boundsWindowHeight})`);
+          console.warn(`    - 降低行检测方差阈值 (当前: ${params.boundsVarianceThresholdRow})`);
+          console.warn(`    - 降低最小行高 (当前: ${params.boundsMinRowHeight})`);
+        }
+
+        if (bounds.cols.length === 0) {
+          console.warn(`  ⚠️ 未检测到任何列！请调整列检测参数：`);
+          console.warn(`    - 增大窗口宽度 (当前: ${params.boundsWindowWidth})`);
+          console.warn(`    - 降低列检测方差阈值 (当前: ${params.boundsVarianceThresholdCol})`);
+          console.warn(`    - 降低最小列宽 (当前: ${params.boundsMinColWidth})`);
+        }
+
         if (bounds.rows.length > 0) {
           bounds.rows.forEach((row, i) => {
             console.log(`  行 ${i}: y=${row.topY} ~ ${row.bottomY}, 高度=${row.height}`);
           });
         }
+
         if (bounds.cols.length > 0) {
           bounds.cols.forEach((col, i) => {
             console.log(`  列 ${i}: x=${col.leftX} ~ ${col.rightX}, 宽度=${col.width}`);
@@ -782,17 +714,17 @@ export default function WikiDebugPage() {
             ctx.strokeStyle = '#22C55E'; // 绿色
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.moveTo(range.startX, row.topY);
-            ctx.lineTo(range.startX + range.width, row.topY);
+            ctx.moveTo(scanX, row.topY);
+            ctx.lineTo(scanX + scanWidth, row.topY);
             ctx.stroke();
-            ctx.moveTo(range.startX, row.bottomY);
-            ctx.lineTo(range.startX + range.width, row.bottomY);
+            ctx.moveTo(scanX, row.bottomY);
+            ctx.lineTo(scanX + scanWidth, row.bottomY);
             ctx.stroke();
 
             // 标注行号
             ctx.fillStyle = '#22C55E';
             ctx.font = '10px Arial';
-            ctx.fillText(`y${row.rowIndex}=${Math.round(row.topY)}`, range.startX + 5, row.topY - 3);
+            ctx.fillText(`行${row.rowIndex}: y=${Math.round(row.topY)}~${Math.round(row.bottomY)}`, scanX + 5, row.topY - 3);
           });
 
           // 绘制列边界（红色竖线）
@@ -800,18 +732,26 @@ export default function WikiDebugPage() {
             ctx.strokeStyle = '#EF4444'; // 红色
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.moveTo(col.leftX, range.startY);
-            ctx.lineTo(col.leftX, range.startY + range.height);
+            ctx.moveTo(col.leftX, scanY);
+            ctx.lineTo(col.leftX, scanY + scanHeight);
             ctx.stroke();
-            ctx.moveTo(col.rightX, range.startY);
-            ctx.lineTo(col.rightX, range.startY + range.height);
+            ctx.moveTo(col.rightX, scanY);
+            ctx.lineTo(col.rightX, scanY + scanHeight);
             ctx.stroke();
 
             // 标注列号
             ctx.fillStyle = '#EF4444';
             ctx.font = '10px Arial';
-            ctx.fillText(`x${col.colIndex}=${Math.round(col.leftX)}`, col.leftX + 3, range.startY + 12);
+            ctx.fillText(`列${col.colIndex}: x=${Math.round(col.leftX)}~${Math.round(col.rightX)}`, col.leftX + 3, scanY + 12);
           });
+
+          // 在右上角显示检测统计
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.fillRect(scanX + scanWidth - 150, scanY, 150, 40);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = '12px Arial';
+          ctx.fillText(`检测到: ${bounds.rows.length}行 × ${bounds.cols.length}列`, scanX + scanWidth - 145, scanY + 15);
+          ctx.fillText(`预计图标: ${bounds.rows.length * bounds.cols.length}个`, scanX + scanWidth - 145, scanY + 32);
         }
 
         // 绘制红色框（使用边界检测计算的精确边界）
@@ -822,10 +762,10 @@ export default function WikiDebugPage() {
           ctx.lineWidth = 2;
           ctx.strokeRect(leftX, topY, width, height);
 
-          // 绘制序号
+          // 绘制序号（行列格式）
           ctx.fillStyle = '#EF4444';
           ctx.font = '12px Arial';
-          ctx.fillText(`#${row * bounds.cols.length + col + 1}`, leftX + 3, topY + 15);
+          ctx.fillText(`[${row},${col}]`, leftX + 3, topY + 15);
 
           // 绘制红框坐标
           ctx.fillStyle = '#EF4444';
@@ -912,7 +852,7 @@ export default function WikiDebugPage() {
 
     // 设置图片源（触发加载）
     img.src = imageUrl;
-  }, [imageUrl, debugPanels, selectedPanelIndex, params, scanVerticalLine, scanHorizontalLine, calculateIconPositions]);
+  }, [imageUrl, debugPanels, selectedPanelIndex, params, scanVerticalLine, scanHorizontalLine]);
 
   // 重新绘制Canvas
   useEffect(() => {
@@ -1582,13 +1522,12 @@ export default function WikiDebugPage() {
                     </div>
                   </div>
                 </div>
-                )}
 
-                {/* 边界检测相关 */}
+                {/* Bounds Detection */}
                 <div className="border-l-4 border-indigo-500 pl-4 bg-indigo-50 p-3 rounded">
-                  <Label className="text-sm font-semibold text-indigo-600 mb-3 block">边界检测 (Bounds Detection) - 精确边界检测</Label>
+                  <Label className="text-sm font-semibold text-indigo-600 mb-3 block">Bounds Detection</Label>
                   <p className="text-xs text-indigo-700 mb-3">
-                    ✨ 使用滑动窗口颜色波动精确检测行和列的边界，返回精确的顶点、底点、左边界、右边界
+                    Use sliding window color variance to detect row and column boundaries precisely.
                   </p>
 
                   <div className="space-y-4">
@@ -1889,28 +1828,6 @@ export default function WikiDebugPage() {
                   </p>
                 </div>
               )}
-
-              <div className="mt-4 p-3 bg-yellow-100 rounded">
-                <strong>红框坐标示例（选中面板的第一个图标）：</strong>
-                {selectedPanelIndex < debugPanels.length && (() => {
-                  const positions = calculateIconPositions(
-                    debugPanels[selectedPanelIndex],
-                    0, // 只用于示例
-                    canvasRef.current.getContext('2d')!
-                  );
-                  if (positions.length > 0) {
-                    const pos = positions[0];
-                    return (
-                      <div className="mt-2 text-xs">
-                        <p>左上角：x={pos.x}, y={pos.y}</p>
-                        <p>中心点：x={pos.x + Math.round(pos.width / 2)}, y={pos.y + Math.round(pos.height / 2)}</p>
-                        <p>尺寸：{pos.width} x {pos.height}</p>
-                      </div>
-                    );
-                  }
-                  return <p className="mt-2">无图标</p>
-                })()}
-              </div>
             </CardContent>
           </Card>
         );
