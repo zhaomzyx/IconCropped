@@ -1400,7 +1400,13 @@ export default function WikiDebugPage() {
 
       if (result.success) {
         setCropResults(result.results);
-        alert(`裁切成功！共裁切 ${result.total} 个icon\n\n结果已保存到 public/wiki-cropped/travel-town/`);
+
+        // 🌟 从 imageUrl 中提取图片名称
+        const imageName = imageUrl.includes('/')
+          ? imageUrl.split('/').pop()?.split('.')[0]
+          : 'default';
+
+        alert(`裁切成功！共裁切 ${result.total} 个icon\n\n结果已保存到 public/wiki-cropped/${imageName}/`);
         logInfo('裁切结果:', result.results);
       } else {
         throw new Error(result.error || '裁切失败');

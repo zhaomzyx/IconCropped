@@ -123,7 +123,8 @@ async function cropIconFromRedBox(
   iconIndex: number,
   row: number,
   col: number,
-  wikiName: string
+  wikiName: string,
+  imageName: string  // 🌟 新增：图片名称（用于创建文件夹）
 ): Promise<CropResult> {
   // 裁切红框区域（直接裁切，不添加坐标标注）
   // 🔧 修复：sharp.extract要求整数参数，将浮点数四舍五入
@@ -140,8 +141,8 @@ async function cropIconFromRedBox(
   // 🔧 修改：文件名使用线性序号（标题_序号.png），序号从0开始
   const filename = `${panelTitle}_${iconIndex}.png`;
 
-  // 保存icon到public/wiki-cropped/wikiName/目录
-  const outputDir = path.join(cwd(), 'public', 'wiki-cropped', wikiName);
+  // 🌟 修改：保存icon到public/wiki-cropped/{图片名称}/目录
+  const outputDir = path.join(cwd(), 'public', 'wiki-cropped', imageName);
   await fs.mkdir(outputDir, { recursive: true });
 
   const outputPath = path.join(outputDir, filename);
@@ -157,7 +158,7 @@ async function cropIconFromRedBox(
     row,
     col,
     wikiName,
-    imageUrl: `/wiki-cropped/${wikiName}/${filename}`,
+    imageUrl: `/wiki-cropped/${imageName}/${filename}`,  // 🌟 修改：使用图片名称作为路径
   };
 }
 
@@ -180,6 +181,17 @@ export async function POST(request: NextRequest) {
 
     console.log(`开始裁切：共 ${debugPanels.length} 个面板`);
     console.log(`图片URL: ${imageUrl}`);
+
+    // 🌟 从 imageUrl 中提取图片名称（不带扩展名）
+    let imageName = wikiName;  // 默认使用 wikiName
+    if (imageUrl.includes('/')) {
+      const urlParts = imageUrl.split('/');
+      const filename = urlParts[urlParts.length - 1];
+      // 去除扩展名
+      imageName = filename.split('.')[0];
+      console.log(`提取图片名称: ${imageName}`);
+    }
+
     console.log(`\n接收到的调试面板数据:`);
     debugPanels.forEach((panel, i) => {
       console.log(`\n面板 ${i + 1}: ${panel.title}`);
@@ -282,7 +294,8 @@ export async function POST(request: NextRequest) {
             iconIndex,
             row,
             col,
-            wikiName
+            wikiName,
+            imageName  // 🌟 传递图片名称
           );
 
           results.push(result);
@@ -312,7 +325,8 @@ export async function POST(request: NextRequest) {
               iconIndex,
               row,
               col,
-              wikiName
+              wikiName,
+              imageName  // 🌟 传递图片名称
             );
 
             results.push(result);
