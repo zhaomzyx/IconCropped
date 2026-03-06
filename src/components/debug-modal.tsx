@@ -8,7 +8,8 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { X, Download, Save, Upload, Info } from 'lucide-react';
+import { X, Download, Save, Upload, Info, Search, RotateCcw } from 'lucide-react';
+import { detectWikiImage, DetectionParams } from '@/lib/wiki-image-detector';
 
 // 调试台参数接口
 export interface DebugPanelParams {
@@ -112,6 +113,102 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
     img.src = imageUrl;
   }, [isOpen, imageUrl, params]);
 
+  // 🌟 新增：检测面板函数
+  const handleDetect = useCallback(async () => {
+    if (!imageUrl) {
+      alert('请先加载图片！');
+      return;
+    }
+
+    setLogInfo('正在检测面板...');
+
+    try {
+      // 将调试台参数转换为检测参数
+      const detectionParams: Partial<DetectionParams> = {
+        gridStartY: params.gridStartY,
+        scanLineX: params.scanLineX,
+        scanStartY: params.scanStartY,
+        colorTolerance: params.colorTolerance,
+        sustainedPixels: params.sustainedPixels,
+        colorToleranceX: params.colorToleranceX,
+        sustainedPixelsX: params.sustainedPixelsX,
+        boundsWindowHeight: params.boundsWindowHeight,
+        boundsWindowWidth: params.boundsWindowWidth,
+        boundsVarianceThresholdRow: params.boundsVarianceThresholdRow,
+        boundsVarianceThresholdCol: params.boundsVarianceThresholdCol,
+        boundsStepSize: params.boundsStepSize,
+        boundsMinRowHeight: params.boundsMinRowHeight,
+        boundsMinColWidth: params.boundsMinColWidth,
+        forceSquareIcons: params.forceSquareIcons,
+        forceSquareOffsetX: params.forceSquareOffsetX,
+        forceSquareOffsetY: params.forceSquareOffsetY,
+        filterEmptyIcons: params.filterEmptyIcons,
+        emptyIconVarianceThreshold: params.emptyIconVarianceThreshold,
+      };
+
+      // 调用检测函数
+      const panels = await detectWikiImage(imageUrl, detectionParams);
+
+      setDetectedPanels(panels);
+      setSelectedPanelIndex(-1);
+      setLogInfo(`检测完成！共检测到 ${panels.length} 个面板\n\n宽度统计：\n${panels.map((p, i) => `${i + 1}. ${p.title}: ${p.width}px`).join('\n')}`);
+
+      // 重新绘制 Canvas 以显示检测结果
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        drawCanvasWithDetection(img, panels);
+      };
+      img.src = imageUrl;
+
+    } catch (error) {
+      console.error('检测失败:', error);
+      alert('检测失败：' + (error instanceof Error ? error.message : '未知错误'));
+      setLogInfo('检测失败：' + (error instanceof Error ? error.message : '未知错误'));
+    }
+  }, [imageUrl, params]);
+
+  // 🌟 新增：绘制 Canvas 并显示检测结果
+  const drawCanvasWithDetection = (img: HTMLImageElement, panels: DetectedPanel[]) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // 设置画布尺寸
+    canvas.width = img.width;
+    canvas.height = img.height;
+
+    // 绘制图片
+    ctx.drawImage(img, 0, 0);
+
+    // 绘制检测结果
+    panels.forEach((panel, index) => {
+      // 绘制蓝框（大panel）
+      ctx.strokeStyle = 'blue';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(panel.blueBox.x, panel.blueBox.y, panel.blueBox.width, panel.blueBox.height);
+
+      // 绘制绿框（标题区域）
+      ctx.strokeStyle = 'green';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(panel.greenBox.x, panel.greenBox.y, panel.greenBox.width, panel.greenBox.height);
+
+      // 绘制红框（icon区域）
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 1;
+      panel.redBoxes.forEach((redBox) => {
+        ctx.strokeRect(redBox.x, redBox.y, redBox.width, redBox.height);
+      });
+
+      // 绘制面板标题
+      ctx.fillStyle = 'yellow';
+      ctx.font = '16px Arial';
+      ctx.fillText(`${index + 1}. ${panel.title} (${panel.width}x${panel.height})`, panel.blueBox.x, panel.blueBox.y - 10);
+    });
+  };
+
   // 绘制 Canvas
   const drawCanvas = (img: HTMLImageElement) => {
     const canvas = canvasRef.current;
@@ -127,8 +224,12 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
     // 绘制图片
     ctx.drawImage(img, 0, 0);
 
-    // 这里可以添加检测逻辑，暂时留空
-    setLogInfo('图片已加载，请调整参数后点击"检测"按钮');
+    // 如果有检测结果，绘制检测结果
+    if (detectedPanels.length > 0) {
+      drawCanvasWithDetection(img, detectedPanels);
+    }
+
+    setLogInfo('图片已加载，点击"开始检测"按钮进行检测');
   };
 
   // 参数更新处理
@@ -161,6 +262,10 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
           <DialogTitle className="flex items-center justify-between">
             <span>调试台 - 工作台模式</span>
             <div className="flex gap-2">
+              <Button onClick={handleDetect} size="sm" className="bg-blue-600 hover:bg-blue-700">
+                <Search className="w-4 h-4 mr-1" />
+                开始检测
+              </Button>
               <Button onClick={handleExport} size="sm" className="bg-green-600 hover:bg-green-700">
                 导出工作台
               </Button>
