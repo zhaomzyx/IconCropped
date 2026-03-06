@@ -566,19 +566,32 @@ export default function WikiDebugPage() {
           params.sustainedPixelsX,
           canvas.width
         );
-        
-        if (hRange) {
-          console.log(`[Panel ${index + 1}] 检测到 Panel 边界: startX=${hRange.startX}, endX=${hRange.endX}, width=${hRange.endX - hRange.startX}`);
+
+        // 🌟 强制设置panel宽度为876
+        let panelStartX = hRange?.startX ?? 0;
+        let panelEndX = hRange?.endX ?? 0;
+        let panelWidth = panelEndX - panelStartX;
+
+        if (panelWidth !== 876 && panelWidth > 0) {
+          console.warn(`[Panel ${index + 1}] 检测到的宽度 ${panelWidth} 不等于876，强制设置为876`);
+          // 保持左边界不变，调整右边界
+          panelEndX = panelStartX + 876;
+          panelWidth = 876;
+          console.log(`[Panel ${index + 1}] 调整后的边界: startX=${panelStartX}, endX=${panelEndX}, width=${panelWidth}`);
+        }
+
+        if (panelWidth > 0) {
+          console.log(`[Panel ${index + 1}] 检测到 Panel 边界: startX=${panelStartX}, endX=${panelEndX}, width=${panelWidth}`);
         } else {
           console.warn(`[Panel ${index + 1}] 未检测到 Panel 边界`);
         }
-        
+
         return {
           startY: vRange.startY,
           endY: vRange.endY,
-          startX: hRange?.startX ?? 0,
-          endX: hRange?.endX ?? 0,
-          width: hRange ? hRange.endX - hRange.startX : 0,
+          startX: panelStartX,
+          endX: panelEndX,
+          width: panelWidth,
           height: vRange.endY - vRange.startY,
         };
       });
