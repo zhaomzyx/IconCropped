@@ -87,7 +87,7 @@ export const DEFAULT_DETECTION_PARAMS: DetectionParams = {
   // 1:1强制正方形
   forceSquareIcons: true,
   forceSquareOffsetX: 0,
-  forceSquareOffsetY: 2,
+  forceSquareOffsetY: 0,
 
   // 空图标过滤
   filterEmptyIcons: true,
@@ -362,7 +362,7 @@ export async function detectWikiImage(
           return;
         }
 
-        console.log(`[WikiImageDetector] Y轴扫描检测到 ${panelVerticalRanges.length} 个潜在区域`);
+        console.log(`[WikiImageDetector] 检测到 ${panelVerticalRanges.length} 个 panel`);
 
         // 4. 遍历处理每个 Panel
         const detectedPanels: DetectedPanel[] = [];

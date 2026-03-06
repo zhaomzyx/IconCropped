@@ -103,7 +103,7 @@ export default function WikiDebugPage() {
     boundsMinColWidth: 20,      // 最小列宽（过滤噪声）
     forceSquareIcons: true,     // 强制图标为1:1正方形（基于行高度）
     forceSquareOffsetX: 0,      // 1:1强制时的X轴偏移（像素）
-    forceSquareOffsetY: 2,      // 1:1强制时的Y轴偏移（像素）
+    forceSquareOffsetY: 0,      // 1:1强制时的Y轴偏移（像素）
 
     // 空图标过滤参数
     filterEmptyIcons: true,     // 是否过滤空图标（没有内容的方框）
@@ -161,21 +161,11 @@ export default function WikiDebugPage() {
         if (saved) {
           const parsed = JSON.parse(saved);
           const mergedParams = { ...DEFAULT_PARAMS, ...parsed };
-          // 🌟 确保新参数有默认值（如果localStorage中没有）
-          if (parsed.filterEmptyIcons === undefined) {
-            mergedParams.filterEmptyIcons = DEFAULT_PARAMS.filterEmptyIcons;
-          }
-          if (parsed.emptyIconVarianceThreshold === undefined) {
-            mergedParams.emptyIconVarianceThreshold = DEFAULT_PARAMS.emptyIconVarianceThreshold;
-          }
-          // ⚠️ 不再强制覆盖偏移校准参数，允许用户自定义
-          // if (parsed.forceSquareOffsetX === undefined) {
-          //   mergedParams.forceSquareOffsetX = DEFAULT_PARAMS.forceSquareOffsetX;
-          // }
-          // if (parsed.forceSquareOffsetY === undefined) {
-          //   mergedParams.forceSquareOffsetY = DEFAULT_PARAMS.forceSquareOffsetY;
-          // }
-          console.log('[DebugPage] 从LocalStorage加载参数:', mergedParams);
+          // 🌟 强制设置新参数的默认值（即使localStorage中有旧配置）
+          mergedParams.filterEmptyIcons = DEFAULT_PARAMS.filterEmptyIcons;
+          mergedParams.emptyIconVarianceThreshold = DEFAULT_PARAMS.emptyIconVarianceThreshold;
+          mergedParams.forceSquareOffsetX = DEFAULT_PARAMS.forceSquareOffsetX;
+          mergedParams.forceSquareOffsetY = DEFAULT_PARAMS.forceSquareOffsetY;
           return mergedParams;
         }
       } catch (error) {
@@ -1168,28 +1158,8 @@ export default function WikiDebugPage() {
   const handleParamChange = (key: keyof typeof DEFAULT_PARAMS, value: number | boolean) => {
     const newParams = { ...params, [key]: value };
     setParams(newParams);
-
     // 实时保存到 localStorage
     saveParamsToStorage(newParams);
-
-    // 🌟 调试日志：记录参数变更
-    console.log(`[参数变更] ${key}: ${params[key]} → ${value}`);
-
-    // 🌟 立即验证 localStorage 是否正确保存
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const savedValue = parsed[key];
-        console.log(`[LocalStorage验证] ${key} 已保存为: ${savedValue}`);
-
-        if (savedValue !== value) {
-          console.error(`❌ [LocalStorage保存失败] 期望: ${value}, 实际: ${savedValue}`);
-        }
-      }
-    } catch (e) {
-      console.error('[LocalStorage验证] 检查失败:', e);
-    }
   };
 
   // 恢复默认值
@@ -1198,29 +1168,6 @@ export default function WikiDebugPage() {
       setParams(DEFAULT_PARAMS);
       // 清除 localStorage
       localStorage.removeItem(STORAGE_KEY);
-    }
-  };
-
-  // 应用优化参数（基于实际调试测试）
-  const handleApplyOptimizedParams = () => {
-    const OPTIMIZED_PARAMS = {
-      boundsVarianceThresholdCol: 100,
-      boundsMinRowHeight: 135,
-      boundsMinColWidth: 135,
-      forceSquareOffsetX: -6,
-      forceSquareOffsetY: 0,
-      emptyIconVarianceThreshold: 20,
-    };
-
-    if (window.confirm('确定要应用优化参数吗？\n\n这将更新以下参数：\n' +
-      Object.entries(OPTIMIZED_PARAMS)
-        .map(([key, value]) => `${key}: ${value}`)
-        .join('\n'))) {
-      const newParams = { ...params, ...OPTIMIZED_PARAMS };
-      setParams(newParams);
-      // 保存到 localStorage
-      saveParamsToStorage(newParams);
-      alert('优化参数已应用！');
     }
   };
 
@@ -1263,30 +1210,11 @@ export default function WikiDebugPage() {
 
         // 检查是否是有效的配置文件
         if (parsed.params && typeof parsed.params === 'object') {
-          // 🌟 只合并当前调试台支持的参数，过滤废弃参数
-          const validParams: Partial<typeof DEFAULT_PARAMS> = {};
-          Object.keys(DEFAULT_PARAMS).forEach(key => {
-            if (key in parsed.params) {
-              validParams[key as keyof typeof DEFAULT_PARAMS] = parsed.params[key];
-            }
-          });
-
-          const newParams = { ...DEFAULT_PARAMS, ...validParams };
-
-          // 🌟 检测到废弃参数时给出提示
-          const deprecatedKeys = Object.keys(parsed.params).filter(
-            key => !(key in DEFAULT_PARAMS)
-          );
-          if (deprecatedKeys.length > 0) {
-            console.warn('[导入配置] 检测到废弃参数，已忽略:', deprecatedKeys);
-            alert(`配置导入成功！\n\n注意：已忽略 ${deprecatedKeys.length} 个废弃参数：\n${deprecatedKeys.join(', ')}`);
-          } else {
-            alert('配置导入成功！');
-          }
-
+          const newParams = { ...DEFAULT_PARAMS, ...parsed.params };
           setParams(newParams);
           // 保存到 localStorage
           saveParamsToStorage(newParams);
+          alert('配置导入成功！');
         } else {
           throw new Error('配置格式无效');
         }
@@ -2003,7 +1931,7 @@ export default function WikiDebugPage() {
                 {/* 预设管理 */}
                 <div className="pt-4 border-t">
                   <Label className="text-sm font-semibold mb-3 block">预设管理</Label>
-                  <div className="flex gap-2 flex-wrap mb-3">
+                  <div className="flex gap-2 flex-wrap">
                     <Button
                       variant="outline"
                       size="sm"
@@ -2029,19 +1957,6 @@ export default function WikiDebugPage() {
                       导入配置
                     </Button>
                   </div>
-                  <div className="flex gap-2 flex-wrap">
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={handleApplyOptimizedParams}
-                      className="flex-1 min-w-[120px] bg-green-600 hover:bg-green-700 text-white"
-                    >
-                      ✨ 应用优化参数
-                    </Button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    应用基于实际调试测试的优化参数（偏移校准、边界检测等）
-                  </p>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -2049,34 +1964,6 @@ export default function WikiDebugPage() {
                     onChange={handleFileSelect}
                     className="hidden"
                   />
-                </div>
-
-                {/* 🌟 当前参数状态 */}
-                <div className="pt-4 border-t">
-                  <div className="flex items-center justify-between mb-3">
-                    <Label className="text-sm font-semibold">当前参数状态</Label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        const currentState = localStorage.getItem(STORAGE_KEY);
-                        alert(`LocalStorage中的当前配置：\n\n${currentState}`);
-                      }}
-                      className="text-xs"
-                    >
-                      检查 LocalStorage
-                    </Button>
-                  </div>
-                  <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded text-xs space-y-1 max-h-40 overflow-y-auto">
-                    <div className="font-semibold mb-2">偏移校准参数：</div>
-                    <div>X轴偏移: <span className="font-mono text-blue-600 dark:text-blue-400">{params.forceSquareOffsetX}</span></div>
-                    <div>Y轴偏移: <span className="font-mono text-blue-600 dark:text-blue-400">{params.forceSquareOffsetY}</span></div>
-                    <div className="font-semibold mb-2 mt-2">边界检测参数：</div>
-                    <div>行检测阈值: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsVarianceThresholdRow}</span></div>
-                    <div>列检测阈值: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsVarianceThresholdCol}</span></div>
-                    <div>最小行高: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsMinRowHeight}</span></div>
-                    <div>最小列宽: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsMinColWidth}</span></div>
-                  </div>
                 </div>
 
                 {/* 裁切功能 */}
