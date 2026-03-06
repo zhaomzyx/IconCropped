@@ -629,9 +629,16 @@ export default function WikiDebugPage() {
         // 缩小扫描范围10像素，减少边界噪音
         const padding = 10;
         const scanX = range.startX + padding;
-        const scanY = range.startY + padding;
+
+        // 🌟 核心修改 1：让扫描的起始 Y 坐标直接跳过绿框（标题区域）
+        // 原代码：const scanY = range.startY + padding;
+        const scanY = range.startY + params.gridStartY + padding;
+
         const scanWidth = range.width - padding * 2;
-        const scanHeight = range.height - padding * 2;
+
+        // 🌟 核心修改 2：扫描总高度也要相应减去绿框的高度
+        // 原代码：const scanHeight = range.height - padding * 2;
+        const scanHeight = range.height - params.gridStartY - padding * 2;
 
         console.log(`[扫描范围] 原始: (${range.startX}, ${range.startY}) ${range.width}x${range.height}`);
         console.log(`[扫描范围] 缩小: (${scanX}, ${scanY}) ${scanWidth}x${scanHeight}`);
