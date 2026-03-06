@@ -657,6 +657,14 @@ export default function WikiDebugPage() {
         console.log(`[边界检测] Panel: ${panel.title}`);
         console.log(`  检测到 ${bounds.rows.length} 行, ${bounds.cols.length} 列`);
 
+        // 显示列检测使用的扫描高度
+        if (bounds.rows.length > 0) {
+          const colScanHeight = bounds.rows[0].height;
+          console.log(`  ✅ 列检测使用第一行高度: ${Math.round(colScanHeight)}px`);
+        } else {
+          console.log(`  ⚠️ 列检测使用整个panel高度: ${range.height}px (未检测到行)`);
+        }
+
         // 警告：如果没有检测到行列
         if (bounds.rows.length === 0) {
           console.warn(`  ⚠️ 未检测到任何行！请调整行检测参数：`);
@@ -729,15 +737,24 @@ export default function WikiDebugPage() {
           });
 
           // 绘制列边界（红色竖线）
+          // 先绘制列检测的扫描范围（浅色矩形）
+          const colScanHeight = bounds.rows.length > 0 ? bounds.rows[0].height : scanHeight;
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.1)'; // 浅红色背景
+          ctx.fillRect(scanX, scanY, scanWidth, colScanHeight);
+          ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)'; // 半透明红色边框
+          ctx.lineWidth = 1;
+          ctx.strokeRect(scanX, scanY, scanWidth, colScanHeight);
+
+          // 绘制列边界线（红色竖线）
           bounds.cols.forEach((col) => {
             ctx.strokeStyle = '#EF4444'; // 红色
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(col.leftX, scanY);
-            ctx.lineTo(col.leftX, scanY + scanHeight);
+            ctx.lineTo(col.leftX, scanY + colScanHeight);
             ctx.stroke();
             ctx.moveTo(col.rightX, scanY);
-            ctx.lineTo(col.rightX, scanY + scanHeight);
+            ctx.lineTo(col.rightX, scanY + colScanHeight);
             ctx.stroke();
 
             // 标注列号
@@ -748,11 +765,12 @@ export default function WikiDebugPage() {
 
           // 在右上角显示检测统计
           ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-          ctx.fillRect(scanX + scanWidth - 150, scanY, 150, 40);
+          ctx.fillRect(scanX + scanWidth - 150, scanY, 150, 55);
           ctx.fillStyle = '#FFFFFF';
           ctx.font = '12px Arial';
           ctx.fillText(`检测到: ${bounds.rows.length}行 × ${bounds.cols.length}列`, scanX + scanWidth - 145, scanY + 15);
           ctx.fillText(`预计图标: ${bounds.rows.length * bounds.cols.length}个`, scanX + scanWidth - 145, scanY + 32);
+          ctx.fillText(`列扫描高度: ${Math.round(colScanHeight)}px`, scanX + scanWidth - 145, scanY + 49);
         }
 
         // 绘制红色框（使用边界检测计算的精确边界）
