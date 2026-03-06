@@ -587,8 +587,17 @@ export default function WorkbenchPage() {
 
             console.log(`[步骤1] 开始前端检测，图片: ${filename}`);
 
-            // 构建图片URL
-            const imageUrl = `/api/uploads/wiki/${filename}`;
+            // 🔧 构建图片URL：区分来源
+            let imageUrl: string;
+            // 检查文件名是否以 wiki- 开头（从 Wiki URL 获取的文件）
+            if (filename.startsWith('wiki-') && fetchedWikiFiles.includes(filename)) {
+              // 从 Wiki URL 获取的文件保存在 /WikiPic/{wikiName}/ 目录
+              imageUrl = `/WikiPic/${actualWikiName}/${filename}`;
+            } else {
+              // 用户手动上传的文件通过 /api/uploads/wiki/ 访问
+              imageUrl = `/api/uploads/wiki/${filename}`;
+            }
+            
             console.log(`[步骤1] 图片URL: ${imageUrl}`);
 
             // 使用纯前端检测算法

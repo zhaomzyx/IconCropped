@@ -198,17 +198,36 @@ export async function POST(request: NextRequest) {
 
     // 获取原始图片（支持URL或本地文件路径）
     let imageBuffer: Buffer;
-    if (imageUrl.startsWith('/api/uploads/') || imageUrl.startsWith('/')) {
-      // 本地文件路径：将URL转换为文件系统路径
+    if (imageUrl.startsWith('/WikiPic/')) {
+      // 🌟 从 Wiki URL 获取的图片，保存在 public 目录
+      const publicPath = path.join(cwd(), imageUrl);
+      console.log(`读取 public 目录文件: ${publicPath}`);
+
+      try {
+        imageBuffer = await fs.readFile(publicPath);
+      } catch (error) {
+        throw new Error(`无法读取 public 目录文件: ${publicPath}. 错误: ${error instanceof Error ? error.message : '未知错误'}`);
+      }
+    } else if (imageUrl.startsWith('/api/uploads/') || imageUrl.startsWith('/uploads/')) {
       // 上传的文件保存在 /tmp/uploads/wiki/ 目录下
       const filename = imageUrl.split('/').pop(); // 提取文件名
       const filePath = path.join('/tmp/uploads/wiki', filename);
-      console.log(`读取本地文件: ${filePath}`);
+      console.log(`读取上传文件: ${filePath}`);
 
       try {
         imageBuffer = await fs.readFile(filePath);
       } catch (error) {
-        throw new Error(`无法读取本地文件: ${filePath}. 错误: ${error instanceof Error ? error.message : '未知错误'}`);
+        throw new Error(`无法读取上传文件: ${filePath}. 错误: ${error instanceof Error ? error.message : '未知错误'}`);
+      }
+    } else if (imageUrl.startsWith('/')) {
+      // 其他本地路径，尝试从 public 目录读取
+      const publicPath = path.join(cwd(), 'public', imageUrl);
+      console.log(`读取 public 文件: ${publicPath}`);
+
+      try {
+        imageBuffer = await fs.readFile(publicPath);
+      } catch (error) {
+        throw new Error(`无法读取文件: ${publicPath}. 错误: ${error instanceof Error ? error.message : '未知错误'}`);
       }
     } else {
       // 远程URL
