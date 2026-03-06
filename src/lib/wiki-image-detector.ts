@@ -124,7 +124,6 @@ export interface DetectedPanel {
   blueBox: { x: number; y: number; width: number; height: number };
   greenBox: { x: number; y: number; width: number; height: number };
   redBoxes: Array<{ x: number; y: number; width: number; height: number; iconIndex?: number; row?: number; col?: number }>;
-  originalWidth?: number;  // 🌟 新增：归一化前的原始宽度（可选）
 }
 
 export interface DetectionParams {
@@ -673,47 +672,24 @@ export async function detectWikiImage(
  * 如果超过半数的大panel宽度在某个数值±10之间波动，自动将所有大panel宽度设置为这个数值
  *
  * @param panels - 检测到的所有面板
- * @returns 归一化结果（是否应用、目标宽度、影响数量、归一化详情）
+ * @returns 归一化结果（是否应用、目标宽度、影响数量）
  */
-interface NormalizedPanelInfo {
-  panelIndex: number;
-  oldWidth: number;
-  newWidth: number;
-  title: string;
-}
-
 function normalizePanelWidths(panels: DetectedPanel[]): {
   applied: boolean;
   targetWidth: number | null;
   affectedCount: number;
-  normalizedPanels: NormalizedPanelInfo[];  // 🌟 新增：归一化的详细列表
 } {
-  console.log('='.repeat(60));
-  console.log('[normalizePanelWidths] 🎯 开始宽度归一化分析');
-  console.log('='.repeat(60));
-
   if (panels.length === 0) {
-    console.log('[normalizePanelWidths] ❌ 没有面板需要归一化');
-    return {
-      applied: false,
-      targetWidth: null,
-      affectedCount: 0,
-      normalizedPanels: []  // 🌟 空数组
-    };
+    return { applied: false, targetWidth: null, affectedCount: 0 };
   }
 
   // 1. 提取所有面板的宽度
   const widths = panels.map(p => p.width);
-  console.log(`[normalizePanelWidths] 📊 原始宽度分布 (${panels.length} 个面板):`);
-  console.log(`  数值: [${widths.join(', ')}]`);
-  console.log(`  范围: ${Math.min(...widths)}px ~ ${Math.max(...widths)}px`);
-  console.log(`  平均: ${(widths.reduce((a, b) => a + b, 0) / widths.length).toFixed(1)}px`);
+  console.log(`[normalizePanelWidths] 原始宽度分布:`, widths);
 
   // 2. 统计每个宽度的出现频率（容差±10）
   const widthFrequency = new Map<number, number>();
   const tolerance = 10; // 容差±10
-
-  console.log(`[normalizePanelWidths] 🔍 统计宽度频率（容差±${tolerance}px）...`);
 
   for (let i = 0; i < widths.length; i++) {
     const width = widths[i];
@@ -724,7 +700,6 @@ function normalizePanelWidths(panels: DetectedPanel[]): {
       if (Math.abs(width - baseWidth) <= tolerance) {
         widthFrequency.set(baseWidth, count + 1);
         found = true;
-        console.log(`  Panel ${i + 1}: ${width}px → 归入 ${baseWidth}px 分组（第 ${count + 1} 个）`);
         break;
       }
     }
@@ -732,19 +707,17 @@ function normalizePanelWidths(panels: DetectedPanel[]): {
     // 如果没有找到匹配的容差范围，创建新的分组
     if (!found) {
       widthFrequency.set(width, 1);
-      console.log(`  Panel ${i + 1}: ${width}px → 创建新分组`);
     }
+  }
+
+  console.log(`[normalizePanelWidths] 宽度频率统计（容差±${tolerance}）:`);
+  for (const [baseWidth, count] of widthFrequency) {
+    console.log(`  ${baseWidth}px: ${count} 个面板 (${(count / panels.length * 100).toFixed(1)}%)`);
   }
 
   // 3. 找出出现频率最高的宽度分组
   let maxCount = 0;
   let targetWidth: number | null = null;
-
-  console.log(`[normalizePanelWidths] 📈 宽度频率统计结果（容差±${tolerance}px）:`);
-  for (const [baseWidth, count] of Array.from(widthFrequency.entries()).sort((a, b) => b[1] - a[1])) {
-    const percentage = (count / panels.length * 100).toFixed(1);
-    console.log(`  ${baseWidth}px: ${count} 个面板 (${percentage}%) ${count === maxCount ? '🔥' : ''}`);
-  }
 
   for (const [baseWidth, count] of widthFrequency) {
     if (count > maxCount) {
@@ -753,78 +726,41 @@ function normalizePanelWidths(panels: DetectedPanel[]): {
     }
   }
 
-  console.log(`[normalizePanelWidths] 🎯 目标宽度选择: ${targetWidth}px（出现 ${maxCount} 次）`);
-
   // 4. 判断是否需要归一化（超过半数）
   const threshold = Math.floor(panels.length / 2) + 1;
   const shouldNormalize = maxCount >= threshold;
 
-  console.log(`[normalizePanelWidths] ⚖️ 归一化决策:`);
-  console.log(`  规则: 出现频率 ≥ ${threshold} 次 (${threshold}/${panels.length} = ${(threshold / panels.length * 100).toFixed(1)}%)`);
-  console.log(`  实际: ${maxCount} 次 (${maxCount}/${panels.length} = ${(maxCount / panels.length * 100).toFixed(1)}%)`);
-  console.log(`  结论: ${shouldNormalize ? '✅ 需要归一化' : '❌ 不需要归一化'}`);
-
   if (!shouldNormalize || targetWidth === null) {
-    console.log(`[normalizePanelWidths] ❌ 未满足归一化条件，跳过归一化`);
-    console.log('='.repeat(60));
-    return {
-      applied: false,
-      targetWidth: null,
-      affectedCount: 0,
-      normalizedPanels: []  // 🌟 空数组
-    };
+    console.log(`[normalizePanelWidths] 未满足归一化条件（需要≥${threshold}个面板，最多只有${maxCount}个）`);
+    return { applied: false, targetWidth: null, affectedCount: 0 };
   }
 
-  // 5. 应用归一化：将所有面板宽度设置为目标宽度（强制归一化所有面板）
-  console.log(`[normalizePanelWidths] 🔧 开始应用归一化（强制归一化所有面板）...`);
-  console.log(`  目标宽度: ${targetWidth}px`);
-  console.log(`  归一化范围: 所有 ${panels.length} 个面板`);
-
+  // 5. 应用归一化：将所有面板宽度设置为目标宽度
   let affectedCount = 0;
-  const normalizedPanels: NormalizedPanelInfo[] = [];  // 🌟 记录归一化详情
+  const widthVarianceThreshold = tolerance; // 使用相同的容差
 
   for (let i = 0; i < panels.length; i++) {
     const panel = panels[i];
     const currentWidth = panel.width;
-    const diff = Math.abs(currentWidth - targetWidth);
 
-    // 🌟 强制归一化：不管容差范围，归一化所有面板
-    const oldWidth = panel.width;
+    // 如果当前宽度与目标宽度的差异在容差范围内，则归一化
+    if (Math.abs(currentWidth - targetWidth) <= widthVarianceThreshold) {
+      const oldWidth = panel.width;
+      panel.width = targetWidth;
 
-    // 🌟 保存原始宽度
-    panel.originalWidth = oldWidth;
+      // 同步更新 blueBox 和 greenBox 的宽度
+      panel.blueBox.width = targetWidth;
+      panel.greenBox.width = targetWidth;
 
-    // 归一化宽度
-    panel.width = targetWidth;
+      affectedCount++;
 
-    // 同步更新 blueBox 和 greenBox 的宽度
-    panel.blueBox.width = targetWidth;
-    panel.greenBox.width = targetWidth;
-
-    // 🌟 记录归一化详情
-    normalizedPanels.push({
-      panelIndex: i,
-      oldWidth,
-      newWidth: targetWidth,
-      title: panel.title
-    });
-
-    affectedCount++;
-
-    const diffStr = oldWidth !== targetWidth ? ` (差 ${diff}px)` : '';
-    console.log(`  ✅ Panel ${i + 1} [${panel.title}]: ${oldWidth}px → ${targetWidth}px${diffStr}`);
+      console.log(`[normalizePanelWidths] Panel ${i + 1}: ${oldWidth}px → ${targetWidth}px (${panel.title})`);
+    }
   }
-
-  console.log(`[normalizePanelWidths] ✅ 归一化完成！`);
-  console.log(`  目标宽度: ${targetWidth}px`);
-  console.log(`  影响面板: ${affectedCount} / ${panels.length} 个 (${(affectedCount / panels.length * 100).toFixed(1)}%)`);
-  console.log(`  归一化详情: [${normalizedPanels.map(p => `Panel${p.panelIndex + 1}:${p.oldWidth}→${p.newWidth}`).join(', ')}]`);
-  console.log('='.repeat(60));
 
   return {
     applied: true,
     targetWidth,
-    affectedCount,
-    normalizedPanels  // 🌟 返回归一化详情
+    affectedCount
   };
 }

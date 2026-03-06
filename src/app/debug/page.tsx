@@ -38,10 +38,6 @@ interface IconPosition {
 // 保存 Canvas 上绘制的框体坐标
 interface DetectedPanel {
   title: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
   blueBox: { x: number; y: number; width: number; height: number };
   greenBox: { x: number; y: number; width: number; height: number };
   redBoxes: Array<{ x: number; y: number; width: number; height: number }>;
@@ -558,22 +554,10 @@ export default function WikiDebugPage() {
       const panelRanges = panelVerticalRanges.map((vRange, index) => {
         const panel = debugPanels[index];
         const midY = Math.round((vRange.startY + vRange.endY) / 2);
-
-        if (!panel) {
-          console.warn(`[Panel ${index + 1}] 数据不存在，跳过`);
-          return {
-            startY: vRange.startY,
-            endY: vRange.endY,
-            startX: 0,
-            endX: 0,
-            width: 0,
-            height: vRange.endY - vRange.startY,
-          };
-        }
-
+        
         console.log(`\n[Panel ${index + 1}] ${panel.title}`);
         console.log(`[Panel ${index + 1}] 中间检测线 Y: ${midY}`);
-
+        
         // 在Panel中间横线上扫描，检测Panel的左右边界
         const hRange = scanHorizontalLine(
           imageData,
@@ -582,13 +566,13 @@ export default function WikiDebugPage() {
           params.sustainedPixelsX,
           canvas.width
         );
-
+        
         if (hRange) {
           console.log(`[Panel ${index + 1}] 检测到 Panel 边界: startX=${hRange.startX}, endX=${hRange.endX}, width=${hRange.endX - hRange.startX}`);
         } else {
           console.warn(`[Panel ${index + 1}] 未检测到 Panel 边界`);
         }
-
+        
         return {
           startY: vRange.startY,
           endY: vRange.endY,
@@ -599,395 +583,9 @@ export default function WikiDebugPage() {
         };
       });
 
-      // 3. 重新组织代码：先创建面板数据，然后再绘制
+      // 3. 遍历所有panel，使用检测到的坐标绘制
+      const currentDetectedPanels: DetectedPanel[] = []; // 保存当前绘制的框体坐标
 
-      // 3.1 遍历所有panel，创建面板数据（不绘制）
-      const currentDetectedPanels: DetectedPanel[] = [];
-
-      for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
-        const panel = debugPanels[i];
-        const range = panelRanges[i];
-        const isSelected = i === selectedPanelIndex;
-
-        console.log(`\n[Panel ${i + 1}] ${panel.title}: 初始宽度 = ${range.width}px`);
-
-        // 保存框体坐标
-        const blueBox = {
-          x: range.startX,
-          y: range.startY,
-          width: range.width,
-          height: range.height,
-        };
-
-        const greenBox = {
-          x: range.startX,
-          y: range.startY,
-          width: range.width,
-          height: params.gridStartY,
-        };
-
-        currentDetectedPanels.push({
-          title: panel.title,
-          x: range.startX,
-          y: range.startY,
-          width: range.width,
-          height: range.height,
-          blueBox,
-          greenBox,
-          redBoxes: [], // 稍后填充
-        });
-      }
-
-      // 3.2 遍历所有panel，绘制并检测图标
-      for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
-        const panel = debugPanels[i];
-        const range = panelRanges[i];
-        const isSelected = i === selectedPanelIndex;
-        const currentDetectedPanel = currentDetectedPanels[i];
-
-        // 计算居中的起始X坐标
-        const centeredStartX = Math.round((canvas.width - range.width) / 2);
-
-        // 绘制时的详细日志（只记录选中的面板）
-        if (isSelected) {
-          console.log(`\n========== [drawCanvas] 面板 ${i + 1} (${panel.title}) 坐标计算 ==========`);
-          console.log(`[Y轴检测结果]`);
-          console.log(`  startY = ${range.startY}, endY = ${range.endY}, height = ${range.height}`);
-          console.log(`[X轴检测结果]`);
-          console.log(`  startX = ${range.startX}, endX = ${range.endX}, width = ${range.width}`);
-          console.log(`  检测到的宽度 = ${currentDetectedPanel.width}px`);
-          console.log(`  居中计算：(${canvas.width} - ${range.width}) / 2 = ${centeredStartX}px`);
-        }
-
-        // 绘制蓝色框（Panel外边缘）
-        ctx.strokeStyle = isSelected ? '#3B82F6' : '#93C5FD';
-        ctx.lineWidth = isSelected ? 3 : 2;
-        ctx.strokeRect(centeredStartX, range.startY, range.width, range.height);
-
-        // 绘制蓝框坐标
-        ctx.fillStyle = isSelected ? '#3B82F6' : '#93C5FD';
-        ctx.font = '10px monospace';
-        ctx.fillText(
-          `(${centeredStartX}, ${Math.round(range.startY)}) ${Math.round(range.width)}x${Math.round(range.height)}`,
-          centeredStartX + 5,
-          range.startY + 12
-        );
-
-        // 绘制绿色框（标题区域）
-        ctx.strokeStyle = '#22C55E';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(centeredStartX, range.startY, range.width, params.gridStartY);
-
-        // 绘制绿框坐标
-        ctx.fillStyle = '#22C55E';
-        ctx.font = '10px monospace';
-        ctx.fillText(
-          `(${centeredStartX}, ${Math.round(range.startY)})`,
-          centeredStartX + 5,
-          range.startY + 24
-        );
-
-        // 绘制中间横线（用于调试X轴检测）
-        if (isSelected) {
-          const midY = Math.round((range.startY + range.endY) / 2);
-          ctx.strokeStyle = '#00FF00';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath();
-          ctx.moveTo(centeredStartX, midY);
-          ctx.lineTo(centeredStartX + range.width, midY);
-          ctx.stroke();
-          ctx.setLineDash([]);
-
-          ctx.fillStyle = '#00FF00';
-          ctx.font = '10px monospace';
-          ctx.fillText(`midY=${midY}`, centeredStartX + 5, midY - 5);
-        }
-
-        // 使用边界检测方法检测图标位置
-        console.log(`[检测方法] 使用边界检测方法`);
-
-        // 缩小扫描范围10像素，减少边界噪音
-        const padding = 10;
-        const scanX = range.startX + padding;
-
-        // 核心修改 1：让扫描的起始 Y 坐标直接跳过绿框（标题区域）
-        const scanY = range.startY + params.gridStartY + padding;
-
-        const scanWidth = range.width - padding * 2; // 使用检测到的宽度
-
-        // 核心修改 2：扫描总高度也要相应减去绿框的高度
-        const scanHeight = range.height - params.gridStartY - padding * 2;
-
-        console.log(`[扫描范围] 原始: (${range.startX}, ${range.startY}) ${range.width}x${range.height}`);
-        console.log(`[扫描范围] 缩小: (${scanX}, ${scanY}) ${scanWidth}x${scanHeight}`);
-
-        const bounds = detectAllBounds(
-          Buffer.from(imageData.data),
-          canvas.width,
-          scanX,
-          scanY,
-          scanWidth,
-          scanHeight,
-          {
-            windowHeight: params.boundsWindowHeight,
-            windowWidth: params.boundsWindowWidth,
-            varianceThresholdRow: params.boundsVarianceThresholdRow,
-            varianceThresholdCol: params.boundsVarianceThresholdCol,
-            stepSize: params.boundsStepSize,
-            minRowHeight: params.boundsMinRowHeight,
-            minColWidth: params.boundsMinColWidth,
-          }
-        );
-
-        console.log(`[边界检测] Panel: ${panel.title}`);
-        console.log(`  检测到 ${bounds.rows.length} 行, ${bounds.cols.length} 列`);
-
-        // 显示列检测使用的扫描高度
-        if (bounds.rows.length > 0) {
-          const colScanHeight = bounds.rows[0].height;
-          console.log(`  ✅ 列检测使用第一行高度: ${Math.round(colScanHeight)}px`);
-        } else {
-          console.log(`  ⚠️ 列检测使用整个panel高度: ${range.height}px (未检测到行)`);
-        }
-
-        // 警告：如果没有检测到行列
-        if (bounds.rows.length === 0) {
-          console.warn(`  ⚠️ 未检测到任何行！请调整行检测参数：`);
-          console.warn(`    - 增大窗口高度 (当前: ${params.boundsWindowHeight})`);
-          console.warn(`    - 降低行检测方差阈值 (当前: ${params.boundsVarianceThresholdRow})`);
-          console.warn(`    - 降低最小行高 (当前: ${params.boundsMinRowHeight})`);
-        }
-
-        if (bounds.cols.length === 0) {
-          console.warn(`  ⚠️ 未检测到任何列！请调整列检测参数：`);
-          console.warn(`    - 增大窗口宽度 (当前: ${params.boundsWindowWidth})`);
-          console.warn(`    - 降低列检测方差阈值 (当前: ${params.boundsVarianceThresholdCol})`);
-          console.warn(`    - 降低最小列宽 (当前: ${params.boundsMinColWidth})`);
-        }
-
-        if (bounds.rows.length > 0) {
-          bounds.rows.forEach((row, i) => {
-            console.log(`  行 ${i}: y=${row.topY} ~ ${row.bottomY}, 高度=${row.height}`);
-          });
-        }
-
-        if (bounds.cols.length > 0) {
-          bounds.cols.forEach((col, i) => {
-            console.log(`  列 ${i}: x=${col.leftX} ~ ${col.rightX}, 宽度=${col.width}`);
-          });
-        }
-
-        const boundsIcons = calculateIconPositionsFromBounds(bounds);
-
-        // 绘制行列边界线（始终显示，选中的更明显）
-        const rowStrokeColor = isSelected ? '#22C55E' : 'rgba(34, 197, 94, 0.4)';
-        const rowLineWidth = isSelected ? 2 : 1;
-        const colStrokeColor = isSelected ? '#EF4444' : 'rgba(239, 68, 68, 0.4)';
-        const colLineWidth = isSelected ? 2 : 1;
-
-        // 绘制行边界（绿色横线）
-        bounds.rows.forEach((row) => {
-          ctx.strokeStyle = rowStrokeColor;
-          ctx.lineWidth = rowLineWidth;
-          ctx.beginPath();
-          ctx.moveTo(scanX, row.topY);
-          ctx.lineTo(scanX + scanWidth, row.topY);
-          ctx.stroke();
-          ctx.moveTo(scanX, row.bottomY);
-          ctx.lineTo(scanX + scanWidth, row.bottomY);
-          ctx.stroke();
-
-          // 只在选中时标注行号
-          if (isSelected) {
-            ctx.fillStyle = '#22C55E';
-            ctx.font = '10px Arial';
-            ctx.fillText(`行${row.rowIndex}: y=${Math.round(row.topY)}~${Math.round(row.bottomY)}`, scanX + 5, row.topY - 3);
-          }
-        });
-
-        // 绘制列边界（红色竖线）
-        const colScanHeight = bounds.rows.length > 0 ? bounds.rows[0].height : scanHeight;
-        if (isSelected) {
-          ctx.fillStyle = 'rgba(239, 68, 68, 0.1)';
-          ctx.fillRect(scanX, scanY, scanWidth, colScanHeight);
-          ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(scanX, scanY, scanWidth, colScanHeight);
-        }
-
-        bounds.cols.forEach((col) => {
-          ctx.strokeStyle = colStrokeColor;
-          ctx.lineWidth = colLineWidth;
-          ctx.beginPath();
-          ctx.moveTo(col.leftX, scanY);
-          ctx.lineTo(col.leftX, scanY + colScanHeight);
-          ctx.stroke();
-          ctx.moveTo(col.rightX, scanY);
-          ctx.lineTo(col.rightX, scanY + colScanHeight);
-          ctx.stroke();
-
-          if (isSelected) {
-            ctx.fillStyle = '#EF4444';
-            ctx.font = '10px Arial';
-            ctx.fillText(`列${col.colIndex}: x=${Math.round(col.leftX)}~${Math.round(col.rightX)}`, col.leftX + 3, scanY + 12);
-          }
-        });
-
-        // 绘制红色框（使用边界检测计算的精确边界）
-        const validIcons = boundsIcons.filter((icon) => {
-          if (!params.filterEmptyIcons) return true;
-
-          const variance = calculateColorVariance(
-            imageData,
-            icon.leftX,
-            icon.topY,
-            icon.width,
-            icon.height
-          );
-
-          const isEmpty = variance < params.emptyIconVarianceThreshold;
-          if (isEmpty) {
-            console.log(`  [过滤空图标] [${icon.row},${icon.col}] 方差=${variance.toFixed(2)} < 阈值=${params.emptyIconVarianceThreshold}`);
-          }
-
-          return !isEmpty;
-        });
-
-        console.log(`[空图标过滤] 原始图标数=${boundsIcons.length}, 有效图标数=${validIcons.length}, 过滤掉=${boundsIcons.length - validIcons.length}个`);
-
-        if (isSelected) {
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-          ctx.fillRect(scanX + scanWidth - 160, scanY, 160, 70);
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = '12px Arial';
-          ctx.fillText(`检测到: ${bounds.rows.length}行 × ${bounds.cols.length}列`, scanX + scanWidth - 155, scanY + 15);
-          ctx.fillText(`预计图标: ${bounds.rows.length * bounds.cols.length}个`, scanX + scanWidth - 155, scanY + 32);
-          ctx.fillText(`合成物数量: ${validIcons.length}个`, scanX + scanWidth - 155, scanY + 49);
-          ctx.fillText(`列扫描高度: ${Math.round(colScanHeight)}px`, scanX + scanWidth - 155, scanY + 66);
-        }
-
-        // 绘制有效的红色框
-        validIcons.forEach((icon, iconIndex) => {
-          const { leftX, topY, width, height, centerX, centerY, row, col } = icon;
-
-          console.log(`  合成物 #${iconIndex}: 行${row}列${col}, 位置(${Math.round(centerX)}, ${Math.round(centerY)})`);
-
-          let drawLeftX = leftX;
-          let drawTopY = topY;
-          let drawWidth = width;
-          let drawHeight = height;
-          let drawCenterX = centerX;
-          let drawCenterY = centerY;
-
-          if (params.forceSquareIcons) {
-            const squareSize = height;
-            drawWidth = squareSize;
-            drawHeight = squareSize;
-            drawLeftX = centerX - squareSize / 2;
-            drawTopY = centerY - squareSize / 2;
-
-            drawLeftX += params.forceSquareOffsetX;
-            drawTopY += params.forceSquareOffsetY;
-          }
-
-          ctx.strokeStyle = '#EF4444';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(drawLeftX, drawTopY, drawWidth, drawHeight);
-
-          ctx.fillStyle = '#EF4444';
-          ctx.font = 'bold 14px Arial';
-          ctx.fillText(`${iconIndex}`, drawLeftX + 5, drawTopY + 18);
-
-          ctx.fillStyle = 'rgba(239, 68, 68, 0.6)';
-          ctx.font = '8px monospace';
-          ctx.fillText(`[${row},${col}]`, drawLeftX + drawWidth - 25, drawTopY + drawHeight - 3);
-
-          ctx.fillStyle = '#EF4444';
-          ctx.font = '9px monospace';
-          ctx.fillText(
-            `(${Math.round(drawLeftX)}, ${Math.round(drawTopY)}) ${Math.round(drawWidth)}x${Math.round(drawHeight)}`,
-            drawLeftX + 3,
-            drawTopY + drawHeight - 3
-          );
-
-          if (isSelected) {
-            ctx.fillStyle = '#FF00FF';
-            ctx.beginPath();
-            ctx.arc(drawCenterX, drawCenterY, 3, 0, 2 * Math.PI);
-            ctx.fill();
-          }
-        });
-
-        // 生成 redBoxes 数据
-        const redBoxes = validIcons.map((icon, iconIndex) => {
-          const { leftX, topY, width, height, centerX, centerY, row, col } = icon;
-
-          let drawLeftX = leftX;
-          let drawTopY = topY;
-          let drawWidth = width;
-          let drawHeight = height;
-
-          if (params.forceSquareIcons) {
-            const squareSize = height;
-            drawWidth = squareSize;
-            drawHeight = squareSize;
-            drawLeftX = centerX - squareSize / 2;
-            drawTopY = centerY - squareSize / 2;
-
-            drawLeftX += params.forceSquareOffsetX;
-            drawTopY += params.forceSquareOffsetY;
-          }
-
-          return {
-            x: drawLeftX,
-            y: drawTopY,
-            width: drawWidth,
-            height: drawHeight,
-            iconIndex,
-            row,
-            col,
-          };
-        });
-
-        // 更新 currentDetectedPanels[i].redBoxes
-        currentDetectedPanels[i].redBoxes = redBoxes;
-
-        // 绘制扫描线（用于调试）
-        if (isSelected) {
-          ctx.strokeStyle = '#FFA500';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([5, 5]);
-          ctx.beginPath();
-          ctx.moveTo(params.scanLineX, 0);
-          ctx.lineTo(params.scanLineX, canvas.height);
-          ctx.stroke();
-          ctx.setLineDash([]);
-
-          const { data } = imageData;
-          const getPixelColor = (x: number, y: number): [number, number, number] => {
-            const index = (y * imageData.width + x) * 4;
-            return [data[index], data[index + 1], data[index + 2]];
-          };
-          const backgroundColor = getPixelColor(params.scanLineX, params.scanStartY);
-
-          for (let y = params.scanStartY; y < canvas.height; y += 20) {
-            const currentColor = getPixelColor(params.scanLineX, y);
-            const diff = colorDiff(currentColor, backgroundColor);
-
-            if (diff > params.colorTolerance) {
-              ctx.fillStyle = '#FF0000';
-              ctx.fillRect(params.scanLineX - 2, y, 4, 4);
-            }
-          }
-
-          ctx.fillStyle = '#FFA500';
-          ctx.font = '12px monospace';
-          ctx.fillText(`X=${params.scanLineX}, T=${params.colorTolerance}, S=${params.sustainedPixels}`, params.scanLineX + 5, params.scanStartY - 10);
-        }
-      }
-
-      // 再次遍历所有panel，绘制并检测图标
       for (let i = 0; i < Math.min(debugPanels.length, panelRanges.length); i++) {
         const panel = debugPanels[i];
         const range = panelRanges[i];
@@ -1019,9 +617,7 @@ export default function WikiDebugPage() {
         // 绘制绿色框（标题区域）
         ctx.strokeStyle = '#22C55E';
         ctx.lineWidth = 2;
-        // 绿框宽度使用蓝框宽度
-        const greenBoxWidth = currentDetectedPanels[i]?.blueBox.width || range.width;
-        ctx.strokeRect(range.startX, range.startY, greenBoxWidth, params.gridStartY);
+        ctx.strokeRect(range.startX, range.startY, range.width, params.gridStartY);
 
         // 绘制绿框坐标
         ctx.fillStyle = '#22C55E';
@@ -1338,8 +934,12 @@ export default function WikiDebugPage() {
           };
         });
 
-        // 更新 currentDetectedPanels[i].redBoxes
-        currentDetectedPanels[i].redBoxes = redBoxes;
+        currentDetectedPanels.push({
+          title: panel.title,
+          blueBox,
+          greenBox,
+          redBoxes,
+        });
 
         // 绘制扫描线（用于调试）
         if (isSelected) {
@@ -1377,6 +977,7 @@ export default function WikiDebugPage() {
           ctx.font = '12px monospace';
           ctx.fillText(`X=${params.scanLineX}, T=${params.colorTolerance}, S=${params.sustainedPixels}`, params.scanLineX + 5, params.scanStartY - 10);
         }
+      }
 
       // 保存所有框体坐标到状态
       setDetectedPanels(currentDetectedPanels);
@@ -1391,7 +992,6 @@ export default function WikiDebugPage() {
       ctx.lineTo(canvas.width, params.scanStartY);
       ctx.stroke();
       ctx.setLineDash([]);
-    };
     };
 
     // 图片加载错误处理
@@ -1511,17 +1111,7 @@ export default function WikiDebugPage() {
                 logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
               } else if (currentEvent === 'error') {
                 console.error('✗ 收到错误事件:', data);
-                // 🌟 如果只是检测失败（如未检测到面板），不抛出错误，继续显示图片
-                const errorMessage = data.message || '处理过程中发生错误';
-                if (errorMessage.includes('未检测到') || errorMessage.includes('检测失败') || errorMessage.includes('Y轴检测失败')) {
-                  console.warn('⚠️ 检测失败但继续显示图片:', errorMessage);
-                  logInfo(`⚠️ 检测失败: ${errorMessage}，但继续显示图片`);
-                  // 仍然设置图片URL，让图片能够显示
-                  setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
-                } else {
-                  // 其他真正的错误才抛出
-                  throw new Error(errorMessage);
-                }
+                throw new Error(data.message || '处理过程中发生错误');
               }
             } catch (e) {
               console.error(`Failed to parse SSE data for event ${currentEvent}:`, e, '原始数据:', currentData.substring(0, 100));
@@ -1551,17 +1141,7 @@ export default function WikiDebugPage() {
               logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
             } else if (currentEvent === 'error') {
               console.error('✗ 收到错误事件:', data);
-              // 🌟 如果只是检测失败（如未检测到面板），不抛出错误，继续显示图片
-              const errorMessage = data.message || '处理过程中发生错误';
-              if (errorMessage.includes('未检测到') || errorMessage.includes('检测失败') || errorMessage.includes('Y轴检测失败')) {
-                console.warn('⚠️ 检测失败但继续显示图片:', errorMessage);
-                logInfo(`⚠️ 检测失败: ${errorMessage}，但继续显示图片`);
-                // 仍然设置图片URL，让图片能够显示
-                setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
-              } else {
-                // 其他真正的错误才抛出
-                throw new Error(errorMessage);
-              }
+              throw new Error(data.message || '处理过程中发生错误');
             }
           } catch (e) {
             console.error(`Failed to parse SSE data for event ${currentEvent}:`, e, '原始数据:', currentData.substring(0, 100));
@@ -1872,7 +1452,7 @@ export default function WikiDebugPage() {
               <CardHeader>
                 <CardTitle>调试视图</CardTitle>
               </CardHeader>
-              <CardContent className="flex justify-center items-center">
+              <CardContent>
                 <canvas
                   ref={canvasRef}
                   className="border border-gray-300"

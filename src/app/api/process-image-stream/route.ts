@@ -170,16 +170,6 @@ export async function POST(request: NextRequest) {
 
               console.log(`  Debug模式：检测到 ${detectedPanels.length} 个面板的裁切坐标`);
 
-              // 🌟 将检测到的坐标更新回 debugPanels
-              detectedPanels.forEach((detectedPanel, idx) => {
-                if (idx < debugPanels.length) {
-                  debugPanels[idx].x = detectedPanel.blueBox.x;
-                  debugPanels[idx].y = detectedPanel.blueBox.y;
-                  debugPanels[idx].width = detectedPanel.blueBox.width;
-                  debugPanels[idx].height = detectedPanel.blueBox.height;
-                }
-              });
-
               const debugCompleteData = {
                 debugPanels: debugPanels,
                 detectedPanels: detectedPanels,  // 返回裁切坐标

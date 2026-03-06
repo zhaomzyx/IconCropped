@@ -163,53 +163,13 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
       const widthStats = getNormalizationStats(panels);
       let logMessage = `✅ 自动检测完成！共检测到 ${panels.length} 个面板\n\n`;
       
-      // 🌟 显示详细的宽度分布信息
-      const widths = panels.map(p => p.width);
-      logMessage += `📏 宽度分布统计：\n`;
-      logMessage += `  当前宽度: ${widths.join(', ')}px\n\n`;
-
-      // 🌟 显示宽度频率统计
-      const tolerance = 10;
-      const widthFrequency = new Map<number, number>();
-      for (const width of widths) {
-        let found = false;
-        for (const [baseWidth, count] of widthFrequency) {
-          if (Math.abs(width - baseWidth) <= tolerance) {
-            widthFrequency.set(baseWidth, count + 1);
-            found = true;
-            break;
-          }
-        }
-        if (!found) {
-          widthFrequency.set(width, 1);
-        }
+      if (widthStats.applied) {
+        logMessage += `🎯 宽度归一化已应用：目标宽度 ${widthStats.targetWidth}px，影响 ${widthStats.affectedCount} 个面板\n\n`;
       }
-
-      logMessage += `📊 宽度频率统计（容差±${tolerance}px）：\n`;
-      for (const [baseWidth, count] of Array.from(widthFrequency.entries()).sort((a, b) => b[1] - a[1])) {
-        const percentage = (count / panels.length * 100).toFixed(1);
-        logMessage += `  ${baseWidth}px: ${count} 个 (${percentage}%)\n`;
-      }
-
-      // 🌟 显示归一化详情（使用 originalWidth 字段）
-      const normalizedPanels = panels.filter(p => p.originalWidth !== undefined && p.originalWidth !== p.width);
       
-      if (normalizedPanels.length > 0) {
-        const targetWidth = widthStats.targetWidth!;
-        logMessage += `\n🎯 宽度归一化已应用！\n`;
-        logMessage += `  目标宽度: ${targetWidth}px\n`;
-        logMessage += `  影响面板: ${normalizedPanels.length} 个\n`;
-        logMessage += `  归一化详情:\n`;
-        
-        for (let i = 0; i < panels.length; i++) {
-          const panel = panels[i];
-          if (panel.originalWidth !== undefined && panel.originalWidth !== panel.width) {
-            logMessage += `    Panel ${i + 1}: ${panel.title}\n`;
-            logMessage += `      ${panel.originalWidth}px → ${panel.width}px\n`;
-          }
-        }
-      } else {
-        logMessage += `\n⚠️ 宽度归一化未应用（不满足归一化条件）\n`;
+      logMessage += `宽度统计：\n${panels.slice(0, 10).map((p, i) => `${i + 1}. ${p.title}: ${p.width}px`).join('\n')}`;
+      if (panels.length > 10) {
+        logMessage += `\n... 还有 ${panels.length - 10} 个面板`;
       }
 
       setLogInfo(logMessage);
