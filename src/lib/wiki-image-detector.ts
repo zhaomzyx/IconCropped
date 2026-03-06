@@ -185,10 +185,11 @@ function scanVerticalLine(
 
   const getPixelColor = (x: number, y: number): [number, number, number] => {
     const index = (y * width + x) * 4;
-    return [data[index], data[index + 1], data[index + 2]];
+    return [data[index], data[index + 1], data[index + 2]};
   };
 
   const backgroundColor = getPixelColor(scanLineX, scanStartY);
+  console.log(`[WikiImageDetector] Y轴扫描开始：scanLineX=${scanLineX}, scanStartY=${scanStartY}, 背景色=(${backgroundColor.join(', ')})`);
 
   let inPanel = false;
   let consecutiveBg = 0;
@@ -206,6 +207,7 @@ function scanVerticalLine(
       if (!inPanel && consecutivePanel >= sustainedPixels) {
         inPanel = true;
         currentStartY = y - sustainedPixels + 1;
+        console.log(`[WikiImageDetector] Panel ${panels.length + 1} 上边界: Y=${currentStartY} (检测于Y=${y})`);
       }
     } else {
       consecutiveBg++;
@@ -214,11 +216,14 @@ function scanVerticalLine(
       if (inPanel && consecutiveBg >= sustainedPixels) {
         inPanel = false;
         const endY = y - sustainedPixels + 1;
+        const panelHeight = endY - currentStartY;
+        console.log(`[WikiImageDetector] Panel ${panels.length + 1} 下边界: Y=${endY}, 高度=${panelHeight}`);
         panels.push({ startY: currentStartY, endY });
       }
     }
   }
 
+  console.log(`[WikiImageDetector] Y轴扫描完成，共检测到 ${panels.length} 个Panel`);
   return panels;
 }
 
