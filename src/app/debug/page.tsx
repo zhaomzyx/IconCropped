@@ -811,6 +811,20 @@ export default function WikiDebugPage() {
               minColWidth: params.boundsMinColWidth,
             }
           );
+
+          console.log(`[边界检测] Panel: ${panel.title}`);
+          console.log(`  检测到 ${bounds.rows.length} 行, ${bounds.cols.length} 列`);
+          if (bounds.rows.length > 0) {
+            bounds.rows.forEach((row, i) => {
+              console.log(`  行 ${i}: y=${row.topY} ~ ${row.bottomY}, 高度=${row.height}`);
+            });
+          }
+          if (bounds.cols.length > 0) {
+            bounds.cols.forEach((col, i) => {
+              console.log(`  列 ${i}: x=${col.leftX} ~ ${col.rightX}, 宽度=${col.width}`);
+            });
+          }
+
           const boundsIcons = calculateIconPositionsFromBounds(bounds);
 
           redBoxes = boundsIcons.map((icon) => ({
@@ -819,6 +833,45 @@ export default function WikiDebugPage() {
             width: icon.width,
             height: icon.height,
           }));
+
+          // 绘制行列边界线（仅选中时显示）
+          if (isSelected) {
+            // 绘制行边界（绿色横线）
+            bounds.rows.forEach((row) => {
+              ctx.strokeStyle = '#22C55E'; // 绿色
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(range.startX, row.topY);
+              ctx.lineTo(range.startX + range.width, row.topY);
+              ctx.stroke();
+              ctx.moveTo(range.startX, row.bottomY);
+              ctx.lineTo(range.startX + range.width, row.bottomY);
+              ctx.stroke();
+
+              // 标注行号
+              ctx.fillStyle = '#22C55E';
+              ctx.font = '10px Arial';
+              ctx.fillText(`y${row.rowIndex}=${Math.round(row.topY)}`, range.startX + 5, row.topY - 3);
+            });
+
+            // 绘制列边界（红色竖线）
+            bounds.cols.forEach((col) => {
+              ctx.strokeStyle = '#EF4444'; // 红色
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(col.leftX, range.startY);
+              ctx.lineTo(col.leftX, range.startY + range.height);
+              ctx.stroke();
+              ctx.moveTo(col.rightX, range.startY);
+              ctx.lineTo(col.rightX, range.startY + range.height);
+              ctx.stroke();
+
+              // 标注列号
+              ctx.fillStyle = '#EF4444';
+              ctx.font = '10px Arial';
+              ctx.fillText(`x${col.colIndex}=${Math.round(col.leftX)}`, col.leftX + 3, range.startY + 12);
+            });
+          }
 
           // 绘制红色框（使用边界检测计算的精确边界）
           boundsIcons.forEach((icon) => {
