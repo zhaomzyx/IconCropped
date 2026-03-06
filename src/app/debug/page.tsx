@@ -1110,12 +1110,22 @@ export default function WikiDebugPage() {
                 setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
                 logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
               } else if (currentEvent === 'error') {
-                console.error('✗ 收到错误事件:', data);
-                throw new Error(data.message || '处理过程中发生错误');
+                // 🌟 修改：错误不阻断流程，只是记录日志
+                const errorMessage = data.message || '处理过程中发生错误';
+                console.warn('⚠️ 收到错误事件:', errorMessage, data);
+                logInfo(`⚠️ 检测失败: ${errorMessage}`);
+
+                // 🌟 无论如何都要设置图片 URL，让用户能看到图片
+                setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
+                logInfo('✓ 图片URL已设置（检测失败，但图片仍可加载）:', `/api/uploads/wiki/${uploadedFilename}`);
+
+                // 设置错误状态（可选，用于UI显示）
+                setDebugPanels([]);
               }
             } catch (e) {
               console.error(`Failed to parse SSE data for event ${currentEvent}:`, e, '原始数据:', currentData.substring(0, 100));
-              throw e;
+              // 🌟 修改：解析错误也不阻断流程
+              logInfo(`⚠️ 解析事件失败: ${e instanceof Error ? e.message : '未知错误'}`);
             }
 
             currentEvent = '';
@@ -1140,17 +1150,31 @@ export default function WikiDebugPage() {
               setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
               logInfo('✓ 图片URL已设置:', `/api/uploads/wiki/${uploadedFilename}`);
             } else if (currentEvent === 'error') {
-              console.error('✗ 收到错误事件:', data);
-              throw new Error(data.message || '处理过程中发生错误');
+              // 🌟 修改：错误不阻断流程，只是记录日志
+              const errorMessage = data.message || '处理过程中发生错误';
+              console.warn('⚠️ 收到错误事件:', errorMessage, data);
+              logInfo(`⚠️ 检测失败: ${errorMessage}`);
+
+              // 🌟 无论如何都要设置图片 URL，让用户能看到图片
+              setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
+              logInfo('✓ 图片URL已设置（检测失败，但图片仍可加载）:', `/api/uploads/wiki/${uploadedFilename}`);
+
+              // 设置错误状态（可选，用于UI显示）
+              setDebugPanels([]);
             }
           } catch (e) {
             console.error(`Failed to parse SSE data for event ${currentEvent}:`, e, '原始数据:', currentData.substring(0, 100));
-            throw e;
+            // 🌟 修改：解析错误也不阻断流程
+            logInfo(`⚠️ 解析事件失败: ${e instanceof Error ? e.message : '未知错误'}`);
           }
         }
 
         if (eventCount === 0) {
-          throw new Error('未收到任何SSE事件，请检查后端日志');
+          // 🌟 修改：未收到任何事件，但仍然设置图片 URL
+          console.warn('⚠️ 未收到任何SSE事件，但仍然尝试加载图片');
+          logInfo('⚠️ 未收到任何SSE事件，可能后端处理异常');
+          setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
+          logInfo('✓ 图片URL已设置（未收到事件，但图片仍可加载）:', `/api/uploads/wiki/${uploadedFilename}`);
         }
       } else {
         throw new Error(uploadData.error || '上传失败');
@@ -1158,7 +1182,9 @@ export default function WikiDebugPage() {
     } catch (error) {
       console.error('Failed to process image:', error);
       const errorMessage = error instanceof Error ? error.message : '未知错误';
-      alert(`处理失败：${errorMessage}\n\n请检查浏览器控制台获取详细信息。`);
+      // 🌟 修改：错误提示更友好，不阻断流程
+      logInfo(`⚠️ 处理异常: ${errorMessage}`);
+      alert(`⚠️ 检测失败：${errorMessage}\n\n图片已加载，您可以手动调整参数后重试。`);
     } finally {
       setIsProcessing(false);
     }
