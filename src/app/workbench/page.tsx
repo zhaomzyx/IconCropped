@@ -145,6 +145,9 @@ export default function WorkbenchPage() {
   const [wikiProcessingStep, setWikiProcessingStep] = useState('');  // Wiki处理步骤
   const [localProcessingStep, setLocalProcessingStep] = useState('');  // 本地资源处理步骤
 
+  // 新增：裁切统计信息
+  const [chainCount, setChainCount] = useState<number>(0);  // 合成链数量（大Panel数量）
+
   // 预设Wiki URL列表
   const presetWikiUrls = [
     { name: 'Travel Town', url: 'https://travel-town-mobile-game.fandom.com/wiki/Collection' },
@@ -479,6 +482,40 @@ export default function WorkbenchPage() {
     setLocalFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  // 🌟 下载ZIP打包函数
+  const handleDownloadZip = async () => {
+    try {
+      const wikiName = fetchedWikiName || 'default';
+      
+      // 调用后端API生成ZIP
+      const response = await fetch('/api/download-zip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wikiName }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`下载失败: ${response.status}`);
+      }
+
+      // 获取Blob并下载
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${wikiName}-cropped.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      console.log('✅ ZIP 下载成功');
+    } catch (error) {
+      console.error('下载ZIP失败:', error);
+      alert('下载失败：' + (error instanceof Error ? error.message : '未知错误'));
+    }
+  };
+
   // 步骤1：处理Wiki图片裁切
   const handleProcessWiki = async () => {
     if (wikiFiles.length === 0 && fetchedWikiFiles.length === 0) {
@@ -534,6 +571,7 @@ export default function WorkbenchPage() {
 
         let allWikiCrops: WikiCroppedImage[] = [];
         let failedCount = 0;
+        let totalChainCount = 0;  // 🌟 累加所有图片的合成链数量
 
         // 🔧 添加：确定实际的 wikiName
         const actualWikiName = fetchedWikiName || 'default';
@@ -562,6 +600,10 @@ export default function WorkbenchPage() {
             if (detectedPanels.length === 0) {
               throw new Error('未检测到任何面板，请检查图片是否正确');
             }
+
+            // 🌟 累加合成链数量
+            totalChainCount += detectedPanels.length;
+            console.log(`[步骤1] 累加合成链数量，当前总数: ${totalChainCount}`);
 
             // 步骤2：根据获取的信息进行裁切
             setWikiProcessingStep(`✂️ 图片 ${i + 1}/${wikiFilenames.length} - 正在裁切图标...`);
@@ -645,6 +687,7 @@ export default function WorkbenchPage() {
         // 设置最终结果
         setWikiImages(allWikiCrops);
         setFetchedWikiName(fetchedWikiName);
+        setChainCount(totalChainCount);  // 🌟 设置合成链数量
         setWikiProcessed(true);
 
         // 汇总处理结果
@@ -1011,7 +1054,7 @@ export default function WorkbenchPage() {
               {/* Wiki处理按钮和进度 */}
               {(fetchedWikiFiles.length > 0 || wikiFiles.length > 0) && (
                 <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 mb-3">
                     <Button
                       onClick={handleProcessWiki}
                       disabled={isProcessingWiki || wikiProcessed}
@@ -1019,10 +1062,29 @@ export default function WorkbenchPage() {
                     >
                       {isProcessingWiki ? '裁切中...' : wikiProcessed ? '✓ 已裁切' : '开始裁切'}
                     </Button>
+                    
                     {wikiProcessed && (
-                      <Badge variant="outline" className="bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
-                        {wikiImages.length} 个图标
-                      </Badge>
+                      <>
+                        {/* 🌟 合成链数量 */}
+                        <Badge variant="outline" className="bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800">
+                          {chainCount} 条合成链
+                        </Badge>
+                        
+                        {/* 图标数量 */}
+                        <Badge variant="outline" className="bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
+                          {wikiImages.length} 个图标
+                        </Badge>
+
+                        {/* 🌟 下载按钮 */}
+                        <Button
+                          onClick={handleDownloadZip}
+                          variant="outline"
+                          size="sm"
+                          className="ml-2 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950"
+                        >
+                          下载全部
+                        </Button>
+                      </>
                     )}
                   </div>
                   {wikiProcessingStep && (
