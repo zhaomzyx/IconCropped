@@ -716,54 +716,65 @@ export default function WikiDebugPage() {
           height: icon.height,
         }));
 
-        // 绘制行列边界线（仅选中时显示）
-        if (isSelected) {
-          // 绘制行边界（绿色横线）
-          bounds.rows.forEach((row) => {
-            ctx.strokeStyle = '#22C55E'; // 绿色
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(scanX, row.topY);
-            ctx.lineTo(scanX + scanWidth, row.topY);
-            ctx.stroke();
-            ctx.moveTo(scanX, row.bottomY);
-            ctx.lineTo(scanX + scanWidth, row.bottomY);
-            ctx.stroke();
+        // 绘制行列边界线（始终显示，选中的更明显）
+        const rowStrokeColor = isSelected ? '#22C55E' : 'rgba(34, 197, 94, 0.4)';
+        const rowLineWidth = isSelected ? 2 : 1;
+        const colStrokeColor = isSelected ? '#EF4444' : 'rgba(239, 68, 68, 0.4)';
+        const colLineWidth = isSelected ? 2 : 1;
 
-            // 标注行号
+        // 绘制行边界（绿色横线）
+        bounds.rows.forEach((row) => {
+          ctx.strokeStyle = rowStrokeColor;
+          ctx.lineWidth = rowLineWidth;
+          ctx.beginPath();
+          ctx.moveTo(scanX, row.topY);
+          ctx.lineTo(scanX + scanWidth, row.topY);
+          ctx.stroke();
+          ctx.moveTo(scanX, row.bottomY);
+          ctx.lineTo(scanX + scanWidth, row.bottomY);
+          ctx.stroke();
+
+          // 只在选中时标注行号
+          if (isSelected) {
             ctx.fillStyle = '#22C55E';
             ctx.font = '10px Arial';
             ctx.fillText(`行${row.rowIndex}: y=${Math.round(row.topY)}~${Math.round(row.bottomY)}`, scanX + 5, row.topY - 3);
-          });
+          }
+        });
 
-          // 绘制列边界（红色竖线）
-          // 先绘制列检测的扫描范围（浅色矩形）
-          const colScanHeight = bounds.rows.length > 0 ? bounds.rows[0].height : scanHeight;
+        // 绘制列边界（红色竖线）
+        // 先绘制列检测的扫描范围（浅色矩形）
+        const colScanHeight = bounds.rows.length > 0 ? bounds.rows[0].height : scanHeight;
+        if (isSelected) {
           ctx.fillStyle = 'rgba(239, 68, 68, 0.1)'; // 浅红色背景
           ctx.fillRect(scanX, scanY, scanWidth, colScanHeight);
           ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)'; // 半透明红色边框
           ctx.lineWidth = 1;
           ctx.strokeRect(scanX, scanY, scanWidth, colScanHeight);
+        }
 
-          // 绘制列边界线（红色竖线）
-          bounds.cols.forEach((col) => {
-            ctx.strokeStyle = '#EF4444'; // 红色
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(col.leftX, scanY);
-            ctx.lineTo(col.leftX, scanY + colScanHeight);
-            ctx.stroke();
-            ctx.moveTo(col.rightX, scanY);
-            ctx.lineTo(col.rightX, scanY + colScanHeight);
-            ctx.stroke();
+        // 绘制列边界线（红色竖线）
+        bounds.cols.forEach((col) => {
+          ctx.strokeStyle = colStrokeColor;
+          ctx.lineWidth = colLineWidth;
+          ctx.beginPath();
+          ctx.moveTo(col.leftX, scanY);
+          ctx.lineTo(col.leftX, scanY + colScanHeight);
+          ctx.stroke();
+          ctx.moveTo(col.rightX, scanY);
+          ctx.lineTo(col.rightX, scanY + colScanHeight);
+          ctx.stroke();
 
-            // 标注列号
+          // 只在选中时标注列号
+          if (isSelected) {
             ctx.fillStyle = '#EF4444';
             ctx.font = '10px Arial';
             ctx.fillText(`列${col.colIndex}: x=${Math.round(col.leftX)}~${Math.round(col.rightX)}`, col.leftX + 3, scanY + 12);
-          });
+          }
+        });
 
-          // 在右上角显示检测统计
+        // 只在选中时显示检测统计
+        if (isSelected) {
           ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
           ctx.fillRect(scanX + scanWidth - 150, scanY, 150, 55);
           ctx.fillStyle = '#FFFFFF';
