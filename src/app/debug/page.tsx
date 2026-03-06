@@ -1201,6 +1201,18 @@ export default function WikiDebugPage() {
     }
   };
 
+  // 🌟 重置为新默认值（解决LocalStorage旧值覆盖问题）
+  const handleResetToNewDefaults = () => {
+    if (window.confirm('确定要重置为新默认值吗？\n\n这将清除旧配置并应用最新的默认参数（包括Y轴偏移=2）。')) {
+      setParams(DEFAULT_PARAMS);
+      // 清除 localStorage 中的旧配置
+      localStorage.removeItem(STORAGE_KEY);
+      // 重新保存新的默认值
+      saveParamsToStorage(DEFAULT_PARAMS);
+      alert('✅ 已重置为新默认值！\n\nY轴偏移已设置为 2px');
+    }
+  };
+
   // 应用优化参数（基于实际调试测试）
   const handleApplyOptimizedParams = () => {
     const OPTIMIZED_PARAMS = {
@@ -2015,6 +2027,14 @@ export default function WikiDebugPage() {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={handleResetToNewDefaults}
+                      className="flex-1 min-w-[120px] bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300"
+                    >
+                      🔄 重置为新默认值
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={handleExportConfig}
                       className="flex-1 min-w-[120px]"
                     >
@@ -2029,7 +2049,7 @@ export default function WikiDebugPage() {
                       导入配置
                     </Button>
                   </div>
-                  <div className="flex gap-2 flex-wrap">
+                  <div className="flex gap-2 flex-wrap mb-3">
                     <Button
                       variant="default"
                       size="sm"
@@ -2038,6 +2058,14 @@ export default function WikiDebugPage() {
                     >
                       ✨ 应用优化参数
                     </Button>
+                  </div>
+                  <div className="bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 p-3 rounded mb-2">
+                    <p className="text-xs text-yellow-800 dark:text-yellow-300 mb-1">
+                      <strong>💡 提示：</strong>如果Y轴偏移无法保存，点击"🔄 重置为新默认值"按钮清除旧配置。
+                    </p>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      旧配置（LocalStorage中的值）会覆盖新的默认值，需要手动清除。
+                    </p>
                   </div>
                   <p className="text-xs text-gray-500 mt-2">
                     应用基于实际调试测试的优化参数（偏移校准、边界检测等）
@@ -2055,27 +2083,59 @@ export default function WikiDebugPage() {
                 <div className="pt-4 border-t">
                   <div className="flex items-center justify-between mb-3">
                     <Label className="text-sm font-semibold">当前参数状态</Label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        const currentState = localStorage.getItem(STORAGE_KEY);
-                        alert(`LocalStorage中的当前配置：\n\n${currentState}`);
-                      }}
-                      className="text-xs"
-                    >
-                      检查 LocalStorage
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const currentState = localStorage.getItem(STORAGE_KEY);
+                          alert(`LocalStorage中的当前配置：\n\n${currentState}`);
+                        }}
+                        className="text-xs"
+                      >
+                        检查 LocalStorage
+                      </Button>
+                    </div>
                   </div>
                   <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded text-xs space-y-1 max-h-40 overflow-y-auto">
                     <div className="font-semibold mb-2">偏移校准参数：</div>
-                    <div>X轴偏移: <span className="font-mono text-blue-600 dark:text-blue-400">{params.forceSquareOffsetX}</span></div>
-                    <div>Y轴偏移: <span className="font-mono text-blue-600 dark:text-blue-400">{params.forceSquareOffsetY}</span></div>
+                    <div className="flex items-center justify-between">
+                      <span>X轴偏移: <span className="font-mono text-blue-600 dark:text-blue-400">{params.forceSquareOffsetX}</span></span>
+                      {params.forceSquareOffsetX !== DEFAULT_PARAMS.forceSquareOffsetX && (
+                        <span className="text-xs bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded">已修改</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Y轴偏移: <span className="font-mono text-blue-600 dark:text-blue-400">{params.forceSquareOffsetY}</span></span>
+                      {params.forceSquareOffsetY !== DEFAULT_PARAMS.forceSquareOffsetY && (
+                        <span className="text-xs bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded">已修改</span>
+                      )}
+                    </div>
                     <div className="font-semibold mb-2 mt-2">边界检测参数：</div>
-                    <div>行检测阈值: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsVarianceThresholdRow}</span></div>
-                    <div>列检测阈值: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsVarianceThresholdCol}</span></div>
-                    <div>最小行高: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsMinRowHeight}</span></div>
-                    <div>最小列宽: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsMinColWidth}</span></div>
+                    <div className="flex items-center justify-between">
+                      <span>行检测阈值: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsVarianceThresholdRow}</span></span>
+                      {params.boundsVarianceThresholdRow !== DEFAULT_PARAMS.boundsVarianceThresholdRow && (
+                        <span className="text-xs bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded">已修改</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>列检测阈值: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsVarianceThresholdCol}</span></span>
+                      {params.boundsVarianceThresholdCol !== DEFAULT_PARAMS.boundsVarianceThresholdCol && (
+                        <span className="text-xs bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded">已修改</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>最小行高: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsMinRowHeight}</span></span>
+                      {params.boundsMinRowHeight !== DEFAULT_PARAMS.boundsMinRowHeight && (
+                        <span className="text-xs bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded">已修改</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>最小列宽: <span className="font-mono text-green-600 dark:text-green-400">{params.boundsMinColWidth}</span></span>
+                      {params.boundsMinColWidth !== DEFAULT_PARAMS.boundsMinColWidth && (
+                        <span className="text-xs bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded">已修改</span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
