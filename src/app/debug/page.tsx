@@ -11,8 +11,7 @@ import {
   detectColumnsBySlidingWindow,
   detectIconPositionsBySlidingWindow,
   detectAllBounds,
-  calculateIconPositionsFromBounds,
-  calculateVariance
+  calculateIconPositionsFromBounds
 } from '@/lib/sliding-window-detection';
 
 interface DebugPanel {
@@ -783,71 +782,6 @@ export default function WikiDebugPage() {
           ctx.fillText(`检测到: ${bounds.rows.length}行 × ${bounds.cols.length}列`, scanX + scanWidth - 145, scanY + 15);
           ctx.fillText(`预计图标: ${bounds.rows.length * bounds.cols.length}个`, scanX + scanWidth - 145, scanY + 32);
           ctx.fillText(`列扫描高度: ${Math.round(colScanHeight)}px`, scanX + scanWidth - 145, scanY + 49);
-
-          // 绘制方差曲线图（用于调试）
-          const { data } = imageData;
-          const varianceCurve: { x: number; variance: number }[] = [];
-          const curveStartX = scanX + scanWidth + 10;
-          const curveStartY = scanY;
-          const curveWidth = 100;
-          const curveHeight = 80;
-
-          // 计算每个X位置的方差
-          for (let dx = 0; dx < scanWidth; dx += 2) {
-            const x = scanX + dx;
-            const variance = calculateVariance(
-              Buffer.from(imageData.data),
-              canvas.width,
-              x,
-              scanY,
-              params.boundsWindowWidth,
-              colScanHeight
-            );
-            varianceCurve.push({ x, variance });
-          }
-
-          // 找到最大方差值（用于归一化）
-          const maxVariance = Math.max(...varianceCurve.map(v => v.variance), 1);
-
-          // 绘制曲线背景
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-          ctx.fillRect(curveStartX, curveStartY, curveWidth, curveHeight);
-          ctx.strokeStyle = '#666';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(curveStartX, curveStartY, curveWidth, curveHeight);
-
-          // 绘制方差曲线
-          ctx.strokeStyle = '#FFD700';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          varianceCurve.forEach((point, index) => {
-            const normalizedX = (point.x - scanX) / scanWidth * curveWidth;
-            const normalizedY = curveHeight - (point.variance / maxVariance * curveHeight);
-            if (index === 0) {
-              ctx.moveTo(curveStartX + normalizedX, curveStartY + normalizedY);
-            } else {
-              ctx.lineTo(curveStartX + normalizedX, curveStartY + normalizedY);
-            }
-          });
-          ctx.stroke();
-
-          // 绘制阈值线
-          const thresholdY = curveHeight - (params.boundsVarianceThresholdCol / maxVariance * curveHeight);
-          ctx.strokeStyle = '#EF4444';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([2, 2]);
-          ctx.beginPath();
-          ctx.moveTo(curveStartX, curveStartY + thresholdY);
-          ctx.lineTo(curveStartX + curveWidth, curveStartY + thresholdY);
-          ctx.stroke();
-          ctx.setLineDash([]);
-
-          // 标注
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = '8px Arial';
-          ctx.fillText('方差曲线', curveStartX + 5, curveStartY + 10);
-          ctx.fillText(`阈值: ${params.boundsVarianceThresholdCol}`, curveStartX + 5, curveStartY + 22);
-          ctx.fillText(`最大值: ${maxVariance.toFixed(0)}`, curveStartX + 5, curveStartY + 34);
         }
 
         // 绘制红色框（使用边界检测计算的精确边界）
