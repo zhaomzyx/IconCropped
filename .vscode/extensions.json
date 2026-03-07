@@ -1,0 +1,29 @@
+{
+  "recommendations": [
+    // TypeScript 和 JavaScript 支持
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+
+    // Next.js 支持
+    "bradlc.vscode-tailwindcss",
+    "formulahendry.auto-rename-tag",
+
+    // React 开发
+    "dsznajder.es7-react-js-snippets",
+    "christian-kohler.path-intellisense",
+
+    // Git 工具
+    "eamodio.gitlens",
+    "github.vscode-pull-request-github",
+
+    // 实用工具
+    "streetsidesoftware.code-spell-checker",
+    "usernamehw.errorlens",
+    "oderwat.indent-rainbow",
+    "wix.vscode-import-cost",
+
+    // 图标和主题（可选）
+    "pkief.material-icon-theme",
+    "ms-vscode.vscode-typescript-next"
+  ]
+}
