@@ -60,5 +60,15 @@
   // 文件关联
   "files.associations": {
     "*.css": "tailwindcss"
+  },
+  "chat.tools.terminal.autoApprove": {
+    "pnpm": true,
+    "npm install": true,
+    "yarn add": true,
+    "/^node --version$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "&": true
   }
 }

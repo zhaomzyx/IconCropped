@@ -43,10 +43,11 @@ export async function GET(
         'Cache-Control': 'public, max-age=31536000', // 缓存1年
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to serve image';
     console.error('Error serving wiki cropped image:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to serve image' },
+      { error: message },
       { status: 500 }
     );
   }

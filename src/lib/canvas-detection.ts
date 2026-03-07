@@ -318,7 +318,6 @@ export function calculateIconPositions(
   panelY: number,
   params: typeof DEFAULT_PARAMS,
   imageData: ImageData,
-  panelRange: PanelHorizontalRange
 ): IconPosition[] {
   const { gridStartX, gridStartY, iconSize, centerGapX, centerGapY, panelLeftOffset, iconCenterOffsetX, iconCenterOffsetY, varianceThreshold } = params;
 
@@ -503,7 +502,6 @@ export async function detectPanelsWithCanvas(
       range.startY,
       params,
       imageData,
-      range
     );
 
     console.log(`  RedBox Count: ${redBoxes.length}`);

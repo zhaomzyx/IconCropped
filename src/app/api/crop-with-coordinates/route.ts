@@ -13,21 +13,6 @@ interface Coordinate {
   height: number;
 }
 
-interface DebugPanel {
-  title: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rows: number;
-  cols: number;
-  total?: number;
-  imageUrl: string;
-  greenBox?: Coordinate;  // 绿框（标题区域）
-  redBoxes?: Coordinate[];  // 红框（icon区域）
-  blueBox?: Coordinate;  // 蓝框（大panel区域）
-}
-
 interface CropResult {
   filename: string;
   name: string;
@@ -61,7 +46,6 @@ async function recognizeTextFromGreenBox(
     const greenBoxMetadata = await sharp(greenBoxBuffer).metadata();
     const maxWidth = 500;
     if (greenBoxMetadata.width && greenBoxMetadata.width > maxWidth) {
-      const scale = maxWidth / greenBoxMetadata.width;
       processBuffer = await sharp(greenBoxBuffer)
         .resize(maxWidth, null)
         .toBuffer();
@@ -287,11 +271,15 @@ export async function POST(request: NextRequest) {
 
         for (let iconIndex = 0; iconIndex < panel.redBoxes.length; iconIndex++) {
           const redBox = panel.redBoxes[iconIndex];
+          const redBoxWithGrid = redBox as Coordinate & {
+            row?: number;
+            col?: number;
+          };
 
           // 🌟 修复脱节 3：优先使用前端传过来的真实行列号！
           // 因为如果前面有空位被过滤了，单纯的除法会导致后面的物品全部分错行和列
-          const row = (redBox as any).row !== undefined ? (redBox as any).row : Math.floor(iconIndex / panel.cols);
-          const col = (redBox as any).col !== undefined ? (redBox as any).col : iconIndex % panel.cols;
+          const row = redBoxWithGrid.row ?? Math.floor(iconIndex / panel.cols);
+          const col = redBoxWithGrid.col ?? iconIndex % panel.cols;
 
           // 详细日志：裁切坐标
           if (iconIndex < 3 || iconIndex === panel.redBoxes.length - 1) { // 只显示前3个和最后一个

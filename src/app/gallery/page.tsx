@@ -1,29 +1,21 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import React from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Search, Filter, LayoutGrid, List, ChevronDown, X, AlertTriangle, CheckCircle, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { ArrowLeft, Search, Filter, LayoutGrid, List, ChevronDown, AlertTriangle, CheckCircle, Image as ImageIcon, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { ResourceType, SynthesisChain } from '@/types';
 
 // 自定义悬浮对比组件
 const HoverPopover = ({ children, content }: { children: React.ReactNode; content: React.ReactNode }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
   const triggerRef = React.useRef<HTMLDivElement>(null);
 
-  const handleMouseEnter = (e: React.MouseEvent) => {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      setPosition({
-        top: rect.bottom + 8,
-        left: rect.left + rect.width / 2 - 160, // 居中，假设宽度320px
-      });
-    }
+  const handleMouseEnter = () => {
     setIsOpen(true);
   };
 
@@ -36,16 +28,12 @@ const HoverPopover = ({ children, content }: { children: React.ReactNode; conten
       ref={triggerRef}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      style={{ position: 'relative' }}
+      className="relative"
     >
       {children}
       {isOpen && (
         <div
-          className="fixed z-50 bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 p-4 w-80"
-          style={{
-            top: `${position.top}px`,
-            left: `${position.left}px`,
-          }}
+          className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 p-4 w-80"
           onMouseEnter={() => setIsOpen(true)}
           onMouseLeave={() => setIsOpen(false)}
         >
@@ -65,17 +53,11 @@ export default function GalleryPage() {
   const [selectedLevel, setSelectedLevel] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
-  const [hoveredItem, setHoveredItem] = useState<{chainId: string, itemId: string} | null>(null);
 
   // 加载数据
   useEffect(() => {
     loadChains();
   }, []);
-
-  // 应用筛选
-  useEffect(() => {
-    applyFilters();
-  }, [chains, searchQuery, selectedTypes, selectedLevel]);
 
   const loadChains = async () => {
     try {
@@ -118,7 +100,7 @@ export default function GalleryPage() {
     }
   };
 
-  const applyFilters = () => {
+  const applyFilters = useCallback(() => {
     let filtered = [...chains];
 
     // 搜索筛选
@@ -143,7 +125,12 @@ export default function GalleryPage() {
     }
 
     setFilteredChains(filtered);
-  };
+  }, [chains, searchQuery, selectedTypes, selectedLevel]);
+
+  // 应用筛选
+  useEffect(() => {
+    applyFilters();
+  }, [applyFilters]);
 
   const getTypeBadgeColor = (type: ResourceType) => {
     switch (type) {
@@ -198,7 +185,7 @@ export default function GalleryPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 dark:from-slate-950 dark:to-slate-900">
+    <div className="min-h-screen bg-linear-to-br from-green-50 to-emerald-100 dark:from-slate-950 dark:to-slate-900">
       <div className="container mx-auto px-4 py-8">
         {/* 头部导航 */}
         <div className="flex items-center justify-between mb-8">
@@ -437,11 +424,14 @@ export default function GalleryPage() {
                                   </div>
                                   <div className="w-full h-40 bg-green-50 dark:bg-green-950 rounded-lg overflow-hidden flex items-center justify-center">
                                     {item.wikiImageUrl ? (
-                                      <img
-                                        src={item.wikiImageUrl}
-                                        alt={item.filename}
-                                        className="w-full h-full object-contain"
-                                      />
+                                      <>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                          src={item.wikiImageUrl}
+                                          alt={item.filename}
+                                          className="w-full h-full object-contain"
+                                        />
+                                      </>
                                     ) : (
                                       <span className="text-sm text-slate-500">无Wiki图片</span>
                                     )}
@@ -457,11 +447,14 @@ export default function GalleryPage() {
                                   </div>
                                   <div className="w-full h-40 bg-slate-50 dark:bg-slate-800 rounded-lg overflow-hidden flex items-center justify-center">
                                     {item.imageUrl ? (
-                                      <img
-                                        src={item.imageUrl}
-                                        alt={item.filename}
-                                        className="w-full h-full object-contain"
-                                      />
+                                      <>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                          src={item.imageUrl}
+                                          alt={item.filename}
+                                          className="w-full h-full object-contain"
+                                        />
+                                      </>
                                     ) : (
                                       <span className="text-sm text-slate-500">❌ 缺失本地图片</span>
                                     )}
@@ -477,20 +470,23 @@ export default function GalleryPage() {
                               </div>
                             }
                           >
-                            <div className="flex flex-col items-center flex-shrink-0 cursor-pointer group">
+                            <div className="flex flex-col items-center shrink-0 cursor-pointer group">
                               <div className={`w-24 h-24 rounded-lg flex items-center justify-center overflow-hidden hover:shadow-md transition-all relative ${
                                 item.wikiImageUrl ? 'bg-green-100 dark:bg-green-900' : 'bg-slate-200 dark:bg-slate-700'
                               } ${!item.imageUrl ? 'opacity-60' : ''}`}>
                                 {item.wikiImageUrl ? (
-                                  <img
-                                    src={item.wikiImageUrl}
-                                    alt={item.filename}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      e.currentTarget.style.display = 'none';
-                                      e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                                    }}
-                                  />
+                                  <>
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={item.wikiImageUrl}
+                                      alt={item.filename}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = 'none';
+                                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                      }}
+                                    />
+                                  </>
                                 ) : null}
                                 {!item.wikiImageUrl && (
                                   <span className="text-4xl">🎮</span>
@@ -519,7 +515,7 @@ export default function GalleryPage() {
 
                           {/* 箭头 */}
                           {index < chain.items.length - 1 && (
-                            <div className="flex items-center text-slate-400 flex-shrink-0">
+                            <div className="flex items-center text-slate-400 shrink-0">
                               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                               </svg>

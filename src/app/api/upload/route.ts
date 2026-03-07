@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir, readdir, stat } from 'fs/promises';
-import { join, extname, basename, dirname } from 'path';
-import { existsSync } from 'fs';
-import { ResourceType, ResourceItem, SynthesisChain } from '@/types';
+import { NextRequest, NextResponse } from "next/server";
+import { writeFile, mkdir, readdir } from "fs/promises";
+import { join, extname, dirname } from "path";
+import { existsSync } from "fs";
+import { ResourceType, ResourceItem, SynthesisChain } from "@/types";
 
 // 存储上传文件的目录
-const UPLOAD_DIR = '/tmp/uploads';
+const UPLOAD_DIR = "/tmp/uploads";
 
 // 确保上传目录存在
 async function ensureUploadDir() {
@@ -16,15 +16,15 @@ async function ensureUploadDir() {
 
 // 解析文件名，提取资源信息
 function parseFilename(filename: string): Partial<ResourceItem> {
-  const nameWithoutExt = filename.replace(extname(filename), '');
+  const nameWithoutExt = filename.replace(extname(filename), "");
 
   // 判断资源类型
   let type: ResourceType = ResourceType.UNKNOWN;
-  if (nameWithoutExt.includes('spawner')) {
+  if (nameWithoutExt.includes("spawner")) {
     type = ResourceType.SPAWNER;
-  } else if (nameWithoutExt.includes('align')) {
+  } else if (nameWithoutExt.includes("align")) {
     type = ResourceType.ALIGN;
-  } else if (nameWithoutExt.includes('simple_opt')) {
+  } else if (nameWithoutExt.includes("simple_opt")) {
     type = ResourceType.SIMPLE_OPT;
   }
 
@@ -33,13 +33,13 @@ function parseFilename(filename: string): Partial<ResourceItem> {
   const level = levelMatch ? parseInt(levelMatch[1], 10) : 0;
 
   // 提取基础名称（去除前缀和后缀）
-  let baseName = nameWithoutExt
-    .replace(/^IT_/, '')
-    .replace(/^spawner_/, '')
-    .replace(/^align_/, '')
-    .replace(/^simple_opt_/, '')
-    .replace(/_00$/, '')
-    .replace(/_\d+$/, '');
+  const baseName = nameWithoutExt
+    .replace(/^IT_/, "")
+    .replace(/^spawner_/, "")
+    .replace(/^align_/, "")
+    .replace(/^simple_opt_/, "")
+    .replace(/_00$/, "")
+    .replace(/_\d+$/, "");
 
   return {
     id: filename,
@@ -56,7 +56,7 @@ function groupByChains(items: ResourceItem[]): SynthesisChain[] {
   const chainMap = new Map<string, ResourceItem[]>();
 
   // 按baseName分组
-  items.forEach(item => {
+  items.forEach((item) => {
     if (!item.chainId) return;
 
     if (!chainMap.has(item.chainId)) {
@@ -69,7 +69,7 @@ function groupByChains(items: ResourceItem[]): SynthesisChain[] {
   return Array.from(chainMap.entries()).map(([baseName, chainItems]) => {
     const sortedItems = chainItems.sort((a, b) => a.level - b.level);
     const firstItem = sortedItems[0];
-    const maxLevel = Math.max(...sortedItems.map(item => item.level));
+    const maxLevel = Math.max(...sortedItems.map((item) => item.level));
 
     return {
       id: `chain-${baseName}`,
@@ -86,14 +86,11 @@ function groupByChains(items: ResourceItem[]): SynthesisChain[] {
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const file = formData.get('file') as File;
-    const type = formData.get('type') as string; // 'wiki' 或 'local'
+    const file = formData.get("file") as File;
+    const type = formData.get("type") as string; // 'wiki' 或 'local'
 
     if (!file) {
-      return NextResponse.json(
-        { error: 'No file provided' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
     await ensureUploadDir();
@@ -103,7 +100,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
 
     // 根据类型创建不同的子目录
-    const subdir = type === 'wiki' ? 'wiki' : 'local';
+    const subdir = type === "wiki" ? "wiki" : "local";
     const dirPath = join(UPLOAD_DIR, subdir);
     if (!existsSync(dirPath)) {
       await mkdir(dirPath, { recursive: true });
@@ -122,25 +119,26 @@ export async function POST(request: NextRequest) {
     await writeFile(filepath, buffer);
 
     // 如果是本地资源文件夹（支持多文件）
-    if (type === 'local' && file.name.endsWith('.zip')) {
+    if (type === "local" && file.name.endsWith(".zip")) {
       // TODO: 处理ZIP文件解压
       return NextResponse.json({
         success: true,
-        message: 'ZIP file uploaded, extraction not implemented yet',
+        message: "ZIP file uploaded, extraction not implemented yet",
       });
     }
 
     return NextResponse.json({
       success: true,
-      message: 'File uploaded successfully',
+      message: "File uploaded successfully",
       filename: file.name,
       type,
     });
-  } catch (error: any) {
-    console.error('Upload error:', error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Upload failed";
+    console.error("Upload error:", error);
     return NextResponse.json(
-      { error: error.message || 'Upload failed' },
-      { status: 500 }
+      { error: message },
+      { status: 500 },
     );
   }
 }
@@ -150,7 +148,7 @@ export async function GET() {
   try {
     await ensureUploadDir();
 
-    const localDir = join(UPLOAD_DIR, 'local');
+    const localDir = join(UPLOAD_DIR, "local");
 
     if (!existsSync(localDir)) {
       return NextResponse.json({
@@ -162,7 +160,7 @@ export async function GET() {
     const items: ResourceItem[] = [];
 
     // 递归读取目录中的所有图片文件
-    async function readDirectory(dir: string, relativePath: string = '') {
+    async function readDirectory(dir: string, relativePath: string = "") {
       const entries = await readdir(dir, { withFileTypes: true });
 
       for (const entry of entries) {
@@ -175,7 +173,7 @@ export async function GET() {
         } else if (entry.isFile()) {
           // 处理文件
           const ext = extname(entry.name).toLowerCase();
-          if (ext === '.png' || ext === '.jpg' || ext === '.jpeg') {
+          if (ext === ".png" || ext === ".jpg" || ext === ".jpeg") {
             const parsed = parseFilename(entry.name);
             items.push({
               id: parsed.id || entryRelativePath,
@@ -201,11 +199,12 @@ export async function GET() {
       fileCount: items.length,
       chains,
     });
-  } catch (error: any) {
-    console.error('Get resources error:', error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to get resources";
+    console.error("Get resources error:", error);
     return NextResponse.json(
-      { error: error.message || 'Failed to get resources' },
-      { status: 500 }
+      { error: message },
+      { status: 500 },
     );
   }
 }

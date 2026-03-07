@@ -1,9 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
-import { createReadStream, createWriteStream } from 'fs';
-import archiver from 'archiver';
-import { Writable } from 'stream';
+import { NextRequest, NextResponse } from "next/server";
+import { promises as fs } from "fs";
+import path from "path";
+import { createWriteStream } from "fs";
+import archiver from "archiver";
 
 /**
  * API: 下载ZIP
@@ -15,29 +14,38 @@ export async function POST(request: NextRequest) {
 
     if (!wikiName) {
       return NextResponse.json(
-        { success: false, error: '缺少 wikiName 参数' },
-        { status: 400 }
+        { success: false, error: "缺少 wikiName 参数" },
+        { status: 400 },
       );
     }
 
     // 裁切后的图片保存路径
-    const croppedDir = path.join(process.cwd(), 'public', 'wiki-cropped', wikiName);
+    const croppedDir = path.join(
+      process.cwd(),
+      "public",
+      "wiki-cropped",
+      wikiName,
+    );
 
     // 检查目录是否存在
     try {
       await fs.access(croppedDir);
-    } catch (error) {
+    } catch {
       return NextResponse.json(
         { success: false, error: `目录不存在: ${wikiName}` },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     // 创建临时ZIP文件
-    const tempZipPath = path.join(process.cwd(), 'tmp', `${wikiName}-cropped-${Date.now()}.zip`);
+    const tempZipPath = path.join(
+      process.cwd(),
+      "tmp",
+      `${wikiName}-cropped-${Date.now()}.zip`,
+    );
 
     // 确保tmp目录存在
-    const tmpDir = path.join(process.cwd(), 'tmp');
+    const tmpDir = path.join(process.cwd(), "tmp");
     try {
       await fs.access(tmpDir);
     } catch {
@@ -46,10 +54,10 @@ export async function POST(request: NextRequest) {
 
     // 创建ZIP文件
     const output = createWriteStream(tempZipPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = archiver("zip", { zlib: { level: 9 } });
 
     // 处理错误
-    archive.on('error', (err) => {
+    archive.on("error", (err) => {
       throw err;
     });
 
@@ -64,8 +72,8 @@ export async function POST(request: NextRequest) {
 
     // 等待ZIP文件创建完成
     await new Promise<void>((resolve, reject) => {
-      output.on('close', () => resolve());
-      output.on('error', reject);
+      output.on("close", () => resolve());
+      output.on("error", reject);
     });
 
     // 读取ZIP文件
@@ -77,16 +85,19 @@ export async function POST(request: NextRequest) {
     // 返回ZIP文件
     return new NextResponse(zipBuffer, {
       headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${wikiName}-cropped.zip"`,
-        'Content-Length': zipBuffer.length.toString(),
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="${wikiName}-cropped.zip"`,
+        "Content-Length": zipBuffer.length.toString(),
       },
     });
   } catch (error) {
-    console.error('Download ZIP error:', error);
+    console.error("Download ZIP error:", error);
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : '下载失败' },
-      { status: 500 }
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "下载失败",
+      },
+      { status: 500 },
     );
   }
 }

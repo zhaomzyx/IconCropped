@@ -313,10 +313,11 @@ export async function POST(request: NextRequest) {
       success: true,
       result: matchResult
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to match resources';
     console.error('Match error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to match resources' },
+      { error: message },
       { status: 500 }
     );
   }

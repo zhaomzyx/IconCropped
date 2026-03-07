@@ -1,14 +1,26 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
-import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { X, Download, Save, Upload, Info } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { X } from "lucide-react";
+import { detectWikiImage } from "@/lib/wiki-image-detector";
 
 // 调试台参数接口
 export interface DebugPanelParams {
@@ -69,7 +81,15 @@ export interface DetectedPanel {
   imageUrl: string;
   blueBox: { x: number; y: number; width: number; height: number };
   greenBox: { x: number; y: number; width: number; height: number };
-  redBoxes: Array<{ x: number; y: number; width: number; height: number; iconIndex?: number; row?: number; col?: number }>;
+  redBoxes: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    iconIndex?: number;
+    row?: number;
+    col?: number;
+  }>;
 }
 
 interface DebugModalProps {
@@ -79,45 +99,40 @@ interface DebugModalProps {
   onExport: (panels: DetectedPanel[]) => void;
 }
 
-export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: DebugModalProps) {
+export default function DebugModal({
+  imageUrl,
+  isOpen,
+  onClose,
+  onExport,
+}: DebugModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [params, setParams] = useState<DebugPanelParams>(DEFAULT_PARAMS);
   const [detectedPanels, setDetectedPanels] = useState<DetectedPanel[]>([]);
   const [selectedPanelIndex, setSelectedPanelIndex] = useState<number>(-1);
-  const [logInfo, setLogInfo] = useState<string>('');
+  const [logInfo, setLogInfo] = useState<string>("");
 
   // 初始化参数
   useEffect(() => {
-    const STORAGE_KEY = 'wiki_slice_config';
+    const STORAGE_KEY = "wiki_slice_config";
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const savedParams = JSON.parse(saved);
-        setParams({ ...DEFAULT_PARAMS, ...savedParams });
+
+        // eslint-disable-next-line
+        setParams({ ...DEFAULT_PARAMS, ...savedParams } as DebugPanelParams);
       }
-    } catch (e) {
-      console.warn('无法读取调试参数，使用默认值');
+    } catch {
+      console.warn("无法读取调试参数，使用默认值");
     }
   }, []);
 
-  // 加载图片并检测
-  useEffect(() => {
-    if (!isOpen || !imageUrl) return;
-
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      drawCanvas(img);
-    };
-    img.src = imageUrl;
-  }, [isOpen, imageUrl, params]);
-
   // 绘制 Canvas
-  const drawCanvas = (img: HTMLImageElement) => {
+  const drawCanvas = useCallback(async (img: HTMLImageElement) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     // 设置画布尺寸
@@ -127,27 +142,88 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
     // 绘制图片
     ctx.drawImage(img, 0, 0);
 
-    // 这里可以添加检测逻辑，暂时留空
-    setLogInfo('图片已加载，请调整参数后点击"检测"按钮');
-  };
+    setLogInfo("正在检测面板...");
+
+    try {
+      // 1. 获取图片数据 (保留但不作为参数传入 detectWikiImage，因为该函数在内部会自动处理 ImageData)
+      // const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      // 2. 调用检测函数
+      const panels = await detectWikiImage(imageUrl, params);
+      setDetectedPanels(panels);
+      setLogInfo(`检测完成，共找到 ${panels.length} 个面板`);
+
+      // 3. 绘制检测结果
+      panels.forEach((panel, index) => {
+        // 绘制面板边框 (蓝色)
+        ctx.strokeStyle = "blue";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(panel.x, panel.y, panel.width, panel.height);
+
+        // 绘制标题区域 (绿色)
+        if (panel.greenBox) {
+          ctx.strokeStyle = "green";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(
+            panel.greenBox.x,
+            panel.greenBox.y,
+            panel.greenBox.width,
+            panel.greenBox.height,
+          );
+        }
+
+        // 绘制图标区域 (红色)
+        if (panel.redBoxes) {
+          ctx.strokeStyle = "red";
+          ctx.lineWidth = 1;
+          panel.redBoxes.forEach((box) => {
+            ctx.strokeRect(box.x, box.y, box.width, box.height);
+          });
+        }
+
+        // 绘制面板序号
+        ctx.fillStyle = "blue";
+        ctx.font = "20px Arial";
+        ctx.fillText(`#${index + 1}`, panel.x, panel.y - 5);
+      });
+    } catch (error) {
+      console.error("检测失败:", error);
+      setLogInfo(`检测出错: ${error}`);
+    }
+  }, [imageUrl, params]);
+
+  // 加载图片并检测
+  useEffect(() => {
+    if (!isOpen || !imageUrl) return;
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      drawCanvas(img);
+    };
+    img.src = imageUrl;
+  }, [isOpen, imageUrl, params, drawCanvas]);
 
   // 参数更新处理
-  const handleParamChange = (key: keyof DebugPanelParams, value: any) => {
+  const handleParamChange = (
+    key: keyof DebugPanelParams,
+    value: number | boolean,
+  ) => {
     const newParams = { ...params, [key]: value };
     setParams(newParams);
 
     // 保存到 LocalStorage
     try {
-      localStorage.setItem('wiki_slice_config', JSON.stringify(newParams));
-    } catch (e) {
-      console.warn('无法保存参数到 LocalStorage');
+      localStorage.setItem("wiki_slice_config", JSON.stringify(newParams));
+    } catch {
+      console.warn("无法保存参数到 LocalStorage");
     }
   };
 
   // 导出工作台
   const handleExport = () => {
     if (detectedPanels.length === 0) {
-      alert('请先检测面板！');
+      alert("请先检测面板！");
       return;
     }
     onExport(detectedPanels);
@@ -161,7 +237,11 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
           <DialogTitle className="flex items-center justify-between">
             <span>调试台 - 工作台模式</span>
             <div className="flex gap-2">
-              <Button onClick={handleExport} size="sm" className="bg-green-600 hover:bg-green-700">
+              <Button
+                onClick={handleExport}
+                size="sm"
+                className="bg-green-600 hover:bg-green-700"
+              >
                 导出工作台
               </Button>
               <Button onClick={onClose} size="sm" variant="outline">
@@ -208,7 +288,9 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
                     <div
                       key={index}
                       className={`p-2 mb-2 rounded border cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 ${
-                        selectedPanelIndex === index ? 'bg-blue-100 dark:bg-blue-900 border-blue-500' : ''
+                        selectedPanelIndex === index
+                          ? "bg-blue-100 dark:bg-blue-900 border-blue-500"
+                          : ""
                       }`}
                       onClick={() => setSelectedPanelIndex(index)}
                     >
@@ -240,7 +322,12 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
                           <Input
                             type="number"
                             value={params.forceSquareOffsetX}
-                            onChange={(e) => handleParamChange('forceSquareOffsetX', parseInt(e.target.value))}
+                            onChange={(e) =>
+                              handleParamChange(
+                                "forceSquareOffsetX",
+                                parseInt(e.target.value),
+                              )
+                            }
                             className="h-8 text-xs"
                           />
                         </div>
@@ -249,7 +336,12 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
                           <Input
                             type="number"
                             value={params.forceSquareOffsetY}
-                            onChange={(e) => handleParamChange('forceSquareOffsetY', parseInt(e.target.value))}
+                            onChange={(e) =>
+                              handleParamChange(
+                                "forceSquareOffsetY",
+                                parseInt(e.target.value),
+                              )
+                            }
                             className="h-8 text-xs"
                           />
                         </div>
@@ -264,25 +356,39 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
                           <Label className="text-xs w-24">行检测阈值</Label>
                           <Slider
                             value={[params.boundsVarianceThresholdRow]}
-                            onValueChange={([value]) => handleParamChange('boundsVarianceThresholdRow', value)}
+                            onValueChange={([value]) =>
+                              handleParamChange(
+                                "boundsVarianceThresholdRow",
+                                value,
+                              )
+                            }
                             min={10}
                             max={100}
                             step={5}
                             className="flex-1"
                           />
-                          <span className="text-xs w-8 text-right">{params.boundsVarianceThresholdRow}</span>
+                          <span className="text-xs w-8 text-right">
+                            {params.boundsVarianceThresholdRow}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Label className="text-xs w-24">列检测阈值</Label>
                           <Slider
                             value={[params.boundsVarianceThresholdCol]}
-                            onValueChange={([value]) => handleParamChange('boundsVarianceThresholdCol', value)}
+                            onValueChange={([value]) =>
+                              handleParamChange(
+                                "boundsVarianceThresholdCol",
+                                value,
+                              )
+                            }
                             min={10}
                             max={100}
                             step={5}
                             className="flex-1"
                           />
-                          <span className="text-xs w-8 text-right">{params.boundsVarianceThresholdCol}</span>
+                          <span className="text-xs w-8 text-right">
+                            {params.boundsVarianceThresholdCol}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -292,10 +398,18 @@ export default function DebugModal({ imageUrl, isOpen, onClose, onExport }: Debu
                       <input
                         type="checkbox"
                         id="filterEmptyIcons"
+                        title="过滤空图标"
                         checked={params.filterEmptyIcons}
-                        onChange={(e) => handleParamChange('filterEmptyIcons', e.target.checked)}
+                        onChange={(e) =>
+                          handleParamChange(
+                            "filterEmptyIcons",
+                            e.target.checked,
+                          )
+                        }
                       />
-                      <Label htmlFor="filterEmptyIcons" className="text-xs">过滤空图标</Label>
+                      <Label htmlFor="filterEmptyIcons" className="text-xs">
+                        过滤空图标
+                      </Label>
                     </div>
                   </div>
                 </ScrollArea>

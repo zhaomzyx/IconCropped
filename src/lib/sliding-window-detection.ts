@@ -14,12 +14,6 @@ function colorDiff(color1: [number, number, number], color2: [number, number, nu
   );
 }
 
-// 获取像素颜色
-function getPixelColor(pixelData: Buffer, width: number, x: number, y: number): [number, number, number] {
-  const index = (y * width + x) * 4;
-  return [pixelData[index], pixelData[index + 1], pixelData[index + 2]];
-}
-
 // 计算区域的平均颜色
 function getAverageColor(
   pixelData: Buffer,
@@ -326,7 +320,7 @@ export interface RowBounds {
 
 /**
  * 纵向边界检测 - 检测行的边界
- * 
+ *
  * 算法说明：
  * 1. 使用滑动窗口在Y轴上扫描
  * 2. 计算每个窗口内的颜色方差（波动）
@@ -558,7 +552,7 @@ export function detectAllBounds(
   // 🌟 单行布局兜底逻辑：如果行检测失败，尝试假设只有 1 行
   let effectiveRows = rows;
   let scanHeight: number | undefined;
-  
+
   if (rows.length === 0) {
     console.warn(`[边界检测-综合] 未检测到行，尝试单行布局兜底逻辑`);
     // 假设整个 panel 为 1 行
@@ -600,7 +594,7 @@ export function detectAllBounds(
 
 /**
  * 基于边界检测计算图标位置
- * 
+ *
  * 使用边界检测结果（rowBounds + colBounds）计算图标的位置
  */
 export interface IconBoundsPosition {
