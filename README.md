@@ -2,6 +2,43 @@
 
 这是一个基于 [Next.js 16](https://nextjs.org) + [shadcn/ui](https://ui.shadcn.com) 的全栈应用项目，由扣子编程 CLI 创建。
 
+## 📖 开发指南
+
+### 🚀 方式 1：在沙箱中开发（推荐新手）
+```bash
+coze dev
+```
+启动后，在浏览器中打开 [http://localhost:5000](http://localhost:5000) 查看应用。
+
+### 💻 方式 2：使用 VS Code 远程开发（推荐进阶用户）
+
+你可以使用本地 VS Code 连接到沙箱环境进行开发，详见：
+- [📋 远程开发指南](./REMOTE_DEV_GUIDE.md) - 详细的远程连接教程
+- [🛠️ VS Code 配置](./VS_CODE_GUIDE.md) - VS Code 开发环境配置
+
+#### SSH 连接信息
+```
+主机: 9.96.199.125
+端口: 22
+用户: root
+密码: Developer123!
+```
+
+#### 快速启动远程开发环境
+在沙箱终端运行：
+```bash
+./start-remote-dev.sh
+```
+
+### 🔧 方式 3：本地开发（需要复制文件）
+将项目复制到本地，然后运行：
+```bash
+pnpm install
+pnpm run dev
+```
+
+---
+
 ## 快速开始
 
 ### 启动开发服务器

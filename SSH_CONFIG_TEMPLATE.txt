@@ -1,0 +1,37 @@
+# SSH 配置文件 - 连接到沙箱开发环境
+# 使用方法：
+# 1. 将此文件内容复制到你的本地 ~/.ssh/config 文件
+# 2. 在 VS Code 中按 Ctrl+Shift+P
+# 3. 输入 "Remote-SSH: Connect to Host..."
+# 4. 选择 "sandbox"
+
+# 注意：如果无法直接连接，可能需要通过平台的端口转发功能
+
+Host sandbox
+    # 沙箱主机的 IP 地址
+    HostName 9.96.199.125
+    # SSH 端口（默认 22）
+    Port 22
+    # 用户名
+    User root
+    # 首次连接时不提示主机密钥确认
+    StrictHostKeyChecking no
+    # 不保存主机密钥（避免密钥冲突）
+    UserKnownHostsFile /dev/null
+    # 保持连接活跃（防止超时断开）
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    # 启用压缩（加快传输速度）
+    Compression yes
+
+# 如果你的平台提供了外部端口转发，使用以下配置
+# 例如：外部地址是 your-proxy.example.com，端口是 2222
+# Host sandbox-proxy
+#     HostName your-proxy.example.com
+#     Port 2222
+#     User root
+#     StrictHostKeyChecking no
+#     UserKnownHostsFile /dev/null
+#     ServerAliveInterval 60
+#     ServerAliveCountMax 3
+#     Compression yes
