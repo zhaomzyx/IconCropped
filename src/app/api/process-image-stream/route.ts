@@ -1,13 +1,22 @@
-import { NextRequest } from 'next/server';
-import sharp from 'sharp';
-import path from 'path';
-import fs from 'fs/promises';
-import { cwd } from 'process';
-import { LLMClient, Config } from 'coze-coding-dev-sdk';
-import { detectPanels } from '@/lib/panel-detection';
+import { NextRequest } from "next/server";
+import sharp from "sharp";
+import path from "path";
+import fs from "fs/promises";
+import { cwd } from "process";
+import { LLMClient, Config } from "coze-coding-dev-sdk";
+import { detectPanels } from "@/lib/panel-detection";
+import { recognizePanelTitlesFromPanels } from "@/lib/panel-title-ocr";
+import {
+  resolvePanelTitle,
+  sanitizePanelTitleForFilename,
+} from "@/lib/panel-title";
 
 // 发送SSE事件
-function sendEvent(stream: ReadableStreamDefaultController<any>, event: string, data: any) {
+function sendEvent(
+  stream: ReadableStreamDefaultController<any>,
+  event: string,
+  data: any,
+) {
   const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   stream.enqueue(new TextEncoder().encode(message));
 }
@@ -38,27 +47,32 @@ export async function POST(request: NextRequest) {
   const { filenames, wikiName, debug = false, params: customParams } = body;
 
   if (!filenames || !Array.isArray(filenames) || filenames.length === 0) {
-    return new Response(JSON.stringify({ error: 'Missing or invalid filenames parameter' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return new Response(
+      JSON.stringify({ error: "Missing or invalid filenames parameter" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
   }
 
-  console.log(`Processing ${filenames.length} wiki files with SSE streaming (debug=${debug})`);
+  console.log(
+    `Processing ${filenames.length} wiki files with SSE streaming (debug=${debug})`,
+  );
 
   // 创建SSE流
   const stream = new ReadableStream({
     async start(controller) {
       try {
         // 阶段1：整体梳理
-        sendEvent(controller, 'progress', {
-          step: 'preparing',
+        sendEvent(controller, "progress", {
+          step: "preparing",
           message: `📊 正在梳理图片资源（共${filenames.length}张）...`,
           totalImages: filenames.length,
-          debugMode: debug
+          debugMode: debug,
         });
 
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
 
         let allCrops: WikiCroppedImage[] = [];
         let totalCropsCount = 0;
@@ -68,12 +82,12 @@ export async function POST(request: NextRequest) {
           const filename = filenames[i];
 
           // 阶段2：开始处理单张图片
-          sendEvent(controller, 'progress', {
-            step: 'processing_image',
+          sendEvent(controller, "progress", {
+            step: "processing_image",
             message: `🖼️ 正在处理第 ${i + 1}/${filenames.length} 张图片...`,
             currentImage: i + 1,
             totalImages: filenames.length,
-            filename: filename
+            filename: filename,
           });
 
           try {
@@ -82,11 +96,17 @@ export async function POST(request: NextRequest) {
             let actualWikiName: string;
 
             if (wikiName) {
-              wikiFilePath = path.join(cwd(), 'public', 'WikiPic', wikiName, filename);
+              wikiFilePath = path.join(
+                cwd(),
+                "public",
+                "WikiPic",
+                wikiName,
+                filename,
+              );
               actualWikiName = wikiName;
             } else {
               wikiFilePath = `/tmp/uploads/wiki/${filename}`;
-              actualWikiName = filename.replace(/\.[^/.]+$/, '');
+              actualWikiName = filename.replace(/\.[^/.]+$/, "");
             }
 
             console.log(`Reading Wiki image from: ${wikiFilePath}`);
@@ -95,7 +115,12 @@ export async function POST(request: NextRequest) {
             await fs.access(wikiFilePath);
 
             // 创建Wiki目录路径
-            const wikiDir = path.join(cwd(), 'public', 'wiki-cropped', actualWikiName);
+            const wikiDir = path.join(
+              cwd(),
+              "public",
+              "wiki-cropped",
+              actualWikiName,
+            );
 
             // 不清理缓存，保留所有历史裁切结果
             await fs.mkdir(wikiDir, { recursive: true });
@@ -108,16 +133,18 @@ export async function POST(request: NextRequest) {
               throw new Error(`Invalid image metadata`);
             }
 
-            console.log(`  Image metadata: ${metadata.width}x${metadata.height}, format=${metadata.format}`);
+            console.log(
+              `  Image metadata: ${metadata.width}x${metadata.height}, format=${metadata.format}`,
+            );
 
             // 阶段3：使用LLM识别大板块（职责：建表，提供元数据）
-            sendEvent(controller, 'progress', {
-              step: 'detecting_panels',
+            sendEvent(controller, "progress", {
+              step: "detecting_panels",
               message: `🔍 图片 ${i + 1}/${filenames.length} - 一级裁切：正在识别大板块（LLM视觉识别）...`,
               currentImage: i + 1,
               totalImages: filenames.length,
               filename: filename,
-              subStep: 'panel_detection'
+              subStep: "panel_detection",
             });
 
             const panelData = await detectPanelsWithLLM(imageBuffer, metadata);
@@ -128,36 +155,47 @@ export async function POST(request: NextRequest) {
               const debugPanels = panelData.panels.map((panel, idx) => {
                 return {
                   title: panel.title || `板块_${idx + 1}`,
-                  x: 0,  // LLM的X不准，后端会覆盖
-                  y: 0,  // LLM的Y不准，后端会覆盖
-                  width: 0,  // LLM的width不准，后端会覆盖
-                  height: 0,  // LLM的height不准，后端会覆盖
-                  rows: panel.rows,  // 保留：用于后端双层for循环
-                  cols: panel.cols,  // 保留：用于后端双层for循环
-                  total: panel.total ?? (panel.rows * panel.cols),  // 保留：用于后端双层for循环
-                  imageUrl: ''  // 不需要保存大panel图片
+                  x: 0, // LLM的X不准，后端会覆盖
+                  y: 0, // LLM的Y不准，后端会覆盖
+                  width: 0, // LLM的width不准，后端会覆盖
+                  height: 0, // LLM的height不准，后端会覆盖
+                  rows: panel.rows, // 保留：用于后端双层for循环
+                  cols: panel.cols, // 保留：用于后端双层for循环
+                  total: panel.total ?? panel.rows * panel.cols, // 保留：用于后端双层for循环
+                  imageUrl: "", // 不需要保存大panel图片
                 };
               });
 
-              console.log(`  Debug模式：返回 ${debugPanels.length} 个Panel的元数据（title, rows, cols）`);
+              console.log(
+                `  Debug模式：返回 ${debugPanels.length} 个Panel的元数据（title, rows, cols）`,
+              );
 
               // 使用 A 计划检测面板坐标（传入 imageBuffer 和 customParams）
               console.log(`  Debug模式：调用 detectPanels 获取裁切坐标`);
-              const detectedPanels = await detectPanels(imageBuffer, debugPanels, customParams);
+              const detectedPanels = await detectPanels(
+                imageBuffer,
+                debugPanels,
+                customParams,
+              );
 
-              console.log(`  Debug模式：检测到 ${detectedPanels.length} 个面板的裁切坐标`);
+              console.log(
+                `  Debug模式：检测到 ${detectedPanels.length} 个面板的裁切坐标`,
+              );
 
               const debugCompleteData = {
                 debugPanels: debugPanels,
-                detectedPanels: detectedPanels,  // 返回裁切坐标
+                detectedPanels: detectedPanels, // 返回裁切坐标
                 imageMetadata: {
                   width: metadata.width,
-                  height: metadata.height
-                }
+                  height: metadata.height,
+                },
               };
 
-              console.log(`  Debug模式：准备发送 debug_complete 事件，数据:`, JSON.stringify(debugCompleteData, null, 2));
-              sendEvent(controller, 'debug_complete', debugCompleteData);
+              console.log(
+                `  Debug模式：准备发送 debug_complete 事件，数据:`,
+                JSON.stringify(debugCompleteData, null, 2),
+              );
+              sendEvent(controller, "debug_complete", debugCompleteData);
               console.log(`  Debug模式：debug_complete 事件已发送`);
 
               controller.close();
@@ -165,7 +203,9 @@ export async function POST(request: NextRequest) {
             }
 
             // 生产模式：使用 A 计划切图方案进行检测和裁切
-            console.log(`\n========== 生产模式：使用 A 计划切图方案 ==========`);
+            console.log(
+              `\n========== 生产模式：使用 A 计划切图方案 ==========`,
+            );
 
             // 准备面板元数据（从 LLM 获取）
             const debugPanels = panelData.panels.map((panel, idx) => ({
@@ -176,30 +216,45 @@ export async function POST(request: NextRequest) {
               height: panel.height,
               rows: panel.rows,
               cols: panel.cols,
-              total: panel.total ?? (panel.rows * panel.cols),
+              total: panel.total ?? panel.rows * panel.cols,
             }));
 
             console.log(`准备的面板元数据 (${debugPanels.length} 个):`);
             debugPanels.forEach((panel, idx) => {
-              console.log(`  Panel ${idx + 1}: ${panel.title}, rows=${panel.rows}, cols=${panel.cols}, total=${panel.total}`);
+              console.log(
+                `  Panel ${idx + 1}: ${panel.title}, rows=${panel.rows}, cols=${panel.cols}, total=${panel.total}`,
+              );
             });
 
             console.log(`使用的自定义检测参数:`, customParams);
 
             // 使用 A 计划检测面板坐标（传入 imageBuffer 和 customParams）
-            const detectedPanels = await detectPanels(imageBuffer, debugPanels, customParams);
+            const detectedPanels = await detectPanels(
+              imageBuffer,
+              debugPanels,
+              customParams,
+            );
+
+            // 统一标题来源：ocrTitle > title > Panel_N。
+            const ocrTitles = await recognizePanelTitlesFromPanels(
+              imageBuffer,
+              detectedPanels.map((panel, index) => ({
+                index,
+                greenBox: panel.greenBox,
+              })),
+            );
 
             console.log(`\n========== A 计划检测完成，开始裁切图标 ==========`);
 
             // 阶段4：裁切图标（使用 A 计划检测到的坐标）
-            sendEvent(controller, 'progress', {
-              step: 'cutting_icons',
+            sendEvent(controller, "progress", {
+              step: "cutting_icons",
               message: `✂️ 图片 ${i + 1}/${filenames.length} - 二级裁切：正在处理 ${detectedPanels.length} 个板块...`,
               currentImage: i + 1,
               totalImages: filenames.length,
               totalPanels: detectedPanels.length,
               filename: filename,
-              subStep: 'icon_cutting'
+              subStep: "icon_cutting",
             });
 
             // 处理每个板块
@@ -207,16 +262,26 @@ export async function POST(request: NextRequest) {
 
             for (let j = 0; j < detectedPanels.length; j++) {
               const detectedPanel = detectedPanels[j];
-              const title = detectedPanel.title;
+              const title = resolvePanelTitle({
+                ocrTitle: ocrTitles[j],
+                title: detectedPanel.title,
+                panelIndex: j,
+              });
 
               // 计算当前面板的实际行数和列数（从 redBoxes 中计算）
-              const maxRow = Math.max(...detectedPanel.redBoxes.map(b => b.row), 0);
-              const maxCol = Math.max(...detectedPanel.redBoxes.map(b => b.col), 0);
+              const maxRow = Math.max(
+                ...detectedPanel.redBoxes.map((b) => b.row),
+                0,
+              );
+              const maxCol = Math.max(
+                ...detectedPanel.redBoxes.map((b) => b.col),
+                0,
+              );
               const totalRows = maxRow + 1;
               const totalCols = maxCol + 1;
 
-              sendEvent(controller, 'progress', {
-                step: 'processing_panel',
+              sendEvent(controller, "progress", {
+                step: "processing_panel",
                 message: `🎨 图片 ${i + 1}/${filenames.length} - 板块 ${j + 1}/${detectedPanels.length}：${title}`,
                 currentImage: i + 1,
                 totalImages: filenames.length,
@@ -224,41 +289,61 @@ export async function POST(request: NextRequest) {
                 totalPanels: detectedPanels.length,
                 panelTitle: title,
                 filename: filename,
-                subStep: 'panel_processing'
+                subStep: "panel_processing",
               });
 
-              console.log(`  处理面板 ${j + 1}/${detectedPanels.length}: ${title}`);
-              console.log(`    蓝框: x=${detectedPanel.blueBox.x}, y=${detectedPanel.blueBox.y}, w=${detectedPanel.blueBox.width}, h=${detectedPanel.blueBox.height}`);
-              console.log(`    绿框: x=${detectedPanel.greenBox.x}, y=${detectedPanel.greenBox.y}, w=${detectedPanel.greenBox.width}, h=${detectedPanel.greenBox.height}`);
+              console.log(
+                `  处理面板 ${j + 1}/${detectedPanels.length}: ${title}`,
+              );
+              console.log(
+                `    蓝框: x=${detectedPanel.blueBox.x}, y=${detectedPanel.blueBox.y}, w=${detectedPanel.blueBox.width}, h=${detectedPanel.blueBox.height}`,
+              );
+              console.log(
+                `    绿框: x=${detectedPanel.greenBox.x}, y=${detectedPanel.greenBox.y}, w=${detectedPanel.greenBox.width}, h=${detectedPanel.greenBox.height}`,
+              );
               console.log(`    红框数量: ${detectedPanel.redBoxes.length}`);
               console.log(`    实际行数: ${totalRows}, 实际列数: ${totalCols}`);
 
+              // 按从左到右、从上到下排序，确保命名序号稳定且从0递增。
+              const orderedRedBoxes = [...detectedPanel.redBoxes].sort(
+                (a, b) => {
+                  if (a.row !== b.row) return a.row - b.row;
+                  return a.col - b.col;
+                },
+              );
+
+              const safeTitle = sanitizePanelTitleForFilename(title);
+
               // 裁切图标（使用 A 计划检测到的坐标）
-              for (const redBox of detectedPanel.redBoxes) {
-                const iconIndex = redBox.row * totalCols + redBox.col;
-                const iconFileName = `${title}_${redBox.row}_${redBox.col}.png`;
+              for (const [iconIndex, redBox] of orderedRedBoxes.entries()) {
+                const iconFileName = `${safeTitle}_${iconIndex}.png`;
                 const iconPath = path.join(wikiDir, iconFileName);
 
-                console.log(`  裁切图标 [${redBox.row},${redBox.col}]: x=${redBox.x}, y=${redBox.y}, size=${redBox.width}x${redBox.height}`);
+                console.log(
+                  `  裁切图标 [${redBox.row},${redBox.col}]: x=${redBox.x}, y=${redBox.y}, size=${redBox.width}x${redBox.height}`,
+                );
 
                 // 边界检查
-                if (redBox.x >= 0 && redBox.y >= 0 &&
-                    redBox.x + redBox.width <= metadata.width &&
-                    redBox.y + redBox.height <= metadata.height) {
+                if (
+                  redBox.x >= 0 &&
+                  redBox.y >= 0 &&
+                  redBox.x + redBox.width <= metadata.width &&
+                  redBox.y + redBox.height <= metadata.height
+                ) {
                   try {
                     await sharp(imageBuffer)
                       .extract({
                         left: redBox.x,
                         top: redBox.y,
                         width: redBox.width,
-                        height: redBox.height
+                        height: redBox.height,
                       })
                       .png()
                       .toFile(iconPath);
 
                     crops.push({
                       path: iconFileName,
-                      name: `${title}_icon_${iconIndex}`,
+                      name: `${safeTitle}_${iconIndex}`,
                       row: redBox.row,
                       col: redBox.col,
                       totalRows: totalRows,
@@ -267,14 +352,16 @@ export async function POST(request: NextRequest) {
                       y: redBox.y,
                       width: redBox.width,
                       height: redBox.height,
-                      panelName: title,
-                      title: title,
+                      panelName: safeTitle,
+                      title: safeTitle,
                       wikiName: actualWikiName,
                       id: `${actualWikiName}_${iconFileName}`,
-                      imageUrl: `/api/crops/${actualWikiName}/${iconFileName}`
+                      imageUrl: `/api/crops/${actualWikiName}/${iconFileName}`,
                     });
 
-                    console.log(`  Saved icon: ${iconFileName} (row=${redBox.row}, col=${redBox.col}, size=${redBox.width}x${redBox.height})`);
+                    console.log(
+                      `  Saved icon: ${iconFileName} (row=${redBox.row}, col=${redBox.col}, size=${redBox.width}x${redBox.height})`,
+                    );
                   } catch (e) {
                     console.error(`  Failed to save icon ${iconFileName}:`, e);
                   }
@@ -287,62 +374,62 @@ export async function POST(request: NextRequest) {
             allCrops = allCrops.concat(crops);
             totalCropsCount += crops.length;
 
-            sendEvent(controller, 'image_complete', {
+            sendEvent(controller, "image_complete", {
               message: `✓ 图片 ${i + 1}/${filenames.length} 处理完成，已切割 ${crops.length} 个图标`,
               currentImage: i + 1,
               totalImages: filenames.length,
               filename: filename,
               cropsCount: crops.length,
-              totalCropsCount: totalCropsCount
+              totalCropsCount: totalCropsCount,
             });
-
           } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage =
+              error instanceof Error ? error.message : String(error);
             console.error(`Failed to process image ${i}:`, error);
-            sendEvent(controller, 'error', {
+            sendEvent(controller, "error", {
               message: `✗ 图片 ${i + 1}/${filenames.length} 处理失败：${errorMessage}`,
               currentImage: i + 1,
               totalImages: filenames.length,
-              filename: filename
+              filename: filename,
             });
           }
         }
 
         // 阶段6：全部完成
-        sendEvent(controller, 'progress', {
-          step: 'complete',
+        sendEvent(controller, "progress", {
+          step: "complete",
           message: `✅ 全部完成！共处理 ${totalCropsCount} 个图标`,
           totalImages: filenames.length,
-          totalCrops: totalCropsCount
+          totalCrops: totalCropsCount,
         });
 
-        sendEvent(controller, 'complete', {
+        sendEvent(controller, "complete", {
           success: true,
           crops: allCrops,
-          wikiName: wikiName
+          wikiName: wikiName,
         });
 
         controller.close();
-
       } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
         const errorStack = error instanceof Error ? error.stack : undefined;
-        console.error('Process image stream error:', error);
-        sendEvent(controller, 'error', {
-          message: errorMessage || '处理失败',
-          stack: errorStack
+        console.error("Process image stream error:", error);
+        sendEvent(controller, "error", {
+          message: errorMessage || "处理失败",
+          stack: errorStack,
         });
         controller.close();
       }
-    }
+    },
   });
 
   return new Response(stream, {
     headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    }
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
   });
 }
 
@@ -372,13 +459,11 @@ async function detectPanelsWithLLM(
   let processBuffer = imageBuffer;
   const maxWidth = 2000;
   if (metadata.width && metadata.width > maxWidth) {
-    processBuffer = await sharp(imageBuffer)
-      .resize(maxWidth, null)
-      .toBuffer();
+    processBuffer = await sharp(imageBuffer).resize(maxWidth, null).toBuffer();
   }
 
   // 转换为base64
-  const base64Image = processBuffer.toString('base64');
+  const base64Image = processBuffer.toString("base64");
   const dataUri = `data:image/png;base64,${base64Image}`;
 
   // LLM提示词（识别所有大板块）
@@ -435,19 +520,22 @@ JSON格式要求：
             type: "image_url" as const,
             image_url: {
               url: dataUri,
-              detail: "high" as const
-            }
-          }
-        ]
-      }
+              detail: "high" as const,
+            },
+          },
+        ],
+      },
     ];
 
     const response = await client.invoke(messages, {
       model: "doubao-seed-1-6-vision-250815",
-      temperature: 0.3
+      temperature: 0.3,
     });
 
-    console.log(`  LLM response for panel detection:`, response.content.substring(0, 500));
+    console.log(
+      `  LLM response for panel detection:`,
+      response.content.substring(0, 500),
+    );
 
     // 解析LLM返回的JSON
     let jsonText = response.content.trim();
@@ -464,8 +552,11 @@ JSON格式要求：
     }
 
     if (!jsonMatch) {
-      console.error(`  Failed to parse LLM response for panel detection:`, response.content);
-      throw new Error('无法解析LLM返回的JSON，返回内容不符合预期格式');
+      console.error(
+        `  Failed to parse LLM response for panel detection:`,
+        response.content,
+      );
+      throw new Error("无法解析LLM返回的JSON，返回内容不符合预期格式");
     }
 
     let panels;
@@ -477,9 +568,18 @@ JSON格式要求：
 
       // 尝试修复常见的JSON格式错误
       let fixedJsonText = jsonMatch[0];
-      fixedJsonText = fixedJsonText.replace(/"x"\s*:\s*(\d+)\s*,\s*"(\d+)"/g, '"x":$1,"y":$2');
-      fixedJsonText = fixedJsonText.replace(/"title"\s*:\s*"([^"]+)"\s*,\s*"(\d+)"\s*,\s*"(\d+)"/g, '"title":"$1","x":$2,"y":$3');
-      fixedJsonText = fixedJsonText.replace(/"title"\s*:\s*"([^"]+)"\s*,\s*"x"\s*:\s*(\d+)\s*,\s*"(\d+)"/g, '"title":"$1","x":$2,"y":$3');
+      fixedJsonText = fixedJsonText.replace(
+        /"x"\s*:\s*(\d+)\s*,\s*"(\d+)"/g,
+        '"x":$1,"y":$2',
+      );
+      fixedJsonText = fixedJsonText.replace(
+        /"title"\s*:\s*"([^"]+)"\s*,\s*"(\d+)"\s*,\s*"(\d+)"/g,
+        '"title":"$1","x":$2,"y":$3',
+      );
+      fixedJsonText = fixedJsonText.replace(
+        /"title"\s*:\s*"([^"]+)"\s*,\s*"x"\s*:\s*(\d+)\s*,\s*"(\d+)"/g,
+        '"title":"$1","x":$2,"y":$3',
+      );
 
       console.log(`  尝试修复后的JSON:`, fixedJsonText.substring(0, 500));
 
@@ -488,24 +588,35 @@ JSON格式要求：
         console.log(`  JSON修复成功`);
       } catch (retryError) {
         console.error(`  JSON修复后仍然失败:`, retryError);
-        throw new Error(`JSON解析失败: ${parseError instanceof Error ? parseError.message : '未知错误'}`);
+        throw new Error(
+          `JSON解析失败: ${parseError instanceof Error ? parseError.message : "未知错误"}`,
+        );
       }
     }
 
-    console.log(`  LLM detected ${panels.length} panels:`, panels.map((p: any) => p.title).join(', '));
+    console.log(
+      `  LLM detected ${panels.length} panels:`,
+      panels.map((p: any) => p.title).join(", "),
+    );
 
     // 验证板块高度是否合理
     panels.forEach((panel: any) => {
-      const expectedMinHeight = 50 + (panel.rows * 130);
+      const expectedMinHeight = 50 + panel.rows * 130;
       if (panel.height < expectedMinHeight) {
-        console.warn(`  Panel "${panel.title}" height (${panel.height}) may be too small. Expected at least ${expectedMinHeight} for ${panel.rows} rows.`);
-        console.warn(`  Panel coords: x=${panel.x}, y=${panel.y}, width=${panel.width}, height=${panel.height}, rows=${panel.rows}, cols=${panel.cols}`);
+        console.warn(
+          `  Panel "${panel.title}" height (${panel.height}) may be too small. Expected at least ${expectedMinHeight} for ${panel.rows} rows.`,
+        );
+        console.warn(
+          `  Panel coords: x=${panel.x}, y=${panel.y}, width=${panel.width}, height=${panel.height}, rows=${panel.rows}, cols=${panel.cols}`,
+        );
       }
     });
 
     return { panels };
   } catch (error) {
-    console.error('LLM panel detection failed:', error);
-    throw new Error(`LLM板块识别失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    console.error("LLM panel detection failed:", error);
+    throw new Error(
+      `LLM板块识别失败: ${error instanceof Error ? error.message : "未知错误"}`,
+    );
   }
 }

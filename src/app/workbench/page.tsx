@@ -185,10 +185,39 @@ interface ProcessSummary {
     chainDetails?: Record<string, unknown>;
   };
 }
+
+interface FetchLiveProgress {
+  phase: string;
+  subStage: string;
+  current: number;
+  total: number;
+  percent: number;
+  previewUrl: string;
+  resolution: string;
+  speedText: string;
+  sizeProgressText: string;
+}
+
+interface FilteringSummary {
+  totalFound: number;
+  validCount: number;
+}
 //#endregion
 
 //#region 主组件 (Main Component)
 export default function WorkbenchPage() {
+  const fetchSpeedRef = React.useRef<{
+    lastTs: number;
+    lastDownloadedBytes: number;
+    lastImageKey: string;
+    avgBps: number;
+  }>({
+    lastTs: 0,
+    lastDownloadedBytes: 0,
+    lastImageKey: "",
+    avgBps: 0,
+  });
+
   //#region 状态定义 (States)
 
   // --- UI Control States ---
@@ -202,7 +231,7 @@ export default function WorkbenchPage() {
    */
   const [showSummary, setShowSummary] = useState(false);
   /**
-   * 调试台弹窗显示控制
+   * 切图确认弹窗显示控制
    */
   const [showDebugModal, setShowDebugModal] = useState(false);
 
@@ -257,6 +286,11 @@ export default function WorkbenchPage() {
    * Wiki 获取过程中的进度提示文本
    */
   const [fetchProgress, setFetchProgress] = useState<string>("");
+  /**
+   * Wiki 拉流过程中的实时进度详情
+   */
+  const [fetchLiveProgress, setFetchLiveProgress] =
+    useState<FetchLiveProgress | null>(null);
   /**
    * Wiki 图片是否已经完成裁切处理
    */
@@ -325,6 +359,9 @@ export default function WorkbenchPage() {
   //#endregion
 
   //#region 常量定义 (Constants)
+  // 调试台前端检测 + 坐标裁切链（保留主链）
+  const DEBUG_CROP_PIPELINE_NAME = "DebugCoordinateCropPipeline";
+
   // 预设Wiki URL列表
   const presetWikiUrls = [
     {
@@ -575,6 +612,146 @@ export default function WorkbenchPage() {
 
   //#region Wiki 获取与文件管理 (Wiki Fetching & File Management)
   /**
+   * 按 step 映射出阶段文案
+   */
+  const getFetchPhaseLabel = (step: string) => {
+    const map: Record<string, string> = {
+      fetching: "连接 Wiki",
+      analyzing: "解析页面",
+      found: "准备筛选",
+      filtering: "低清筛选",
+      filtering_scan: "低清筛选",
+      filtering_complete: "筛选完成",
+      downloading: "下载高清图",
+      saving: "保存图片",
+      cached: "命中缓存",
+      saved: "保存完成",
+      complete: "处理完成",
+    };
+    return map[step] || "处理中";
+  };
+
+  const toNumber = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) ? value : 0;
+
+  const formatTransferSpeed = (bytesPerSecond: number) => {
+    if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "";
+    if (bytesPerSecond >= 1024 * 1024) {
+      return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`;
+    }
+    return `${(bytesPerSecond / 1024).toFixed(0)} KB/s`;
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
+    if (bytes >= 1024 * 1024 * 1024) {
+      return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    }
+    if (bytes >= 1024 * 1024) {
+      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    }
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  };
+
+  /**
+   * 从 SSE 数据更新实时进度详情
+   */
+  const applyFetchLiveProgress = (
+    eventType: string,
+    data: { [key: string]: unknown },
+  ) => {
+    const step = typeof data.step === "string" ? data.step : "";
+    const current = toNumber(data.current);
+    const total = toNumber(data.total);
+    const percent =
+      total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+
+    const width = toNumber(data.width);
+    const height = toNumber(data.height);
+    const resolution = width > 0 && height > 0 ? `${width} x ${height}` : "";
+    const bytes = toNumber(data.bytes);
+    const downloadedBytes = toNumber(data.downloadedBytes);
+    const totalBytes = toNumber(data.totalBytes);
+    const imageKey = current > 0 && total > 0 ? `${current}/${total}` : "";
+
+    let speedText = "";
+    if (downloadedBytes > 0) {
+      const now = Date.now();
+      const lastTs = fetchSpeedRef.current.lastTs;
+      const isSameImage =
+        imageKey && fetchSpeedRef.current.lastImageKey === imageKey;
+
+      if (!isSameImage) {
+        fetchSpeedRef.current.lastDownloadedBytes = 0;
+        fetchSpeedRef.current.avgBps = 0;
+      }
+
+      if (lastTs > 0 && isSameImage) {
+        const dtSec = (now - lastTs) / 1000;
+        if (dtSec > 0) {
+          const deltaBytes = Math.max(
+            0,
+            downloadedBytes - fetchSpeedRef.current.lastDownloadedBytes,
+          );
+          const instantBps = deltaBytes / dtSec;
+          const prevAvg = fetchSpeedRef.current.avgBps;
+          const avgBps =
+            prevAvg > 0 ? prevAvg * 0.7 + instantBps * 0.3 : instantBps;
+          fetchSpeedRef.current.avgBps = avgBps;
+          speedText = formatTransferSpeed(avgBps);
+        }
+      }
+      fetchSpeedRef.current.lastImageKey = imageKey;
+      fetchSpeedRef.current.lastDownloadedBytes = downloadedBytes;
+      fetchSpeedRef.current.lastTs = now;
+    } else if (bytes > 0) {
+      // fallback: when only final bytes is available
+      speedText = fetchSpeedRef.current.avgBps
+        ? formatTransferSpeed(fetchSpeedRef.current.avgBps)
+        : "";
+    }
+
+    const previewUrl =
+      typeof data.previewUrl === "string" && data.previewUrl.trim().length > 0
+        ? data.previewUrl
+        : "";
+
+    const phase =
+      eventType === "complete"
+        ? "处理完成"
+        : getFetchPhaseLabel(step || eventType);
+    const subStage =
+      typeof data.subStage === "string"
+        ? data.subStage
+        : typeof data.message === "string"
+          ? data.message
+          : "";
+    const subStageWithProgress =
+      subStage && current > 0 && total > 0
+        ? `${subStage} (${current}/${total})`
+        : subStage;
+
+    const sizeProgressText =
+      downloadedBytes > 0
+        ? `${formatBytes(downloadedBytes)}/${totalBytes > 0 ? formatBytes(totalBytes) : "未知"}`
+        : bytes > 0
+          ? formatBytes(bytes)
+          : "";
+
+    setFetchLiveProgress((prev) => ({
+      phase,
+      subStage: subStageWithProgress,
+      current: current || prev?.current || 0,
+      total: total || prev?.total || 0,
+      percent: total > 0 ? percent : prev?.percent || 0,
+      previewUrl: previewUrl || prev?.previewUrl || "",
+      resolution: resolution || prev?.resolution || "",
+      speedText: speedText || prev?.speedText || "",
+      sizeProgressText: sizeProgressText || prev?.sizeProgressText || "",
+    }));
+  };
+
+  /**
    * 从 Wiki URL 获取长图
    * 使用流式传输获取进度和结果
    */
@@ -586,6 +763,23 @@ export default function WorkbenchPage() {
 
     setIsFetchingWiki(true);
     setFetchProgress("正在初始化...");
+    setFetchLiveProgress({
+      phase: "准备请求",
+      subStage: "开始请求 /api/fetch-wiki-stream",
+      current: 0,
+      total: 0,
+      percent: 0,
+      previewUrl: "",
+      resolution: "",
+      speedText: "",
+      sizeProgressText: "",
+    });
+    fetchSpeedRef.current = {
+      lastTs: 0,
+      lastDownloadedBytes: 0,
+      lastImageKey: "",
+      avgBps: 0,
+    };
 
     try {
       const response = await fetch("/api/fetch-wiki-stream", {
@@ -598,6 +792,18 @@ export default function WorkbenchPage() {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
+      setFetchLiveProgress((prev) => ({
+        phase: "连接成功",
+        subStage: `已连接，状态码 ${response.status}`,
+        current: prev?.current || 0,
+        total: prev?.total || 0,
+        percent: prev?.percent || 0,
+        previewUrl: prev?.previewUrl || "",
+        resolution: prev?.resolution || "",
+        speedText: prev?.speedText || "",
+        sizeProgressText: prev?.sizeProgressText || "",
+      }));
+
       const reader = response.body?.getReader();
       if (!reader) {
         throw new Error("无法读取响应流");
@@ -606,7 +812,7 @@ export default function WorkbenchPage() {
       const decoder = new TextDecoder();
       let downloadedImages: string[] = [];
       let currentEventType = "";
-      let filteringCompleteData = null;
+      let filteringCompleteData: FilteringSummary | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -624,41 +830,52 @@ export default function WorkbenchPage() {
             const dataStr = line.slice(5).trim();
             if (!dataStr) continue; // 跳过空数据行
             try {
-              const data = JSON.parse(dataStr);
+              const data = JSON.parse(dataStr) as { [key: string]: unknown };
+              applyFetchLiveProgress(currentEventType, data);
+              const dataMessage =
+                typeof data.message === "string" ? data.message : "";
+              const dataStep = typeof data.step === "string" ? data.step : "";
 
               // 通用消息显示
-              if (data.message) {
+              if (dataMessage) {
                 // 为不同阶段的消息添加图标
                 let icon = "";
-                if (data.step === "filtering") icon = "📊 ";
-                if (data.step === "saving") icon = "💾 ";
-                if (data.step === "saved") icon = "✓ ";
-                if (data.message.startsWith("✗")) icon = "";
+                if (dataStep === "filtering" || dataStep === "filtering_scan") {
+                  icon = "📊 ";
+                }
+                if (dataStep === "saving") icon = "💾 ";
+                if (dataStep === "saved") icon = "✓ ";
+                if (dataMessage.startsWith("✗")) icon = "";
 
-                setFetchProgress(icon + data.message);
+                setFetchProgress(icon + dataMessage);
               }
 
               // 监听筛选完成事件
               if (currentEventType === "filtering_complete") {
-                filteringCompleteData = data;
-                const { totalFound, validCount, filtered } = data;
-                console.log("Filtered details:", filtered);
+                const totalFound = toNumber(data.totalFound);
+                const validCount = toNumber(data.validCount);
+                filteringCompleteData = { totalFound, validCount };
+                console.log("Filtered details:", data.filtered);
                 const message = `🎯 筛选完成！共检测 ${totalFound} 张图片，找到 ${validCount} 张长图`;
                 setFetchProgress(message);
               }
 
               // 监听最终完成事件
-              if (currentEventType === "complete" && data.success) {
-                downloadedImages = data.images;
+              if (currentEventType === "complete" && data.success === true) {
+                downloadedImages = Array.isArray(data.images)
+                  ? data.images.filter(
+                      (item): item is string => typeof item === "string",
+                    )
+                  : [];
                 // 保存Wiki名称（用于后续访问图片）
-                if (data.wikiName) {
+                if (typeof data.wikiName === "string") {
                   setFetchedWikiName(data.wikiName);
                 }
               }
 
               // 监听错误事件
               if (currentEventType === "error") {
-                const errorMsg = data.message || "未知错误";
+                const errorMsg = dataMessage || "未知错误";
                 console.error("[打点 - Fetch Wiki Error]", errorMsg, data);
                 alert(`获取失败：${errorMsg}`);
                 setIsFetchingWiki(false);
@@ -692,12 +909,29 @@ export default function WorkbenchPage() {
       }
     } catch (error) {
       console.error("Fetch Wiki error:", error);
+      setFetchLiveProgress((prev) => ({
+        phase: "请求失败",
+        subStage: error instanceof Error ? error.message : "未知网络错误",
+        current: prev?.current || 0,
+        total: prev?.total || 0,
+        percent: prev?.percent || 0,
+        previewUrl: prev?.previewUrl || "",
+        resolution: prev?.resolution || "",
+        speedText: prev?.speedText || "",
+        sizeProgressText: prev?.sizeProgressText || "",
+      }));
       alert(
         `获取失败：${error instanceof Error ? error.message : "未知网络错误"}`,
       );
     } finally {
       setIsFetchingWiki(false);
       setFetchProgress("");
+      fetchSpeedRef.current = {
+        lastTs: 0,
+        lastDownloadedBytes: 0,
+        lastImageKey: "",
+        avgBps: 0,
+      };
     }
   };
 
@@ -727,6 +961,48 @@ export default function WorkbenchPage() {
   //#endregion
 
   //#region Wiki Processing Operations
+  /**
+   * 确保手动上传的 Wiki 图片已同步到服务端（/tmp/uploads/wiki）
+   */
+  const ensureWikiFilesUploaded = async (files: File[]) => {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("type", "wiki");
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Wiki图片上传失败: ${file.name}`);
+      }
+    }
+  };
+
+  /**
+   * 解析当前用于调试裁切的源图信息（上传文件 or Wiki抓取文件）
+   */
+  const resolveWikiDebugSourceImage = () => {
+    const actualWikiName = fetchedWikiName || "default";
+
+    if (wikiFiles.length > 0) {
+      const filename = wikiFiles[0].name;
+      return {
+        filename,
+        imageUrl: `/api/uploads/wiki/${encodeURIComponent(filename)}`,
+      };
+    }
+
+    const filename = fetchedWikiFiles[0];
+    return {
+      filename,
+      imageUrl: `/WikiPic/${actualWikiName}/${filename}`,
+    };
+  };
+
   /**
    * 下载裁切后的图标 ZIP 包
    */
@@ -767,7 +1043,7 @@ export default function WorkbenchPage() {
 
   /**
    * 处理 Wiki 图片裁切（步骤1）
-   * 打开调试台进行参数调整和预览
+   * 打开切图确认弹窗进行参数调整和预览
    */
   const handleProcessWiki = async () => {
     if (wikiFiles.length === 0 && fetchedWikiFiles.length === 0) {
@@ -775,39 +1051,44 @@ export default function WorkbenchPage() {
       return;
     }
 
-    // 🌟 修改：打开调试台而不是直接处理
-    // 获取第一张图片的 URL
-    let imageUrl: string;
-    let filename: string;
-    const actualWikiName = fetchedWikiName || "default";
-
-    if (wikiFiles.length > 0) {
-      // 用户上传的文件
-      filename = wikiFiles[0].name;
-      imageUrl = `/api/uploads/wiki/${filename}`;
-    } else {
-      // 从 Wiki URL 获取的文件
-      filename = fetchedWikiFiles[0];
-      imageUrl = `/WikiPic/${actualWikiName}/${filename}`;
+    try {
+      // 手动上传图片时，需要先同步到服务端，切图确认弹窗才能通过 /api/uploads/wiki 读取
+      if (wikiFiles.length > 0) {
+        setWikiProcessingStep(`正在准备图片（${wikiFiles.length}个）...`);
+        await ensureWikiFilesUploaded(wikiFiles);
+      }
+    } catch (error) {
+      console.error("准备 Wiki 图片失败:", error);
+      alert(
+        "图片准备失败：" +
+          (error instanceof Error ? error.message : "未知错误"),
+      );
+      setWikiProcessingStep("❌ 图片准备失败");
+      return;
     }
 
-    // 打开调试台
+    const { filename, imageUrl } = resolveWikiDebugSourceImage();
+    console.log(`[${DEBUG_CROP_PIPELINE_NAME}] 打开切图确认弹窗，准备前端检测`);
+
+    // 打开切图确认弹窗
     setCurrentImageUrl(imageUrl);
     setCurrentFilename(filename);
     setShowDebugModal(true);
+    setWikiProcessingStep("");
   };
 
   /**
-   * 处理从调试台导出的裁切坐标
+   * 处理从切图确认弹窗导出的裁切坐标
    * @param panels 检测到的面板数据
    */
-  const handleDebugExport = async (panels: DetectedPanel[]) => {
+  const handleDebugCoordinateCropExport = async (panels: DetectedPanel[]) => {
     setShowDebugModal(false);
     setIsProcessingWiki(true);
     setWikiProcessingStep("正在裁切...");
     setWikiProcessed(false);
 
     try {
+      console.log(`[${DEBUG_CROP_PIPELINE_NAME}] 前端检测完成，开始坐标裁切`);
       const actualWikiName = fetchedWikiName || "default";
 
       // 🌟 打点2 - 发起请求前
@@ -1160,6 +1441,44 @@ export default function WorkbenchPage() {
             )}
           </div>
 
+          {/* 实时分析进度卡片 */}
+          {isFetchingWiki && fetchLiveProgress ? (
+            <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-linear-to-r from-blue-50 to-indigo-50 dark:from-slate-900 dark:to-slate-900 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">
+                    {fetchLiveProgress.phase}
+                  </p>
+                  <p className="text-sm text-slate-800 dark:text-slate-200 truncate">
+                    {fetchLiveProgress.subStage || "处理中..."}
+                  </p>
+                  <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
+                    {fetchLiveProgress.speedText ? (
+                      <span>速度 {fetchLiveProgress.speedText}</span>
+                    ) : null}
+                    {fetchLiveProgress.sizeProgressText ? (
+                      <span>大小 {fetchLiveProgress.sizeProgressText}</span>
+                    ) : null}
+                  </div>
+                </div>
+                {fetchLiveProgress.previewUrl ? (
+                  <div className="shrink-0 rounded-md overflow-hidden border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-800 w-12 h-12">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={fetchLiveProgress.previewUrl}
+                      alt="当前分析图片"
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                ) : null}
+              </div>
+              <div className="mt-2">
+                <Progress value={fetchLiveProgress.percent} className="h-2" />
+              </div>
+            </div>
+          ) : null}
+
           {/* 文件上传区域 */}
           <div
             className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
@@ -1294,17 +1613,6 @@ export default function WorkbenchPage() {
                     : wikiProcessed
                       ? "✓ 已裁切"
                       : "开始裁切"}
-                </Button>
-
-                {/* 🌟 使用调试台按钮 */}
-                <Button
-                  onClick={() => window.open("/debug", "_blank")}
-                  disabled={isProcessingWiki}
-                  variant="outline"
-                  size="sm"
-                  className="border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950"
-                >
-                  使用调试台
                 </Button>
 
                 {wikiProcessed && (
@@ -2013,7 +2321,7 @@ export default function WorkbenchPage() {
       <DebugModal
         imageUrl={currentImageUrl}
         isOpen={showDebugModal}
-        onExport={handleDebugExport}
+        onExport={handleDebugCoordinateCropExport}
         onClose={() => setShowDebugModal(false)}
       />
     ) : null;

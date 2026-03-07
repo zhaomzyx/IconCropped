@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { writeFile, mkdir, readFile } from "fs/promises";
+import { writeFile, mkdir, readFile, stat } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
 import sharp from "sharp";
@@ -22,6 +22,16 @@ interface CacheMetadata {
   width: number;
   height: number;
   timestamp: number;
+  contentLength?: number;
+  etag?: string;
+  lastModified?: string;
+  sha256?: string;
+}
+
+interface RemoteFingerprint {
+  contentLength: number;
+  etag: string;
+  lastModified: string;
 }
 
 // 确保Wiki图片目录存在
@@ -33,9 +43,93 @@ async function ensureWikiDir(wikiName: string) {
   return wikiSubDir;
 }
 
-// 计算图片的MD5哈希
-async function calculateMD5(buffer: Buffer): Promise<string> {
-  return crypto.createHash("md5").update(buffer).digest("hex");
+function calculateTextMD5(text: string): string {
+  return crypto.createHash("md5").update(text, "utf8").digest("hex");
+}
+
+function calculateSHA256(buffer: Buffer): string {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function normalizeImageUrl(url: string): string {
+  return url.trim();
+}
+
+function buildCacheKey(url: string, fingerprint?: RemoteFingerprint | null): string {
+  const normalized = normalizeImageUrl(url);
+  const signature = fingerprint
+    ? `${normalized}|${fingerprint.contentLength}|${fingerprint.etag}|${fingerprint.lastModified}`
+    : normalized;
+  return calculateTextMD5(signature);
+}
+
+async function fetchRemoteFingerprint(url: string): Promise<RemoteFingerprint | null> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    const response = await fetch(url, {
+      method: "HEAD",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const contentLength = Number(response.headers.get("content-length") || "0") || 0;
+    const etag = response.headers.get("etag") || "";
+    const lastModified = response.headers.get("last-modified") || "";
+
+    return {
+      contentLength,
+      etag,
+      lastModified,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function validateCachedFile(
+  wikiDir: string,
+  cache: CacheMetadata,
+  fingerprint?: RemoteFingerprint | null,
+): Promise<boolean> {
+  const filepath = join(wikiDir, cache.filename);
+  if (!existsSync(filepath)) {
+    return false;
+  }
+
+  try {
+    const fileStat = await stat(filepath);
+
+    if (fingerprint && fingerprint.contentLength > 0 && fileStat.size !== fingerprint.contentLength) {
+      return false;
+    }
+
+    if (cache.contentLength && cache.contentLength > 0 && fileStat.size !== cache.contentLength) {
+      return false;
+    }
+
+    if (cache.sha256) {
+      const fileBuffer = await readFile(filepath);
+      const currentSha256 = calculateSHA256(fileBuffer);
+      if (currentSha256 !== cache.sha256) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // 读取缓存元数据
@@ -81,12 +175,16 @@ async function checkCacheByMD5(
 
 // 发送SSE事件
 function sendEvent(
-  stream: ReadableStreamDefaultController<any>,
+  stream: ReadableStreamDefaultController<Uint8Array>,
   event: string,
-  data: any,
+  data: unknown,
 ) {
   const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   stream.enqueue(new TextEncoder().encode(message));
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 // 下载图片（带超时和重试）
@@ -94,6 +192,11 @@ async function downloadImageWithRetry(
   url: string,
   maxRetries: number = 3,
   timeout: number = 60000, // 60秒超时
+  onProgress?: (progress: {
+    downloadedBytes: number;
+    totalBytes: number;
+    done: boolean;
+  }) => void,
 ): Promise<Buffer> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -114,20 +217,48 @@ async function downloadImageWithRetry(
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      const totalBytesHeader = response.headers.get("content-length");
+      const totalBytes = totalBytesHeader ? Number(totalBytesHeader) || 0 : 0;
+
+      if (!response.body) {
+        throw new Error("Response body is empty");
+      }
+
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let downloadedBytes = 0;
+
+      onProgress?.({ downloadedBytes, totalBytes, done: false });
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        if (value) {
+          chunks.push(value);
+          downloadedBytes += value.byteLength;
+          onProgress?.({ downloadedBytes, totalBytes, done: false });
+        }
+      }
+
+      clearTimeout(timeoutId);
+
+      const buffer = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+      onProgress?.({ downloadedBytes, totalBytes, done: true });
 
       if (buffer.length === 0) {
         throw new Error("Empty image buffer");
       }
 
       return buffer;
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       if (attempt === maxRetries) {
         throw error;
       }
       console.warn(
-        `Download attempt ${attempt} failed for ${url}: ${error.message}, retrying...`,
+        `Download attempt ${attempt} failed for ${url}: ${message}, retrying...`,
       );
       // 等待2秒后重试
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -153,7 +284,7 @@ async function fetchWikiPage(url: string) {
     // prop=imageinfo: Get details for each image
     // iiprop=url: specifically get the URL
     // gimlimit=max: Get up to 500 images at once
-    const apiUrl = `https://${domain}/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&generator=images&prop=imageinfo&iiprop=url&format=json&gimlimit=500`;
+    const apiUrl = `https://${domain}/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&generator=images&prop=imageinfo&iiprop=url|size&format=json&gimlimit=500`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
@@ -203,6 +334,14 @@ async function fetchWikiPage(url: string) {
               display_url: src,
               original_url: src,
               image_url: src,
+              width:
+                typeof page.imageinfo[0].width === "number"
+                  ? page.imageinfo[0].width
+                  : undefined,
+              height:
+                typeof page.imageinfo[0].height === "number"
+                  ? page.imageinfo[0].height
+                  : undefined,
             },
           });
         }
@@ -317,7 +456,6 @@ export async function POST(request: NextRequest) {
           height: number;
           aspectRatio: number;
           imageData: any;
-          thumbnailBuffer: Buffer;
           thumbnailMD5: string;
         }> = [];
 
@@ -326,6 +464,8 @@ export async function POST(request: NextRequest) {
         // 先用低清图下载并筛选
         for (let i = 0; i < images.length; i++) {
           const image = images[i];
+          const current = i + 1;
+          const total = images.length;
 
           // 尝试获取图片URL（优先使用display_url，因为它是缩略图）
           const imageData = image.image as any;
@@ -334,9 +474,25 @@ export async function POST(request: NextRequest) {
             imageData?.image_url ||
             imageData?.original_url;
 
+          sendEvent(controller, "progress", {
+            step: "filtering_scan",
+            subStage: "准备读取缩略图",
+            message: `🔎 正在分析第 ${current}/${total} 张图片...`,
+            current,
+            total,
+            previewUrl: thumbnailUrl || "",
+          });
+
           if (!thumbnailUrl) {
             console.warn(`Image ${i} has no URL`);
             filteredCount.invalid++;
+            sendEvent(controller, "progress", {
+              step: "filtering_scan",
+              subStage: "跳过无效图片",
+              message: `⚠️ 第 ${current}/${total} 张缺少图片URL，已跳过`,
+              current,
+              total,
+            });
             continue;
           }
 
@@ -349,6 +505,14 @@ export async function POST(request: NextRequest) {
           if (!originalUrl) {
             console.warn(`Image ${i} has no URL`);
             filteredCount.invalid++;
+            sendEvent(controller, "progress", {
+              step: "filtering_scan",
+              subStage: "跳过无效图片",
+              message: `⚠️ 第 ${current}/${total} 张原图URL无效，已跳过`,
+              current,
+              total,
+              previewUrl: thumbnailUrl,
+            });
             continue;
           }
 
@@ -389,31 +553,97 @@ export async function POST(request: NextRequest) {
           );
 
           try {
-            // 下载低清缩略图（只用于检测尺寸）
-            const imageResponse = await fetch(thumbnailUrl, {
-              headers: {
-                "User-Agent":
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-              },
+            let width =
+              typeof imageData?.width === "number" ? imageData.width : undefined;
+            let height =
+              typeof imageData?.height === "number" ? imageData.height : undefined;
+            let analyzedBytes = 0;
+
+            if (width && height) {
+              sendEvent(controller, "progress", {
+                step: "filtering_scan",
+                subStage: "读取元数据",
+                message: `📚 正在读取图片元数据 ${current}/${total}`,
+                current,
+                total,
+                width,
+                height,
+                previewUrl: thumbnailUrl,
+              });
+            } else {
+              sendEvent(controller, "progress", {
+                step: "filtering_scan",
+                subStage: "下载缩略图",
+                message: `⬇️ 正在下载缩略图 ${current}/${total}`,
+                current,
+                total,
+                previewUrl: thumbnailUrl,
+              });
+
+              // 仅在没有元数据尺寸时回退下载缩略图检测
+              const imageResponse = await fetch(thumbnailUrl, {
+                headers: {
+                  "User-Agent":
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                },
+              });
+
+              if (!imageResponse.ok) {
+                filteredCount.invalid++;
+                sendEvent(controller, "progress", {
+                  step: "filtering_scan",
+                  subStage: "下载失败",
+                  message: `⚠️ 第 ${current}/${total} 张缩略图下载失败`,
+                  current,
+                  total,
+                  previewUrl: thumbnailUrl,
+                });
+                continue;
+              }
+
+              const arrayBuffer = await imageResponse.arrayBuffer();
+              analyzedBytes = arrayBuffer.byteLength;
+              if (arrayBuffer.byteLength === 0) {
+                filteredCount.invalid++;
+                sendEvent(controller, "progress", {
+                  step: "filtering_scan",
+                  subStage: "空图片数据",
+                  message: `⚠️ 第 ${current}/${total} 张图片数据为空`,
+                  current,
+                  total,
+                  previewUrl: thumbnailUrl,
+                });
+                continue;
+              }
+
+              // 使用缩略图探测尺寸
+              const metadata = await sharp(Buffer.from(arrayBuffer)).metadata();
+              width = metadata.width;
+              height = metadata.height;
+            }
+
+            sendEvent(controller, "progress", {
+              step: "filtering_scan",
+              subStage: "检测尺寸",
+              message: `📐 第 ${current}/${total} 张尺寸 ${width || "?"}x${height || "?"}`,
+              current,
+              total,
+              width,
+              height,
+              bytes: analyzedBytes,
+              previewUrl: thumbnailUrl,
             });
-
-            if (!imageResponse.ok) {
-              filteredCount.invalid++;
-              continue;
-            }
-
-            const arrayBuffer = await imageResponse.arrayBuffer();
-            if (arrayBuffer.byteLength === 0) {
-              filteredCount.invalid++;
-              continue;
-            }
-
-            // 检测低清图的尺寸
-            const metadata = await sharp(Buffer.from(arrayBuffer)).metadata();
-            const { width, height } = metadata;
 
             if (!width || !height) {
               filteredCount.invalid++;
+              sendEvent(controller, "progress", {
+                step: "filtering_scan",
+                subStage: "无效尺寸",
+                message: `⚠️ 第 ${current}/${total} 张无法识别尺寸`,
+                current,
+                total,
+                previewUrl: thumbnailUrl,
+              });
               continue;
             }
 
@@ -425,6 +655,16 @@ export async function POST(request: NextRequest) {
               console.log(
                 `Image ${i} is too small (${width}x${height} < 600px)`,
               );
+              sendEvent(controller, "progress", {
+                step: "filtering_scan",
+                subStage: "尺寸过滤",
+                message: `📏 第 ${current}/${total} 张高度不足，已过滤`,
+                current,
+                total,
+                width,
+                height,
+                previewUrl: thumbnailUrl,
+              });
               continue;
             }
 
@@ -434,12 +674,21 @@ export async function POST(request: NextRequest) {
               console.log(
                 `Image ${i} is not a long image (aspect ratio ${aspectRatio.toFixed(2)} < 2.0)`,
               );
+              sendEvent(controller, "progress", {
+                step: "filtering_scan",
+                subStage: "比例过滤",
+                message: `📉 第 ${current}/${total} 张比例不足，已过滤`,
+                current,
+                total,
+                width,
+                height,
+                previewUrl: thumbnailUrl,
+              });
               continue;
             }
 
-            // 保留符合条件的图片（记录低清和高清URL、buffer、MD5）
-            const thumbnailBuffer = Buffer.from(arrayBuffer);
-            const thumbnailMD5 = await calculateMD5(thumbnailBuffer);
+            // 保留符合条件的图片（记录低清和高清URL、缓存键）
+            const thumbnailMD5 = calculateTextMD5(originalUrl);
 
             validImages.push({
               index: i,
@@ -449,16 +698,33 @@ export async function POST(request: NextRequest) {
               height,
               aspectRatio,
               imageData,
-              thumbnailBuffer,
               thumbnailMD5,
             });
 
             console.log(
               `Image ${i} passed filter (${width}x${height}, ratio ${aspectRatio.toFixed(2)})`,
             );
-          } catch (error: any) {
-            console.warn(`Failed to analyze image ${i}:`, error.message);
+            sendEvent(controller, "progress", {
+              step: "filtering_scan",
+              subStage: "筛选通过",
+              message: `✅ 第 ${current}/${total} 张通过筛选`,
+              current,
+              total,
+              width,
+              height,
+              previewUrl: thumbnailUrl,
+            });
+          } catch (error: unknown) {
+            console.warn(`Failed to analyze image ${i}:`, getErrorMessage(error));
             filteredCount.invalid++;
+            sendEvent(controller, "progress", {
+              step: "filtering_scan",
+              subStage: "分析失败",
+              message: `❌ 第 ${current}/${total} 张分析失败`,
+              current,
+              total,
+              previewUrl: thumbnailUrl,
+            });
           }
         }
 
@@ -489,25 +755,42 @@ export async function POST(request: NextRequest) {
           // 发送保存进度事件
           sendEvent(controller, "progress", {
             step: "saving",
+            subStage: "准备保存",
             message: `💾 正在保存图片 ${i + 1}/${validImages.length}...`,
             current: i + 1,
             total: validImages.length,
             width: validImage.width,
             height: validImage.height,
+            previewUrl: validImage.thumbnailUrl,
           });
 
           try {
-            // 先检查缓存（使用低清图的MD5作为缓存键）
-            const cachedMetadata = await checkCacheByMD5(
-              wikiDir,
-              validImage.thumbnailMD5,
+            // 先拉远端指纹，用于构建更稳的缓存键
+            const remoteFingerprint = await fetchRemoteFingerprint(
+              validImage.originalUrl,
             );
+            const cacheKey = buildCacheKey(
+              validImage.originalUrl,
+              remoteFingerprint,
+            );
+
+            // 检查缓存（新键优先，旧键回退）
+            const cachedMetadata =
+              (await checkCacheByMD5(wikiDir, cacheKey)) ||
+              (await checkCacheByMD5(wikiDir, validImage.thumbnailMD5));
 
             let filename: string;
             let hdWidth: number;
             let hdHeight: number;
 
-            if (cachedMetadata) {
+            if (
+              cachedMetadata &&
+              (await validateCachedFile(
+                wikiDir,
+                cachedMetadata,
+                remoteFingerprint,
+              ))
+            ) {
               // 缓存命中，使用本地缓存
               filename = cachedMetadata.filename;
               hdWidth = cachedMetadata.width;
@@ -519,12 +802,14 @@ export async function POST(request: NextRequest) {
               // 发送缓存命中事件
               sendEvent(controller, "progress", {
                 step: "cached",
+                subStage: "命中缓存",
                 message: `⚡ 使用缓存图片 ${i + 1}/${validImages.length}（跳过下载）`,
                 filename,
                 width: hdWidth,
                 height: hdHeight,
                 current: i + 1,
                 total: validImages.length,
+                previewUrl: validImage.thumbnailUrl,
               });
             } else {
               // 缓存未命中，下载高清原图
@@ -535,17 +820,40 @@ export async function POST(request: NextRequest) {
               // 发送下载进度事件
               sendEvent(controller, "progress", {
                 step: "downloading",
+                subStage: "下载高清原图",
                 message: `⬇️ 正在下载图片 ${i + 1}/${validImages.length}...`,
                 current: i + 1,
                 total: validImages.length,
                 width: validImage.width,
                 height: validImage.height,
+                downloadedBytes: 0,
+                totalBytes: 0,
+                previewUrl: validImage.thumbnailUrl,
               });
-
+              let lastEmitAt = 0;
               const imageBuffer = await downloadImageWithRetry(
                 validImage.originalUrl,
                 3,
                 90000,
+                ({ downloadedBytes, totalBytes, done }) => {
+                  const now = Date.now();
+                  if (!done && now - lastEmitAt < 1000) {
+                    return;
+                  }
+                  lastEmitAt = now;
+                  sendEvent(controller, "progress", {
+                    step: "downloading",
+                    subStage: "下载高清原图",
+                    message: `⬇️ 正在下载图片 ${i + 1}/${validImages.length}...`,
+                    current: i + 1,
+                    total: validImages.length,
+                    width: validImage.width,
+                    height: validImage.height,
+                    downloadedBytes,
+                    totalBytes,
+                    previewUrl: validImage.thumbnailUrl,
+                  });
+                },
               ); // 90秒超时
 
               // 检测高清图的实际尺寸
@@ -566,36 +874,54 @@ export async function POST(request: NextRequest) {
               // 保存缓存元数据
               const cacheMetadata: CacheMetadata = {
                 filename,
-                md5: validImage.thumbnailMD5,
+                md5: cacheKey,
                 url: validImage.originalUrl,
                 width: hdWidth,
                 height: hdHeight,
                 timestamp: Date.now(),
+                contentLength:
+                  remoteFingerprint?.contentLength || imageBuffer.length,
+                etag: remoteFingerprint?.etag,
+                lastModified: remoteFingerprint?.lastModified,
+                sha256: calculateSHA256(imageBuffer),
               };
               const metadataList = await readCacheMetadata(wikiDir);
-              metadataList.push(cacheMetadata);
-              await saveCacheMetadata(wikiDir, metadataList);
+              const updatedMetadata = metadataList.filter(
+                (item) =>
+                  item.md5 !== cacheMetadata.md5 &&
+                  item.filename !== cacheMetadata.filename,
+              );
+              updatedMetadata.push(cacheMetadata);
+              await saveCacheMetadata(wikiDir, updatedMetadata);
               console.log(`Saved cache metadata for: ${filename}`);
 
               // 发送下载成功事件
               sendEvent(controller, "saved", {
                 message: `✓ 已下载 ${i + 1}/${validImages.length}`,
+                subStage: "保存完成",
                 filename,
                 width: hdWidth,
                 height: hdHeight,
                 current: i + 1,
                 total: validImages.length,
+                bytes: imageBuffer.length,
+                downloadedBytes: imageBuffer.length,
+                totalBytes: imageBuffer.length,
+                previewUrl: validImage.thumbnailUrl,
               });
             }
 
             downloadedImages.push(filename);
-          } catch (error: any) {
+          } catch (error: unknown) {
+            const message = getErrorMessage(error);
             console.error(`Failed to save image ${i}:`, error);
-            errors.push(`Image ${i}: ${error.message}`);
+            errors.push(`Image ${i}: ${message}`);
             sendEvent(controller, "error", {
-              message: `✗ 保存失败: ${error.message}`,
+              message: `✗ 保存失败: ${message}`,
+              subStage: "保存失败",
               current: i + 1,
               total: validImages.length,
+              previewUrl: validImage.thumbnailUrl,
             });
           }
         }
@@ -630,11 +956,13 @@ export async function POST(request: NextRequest) {
         });
 
         controller.close();
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        const stack = error instanceof Error ? error.stack : undefined;
         console.error("Fetch Wiki error:", error);
         sendEvent(controller, "error", {
-          message: error.message || "获取Wiki失败",
-          stack: error.stack,
+          message: message || "获取Wiki失败",
+          stack,
         });
         controller.close();
       }

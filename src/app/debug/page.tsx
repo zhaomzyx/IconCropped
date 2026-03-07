@@ -31,6 +31,8 @@ interface DetectedPanel {
   redBoxes: Array<{ x: number; y: number; width: number; height: number }>;
 }
 
+const DEBUG_CROP_PIPELINE_NAME = "DebugCoordinateCropPipeline";
+
 export default function WikiDebugPage() {
   const [imageUrl, setImageUrl] = useState<string>("");
   const [debugPanels, setDebugPanels] = useState<DebugPanel[]>([]);
@@ -1072,11 +1074,52 @@ export default function WikiDebugPage() {
     drawCanvas();
   }, [drawCanvas]);
 
+  const buildUploadedWikiImageUrl = useCallback((filename: string) => {
+    return `/api/uploads/wiki/${filename}`;
+  }, []);
+
+  const applyDebugSseEvent = useCallback(
+    (eventName: string, data: unknown, uploadedFilename: string) => {
+      const imageApiUrl = buildUploadedWikiImageUrl(uploadedFilename);
+      const payload =
+        data && typeof data === "object"
+          ? (data as Record<string, unknown>)
+          : {};
+
+      if (eventName === "debug_complete") {
+        const panelData = Array.isArray(payload.debugPanels)
+          ? (payload.debugPanels as DebugPanel[])
+          : [];
+        logInfo("✓ Debug模式完成，面板数据:", panelData);
+        setDebugPanels(panelData);
+        setImageUrl(imageApiUrl);
+        logInfo("✓ 图片URL已设置:", imageApiUrl);
+        return;
+      }
+
+      if (eventName === "error") {
+        const errorMessage =
+          typeof payload.message === "string"
+            ? payload.message
+            : "处理过程中发生错误";
+        console.warn("⚠️ 收到错误事件:", errorMessage, payload);
+        logInfo(`⚠️ 检测失败: ${errorMessage}`);
+        logInfo("✓ 图片URL已设置（检测失败，但图片仍可加载）:", imageApiUrl);
+        setImageUrl(imageApiUrl);
+        setDebugPanels([]);
+      }
+    },
+    [buildUploadedWikiImageUrl, logInfo],
+  );
+
+  // ==================== 保留链路: DebugCoordinateCropPipeline ====================
+  // 目标: 前端调试台检测坐标 -> 后端按坐标裁切（保留核心算法与行为）
   // 处理图片上传
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    logInfo(`当前切图链路: ${DEBUG_CROP_PIPELINE_NAME}`);
     logInfo("开始上传图片:", file.name, file.size, "bytes");
 
     const formData = new FormData();
@@ -1166,32 +1209,7 @@ export default function WikiDebugPage() {
               const data = JSON.parse(currentData);
               eventCount++;
               logInfo(`收到事件 ${eventCount}: ${currentEvent}`, data);
-
-              if (currentEvent === "debug_complete") {
-                logInfo("✓ Debug模式完成，面板数据:", data.debugPanels);
-                setDebugPanels(data.debugPanels);
-                // 设置图片URL - 使用正确的API路由
-                setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
-                logInfo(
-                  "✓ 图片URL已设置:",
-                  `/api/uploads/wiki/${uploadedFilename}`,
-                );
-              } else if (currentEvent === "error") {
-                // 🌟 修改：错误不阻断流程，只是记录日志
-                const errorMessage = data.message || "处理过程中发生错误";
-                console.warn("⚠️ 收到错误事件:", errorMessage, data);
-                logInfo(`⚠️ 检测失败: ${errorMessage}`);
-
-                // 🌟 无论如何都要设置图片 URL，让用户能看到图片
-                setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
-                logInfo(
-                  "✓ 图片URL已设置（检测失败，但图片仍可加载）:",
-                  `/api/uploads/wiki/${uploadedFilename}`,
-                );
-
-                // 设置错误状态（可选，用于UI显示）
-                setDebugPanels([]);
-              }
+              applyDebugSseEvent(currentEvent, data, uploadedFilename);
             } catch (e) {
               console.error(
                 `Failed to parse SSE data for event ${currentEvent}:`,
@@ -1220,31 +1238,7 @@ export default function WikiDebugPage() {
             const data = JSON.parse(currentData);
             eventCount++;
             logInfo(`收到事件 ${eventCount}: ${currentEvent}`, data);
-
-            if (currentEvent === "debug_complete") {
-              logInfo("✓ Debug模式完成，面板数据:", data.debugPanels);
-              setDebugPanels(data.debugPanels);
-              setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
-              logInfo(
-                "✓ 图片URL已设置:",
-                `/api/uploads/wiki/${uploadedFilename}`,
-              );
-            } else if (currentEvent === "error") {
-              // 🌟 修改：错误不阻断流程，只是记录日志
-              const errorMessage = data.message || "处理过程中发生错误";
-              console.warn("⚠️ 收到错误事件:", errorMessage, data);
-              logInfo(`⚠️ 检测失败: ${errorMessage}`);
-
-              // 🌟 无论如何都要设置图片 URL，让用户能看到图片
-              setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
-              logInfo(
-                "✓ 图片URL已设置（检测失败，但图片仍可加载）:",
-                `/api/uploads/wiki/${uploadedFilename}`,
-              );
-
-              // 设置错误状态（可选，用于UI显示）
-              setDebugPanels([]);
-            }
+            applyDebugSseEvent(currentEvent, data, uploadedFilename);
           } catch (e) {
             console.error(
               `Failed to parse SSE data for event ${currentEvent}:`,
@@ -1263,10 +1257,10 @@ export default function WikiDebugPage() {
           // 🌟 修改：未收到任何事件，但仍然设置图片 URL
           console.warn("⚠️ 未收到任何SSE事件，但仍然尝试加载图片");
           logInfo("⚠️ 未收到任何SSE事件，可能后端处理异常");
-          setImageUrl(`/api/uploads/wiki/${uploadedFilename}`);
+          setImageUrl(buildUploadedWikiImageUrl(uploadedFilename));
           logInfo(
             "✓ 图片URL已设置（未收到事件，但图片仍可加载）:",
-            `/api/uploads/wiki/${uploadedFilename}`,
+            buildUploadedWikiImageUrl(uploadedFilename),
           );
         }
       } else {
@@ -1449,9 +1443,10 @@ export default function WikiDebugPage() {
     reader.readAsText(file);
   };
 
-  // 导出到工作台（裁切icon）
-  const handleExportToWorkbench = async () => {
+  // 导出到工作台（坐标裁切主链）
+  const handleDebugCoordinateCropExport = async () => {
     console.log("[导出函数] 开始执行");
+    logInfo(`当前切图链路: ${DEBUG_CROP_PIPELINE_NAME}`);
     console.log(
       `[导出函数] imageUrl=${imageUrl}, debugPanels.length=${debugPanels.length}`,
     );
@@ -2655,7 +2650,7 @@ export default function WikiDebugPage() {
                   <Button
                     variant="default"
                     size="default"
-                    onClick={handleExportToWorkbench}
+                    onClick={handleDebugCoordinateCropExport}
                     disabled={
                       isProcessing || !imageUrl || debugPanels.length === 0
                     }
