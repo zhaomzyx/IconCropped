@@ -1,14 +1,14 @@
 {
   "version": "1.0",
-  "timestamp": "2026-03-08T14:31:19.902Z",
+  "timestamp": "2026-03-08T15:01:40.179Z",
   "params": {
     "chainBoardWidth": 872,
     "autoDetectPanelWidth": false,
     "panelWidthVoteTolerance": 20,
-    "gridStartY": 93,
+    "gridStartY": 99,
     "scanLineX": 91,
-    "scanStartY": 224,
-    "scanStableVarianceThresholdFactor": 0.3,
+    "scanStartY": 200,
+    "scanStableVarianceThresholdFactor": 0.5,
     "colorTolerance": 18,
     "sustainedPixels": 5,
     "colorToleranceX": 30,
