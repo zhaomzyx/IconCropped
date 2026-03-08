@@ -54,10 +54,7 @@ export async function POST(request: NextRequest) {
 
     const imageBuffer = await readImageBuffer(body.imageUrl);
 
-    const titles = await recognizePanelTitlesFromPanels(
-      imageBuffer,
-      body.panels,
-    );
+    const titles = await recognizePanelTitlesFromPanels(imageBuffer, body.panels);
 
     return NextResponse.json({
       success: true,

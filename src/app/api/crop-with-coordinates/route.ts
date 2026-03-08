@@ -148,7 +148,9 @@ export async function POST(request: NextRequest) {
     let imageBuffer: Buffer;
     if (imageUrl.startsWith("/WikiPic/")) {
       // 🌟 从 Wiki URL 获取的图片，保存在 public 目录
-      const publicPath = path.join(cwd(), imageUrl);
+      // Normalize to a public-relative path to avoid ENOENT on Windows.
+      const relativeImagePath = imageUrl.replace(/^\/+/, "");
+      const publicPath = path.join(cwd(), "public", relativeImagePath);
       console.log(`读取 public 目录文件: ${publicPath}`);
 
       try {
@@ -223,7 +225,11 @@ export async function POST(request: NextRequest) {
       if (panel.redBoxes && panel.redBoxes.length > 0) {
         console.log(`  开始裁切 ${panel.redBoxes.length} 个icon...`);
 
-        const orderedRedBoxes = panel.redBoxes
+        const redBoxes = panel.redBoxes as Array<
+          Coordinate & { row?: number; col?: number }
+        >;
+
+        const orderedRedBoxes = redBoxes
           .map((box: Coordinate, index: number) => ({
             box: box as Coordinate & { row?: number; col?: number },
             index,

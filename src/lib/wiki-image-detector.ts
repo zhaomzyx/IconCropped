@@ -8,6 +8,7 @@ import { Buffer } from "buffer";
 import {
   detectAllBounds,
   calculateIconPositionsFromBounds,
+  type IconBoundsPosition,
 } from "@/lib/sliding-window-detection";
 
 // ===== 类型定义 =====
@@ -41,24 +42,39 @@ export interface DetectedPanel {
     row?: number;
     col?: number;
   }>;
+  horizontalVoteDebug?: {
+    initial?: PanelHorizontalVoteDebug;
+    refined?: PanelHorizontalVoteDebug;
+  };
 }
 
 export interface DetectionParams {
   // 合成链板宽度（统一覆盖所有大 panel 的宽度）
   chainBoardWidth: number;
+  autoDetectPanelWidth?: boolean;
 
   // 绿框相关（标题区域）
   gridStartY: number;
+  autoDetectTitleHeight?: boolean;
+  localDividerRefineRange?: number;
+  localDividerMinCoverageRatio?: number;
+  localDividerDarkDeltaMin?: number;
 
   // 扫描线相关参数
   scanLineX: number;
   scanStartY: number;
+  autoRefineScanStartY?: boolean;
+  localScanStartRefineRange?: number;
+  localScanStartSampleRadius?: number;
+  scanStableVarianceThresholdFactor?: number;
   colorTolerance: number;
   sustainedPixels: number;
 
   // X轴检测参数
   colorToleranceX: number;
   sustainedPixelsX: number;
+  panelWidthScanStep?: number;
+  panelWidthVoteTolerance?: number;
 
   // 多行图标检测参数（与 debug 页面保持一致，当前核心流程未使用）
   iconLineOffset?: number;
@@ -101,19 +117,30 @@ export interface DetectionParams {
 export const DEFAULT_DETECTION_PARAMS: DetectionParams = {
   // 合成链板宽度
   chainBoardWidth: 904,
+  autoDetectPanelWidth: true,
 
   // 绿框相关（标题区域）
   gridStartY: 107,
+  autoDetectTitleHeight: true,
+  localDividerRefineRange: 10,
+  localDividerMinCoverageRatio: 0.5,
+  localDividerDarkDeltaMin: 2.1,
 
   // 扫描线相关参数
   scanLineX: 49,
   scanStartY: 200,
+  autoRefineScanStartY: true,
+  localScanStartRefineRange: 60,
+  localScanStartSampleRadius: 3,
+  scanStableVarianceThresholdFactor: 1,
   colorTolerance: 30,
   sustainedPixels: 5,
 
   // X轴检测参数
   colorToleranceX: 30,
   sustainedPixelsX: 5,
+  panelWidthScanStep: 8,
+  panelWidthVoteTolerance: 18,
 
   // 多行图标检测参数（与 debug 页面同默认值）
   iconLineOffset: 107,
@@ -152,7 +179,17 @@ export const DEFAULT_DETECTION_PARAMS: DetectionParams = {
   useVisionFallback: true,
 };
 
-// ===== 核心算法函数 =====
+// =============================================================================
+// 核心算法分区（定位规则总览）
+// A. 基础像素统计：方差/亮度/分位数等基础数学工具
+// B. 标题区与扫描起点估计：用于 greenBox 顶部区域和稳定起扫点
+// C. 大 panel 检测：Y 轴分段 + X 轴投票定宽
+// D. 小 panel 候选框后处理：去重、行优先、尺寸主峰过滤、排序
+// E. 小 panel 视觉兜底：边界检测失败时的连通域候选
+// F. 主流程编排：整图 -> 大 panel -> 标题区 -> 小 panel -> 输出 blue/green/red 框
+// =============================================================================
+
+// ----- A. 基础像素统计工具 -----
 
 /**
  * 计算颜色方差（用于判断是否为空图标）
@@ -223,6 +260,10 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function toLuma(r: number, g: number, b: number): number {
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
 function percentile(values: number[], ratio: number): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -236,6 +277,109 @@ function percentile(values: number[], ratio: number): number {
 
 function median(values: number[]): number {
   return percentile(values, 0.5);
+}
+
+// ----- B. 标题区与扫描起点估计（greenBox / 稳定扫描线） -----
+
+function estimatePanelGridStartY(
+  imageData: ImageData,
+  panelX: number,
+  panelY: number,
+  panelWidth: number,
+  panelHeight: number,
+  params: DetectionParams,
+): number {
+  const fallback = Math.max(1, Math.round(params.gridStartY));
+  if (params.autoDetectTitleHeight === false) return fallback;
+
+  const imageWidth = imageData.width;
+  const imageHeight = imageData.height;
+  if (panelWidth < 120 || panelHeight < 120) return fallback;
+
+  const expectedDividerY = panelY + fallback;
+  const refineRange = Math.max(
+    3,
+    Math.round(params.localDividerRefineRange ?? 10),
+  );
+  const panelTop = clamp(panelY, 1, imageHeight - 2);
+  const panelBottom = clamp(
+    panelY + panelHeight - 1,
+    panelTop + 1,
+    imageHeight - 2,
+  );
+  const searchTop = clamp(
+    expectedDividerY - refineRange,
+    panelTop + 1,
+    panelBottom - 1,
+  );
+  const searchBottom = clamp(
+    expectedDividerY + refineRange,
+    searchTop,
+    panelBottom - 1,
+  );
+
+  const xStart = clamp(
+    Math.round(panelX + panelWidth * 0.12),
+    1,
+    imageWidth - 2,
+  );
+  const xEnd = clamp(
+    Math.round(panelX + panelWidth * 0.88),
+    xStart + 2,
+    imageWidth - 2,
+  );
+  const { data } = imageData;
+
+  let bestY: number | null = null;
+  let bestScore = -Infinity;
+  const darkMin = params.localDividerDarkDeltaMin ?? 2.1;
+  const minCoverage = params.localDividerMinCoverageRatio ?? 0.5;
+
+  for (let y = searchTop; y <= searchBottom; y++) {
+    let hit = 0;
+    let count = 0;
+    let darkSum = 0;
+
+    for (let x = xStart; x <= xEnd; x += 2) {
+      const idx = (y * imageWidth + x) * 4;
+      const upIdx = ((y - 1) * imageWidth + x) * 4;
+      const downIdx = ((y + 1) * imageWidth + x) * 4;
+
+      const cur = toLuma(data[idx], data[idx + 1], data[idx + 2]);
+      const up = toLuma(data[upIdx], data[upIdx + 1], data[upIdx + 2]);
+      const down = toLuma(data[downIdx], data[downIdx + 1], data[downIdx + 2]);
+      const darkDelta = (up + down) / 2 - cur;
+
+      if (darkDelta > darkMin) hit++;
+      darkSum += darkDelta;
+      count++;
+    }
+
+    if (count === 0) continue;
+    const coverage = hit / count;
+    if (coverage < minCoverage) continue;
+
+    const avgDark = darkSum / count;
+    const distancePenalty = Math.abs(y - expectedDividerY) * 0.2;
+    const score = coverage * 10 + avgDark - distancePenalty;
+    if (score > bestScore) {
+      bestScore = score;
+      bestY = y;
+    }
+  }
+
+  if (bestY === null) {
+    return fallback;
+  }
+
+  const delta = bestY - expectedDividerY;
+  const candidate = fallback + delta;
+  const minGridStartY = Math.max(50, Math.round(132 * 0.38));
+  const maxGridStartY = Math.max(
+    minGridStartY,
+    panelHeight - Math.round(132 * 0.45),
+  );
+  return clamp(candidate, minGridStartY, maxGridStartY);
 }
 
 function estimateAdaptiveTolerance(
@@ -254,6 +398,167 @@ function estimateAdaptiveTolerance(
   return clamp(Math.max(baseTolerance, dynamicTolerance), 8, maxAdaptive);
 }
 
+function estimateLocalStableScanStartY(
+  imageData: ImageData,
+  scanLineX: number,
+  requestedScanStartY: number,
+  params: DetectionParams,
+): number {
+  void scanLineX;
+  const width = imageData.width;
+  const height = imageData.height;
+  const fallbackY = clamp(Math.round(requestedScanStartY), 0, height - 1);
+
+  if (params.autoRefineScanStartY === false) {
+    return fallbackY;
+  }
+
+  if (height < 6 || width < 6) {
+    return fallbackY;
+  }
+
+  const refineRange = Math.max(
+    2,
+    Math.round(params.localScanStartRefineRange ?? 60),
+  );
+  const sampleRadius = Math.max(
+    1,
+    Math.round(params.localScanStartSampleRadius ?? 3),
+  );
+
+  const searchTop = clamp(fallbackY - refineRange, 0, height - 1);
+  const searchBottom = clamp(fallbackY + refineRange, searchTop, height - 1);
+  const minStableHeight = 4;
+
+  const xStart = 0;
+  const xEnd = width - 1;
+  const xStep = Math.max(1, sampleRadius);
+
+  const { data } = imageData;
+
+  const samples: Array<{ y: number; score: number }> = [];
+
+  for (let y = searchTop; y <= searchBottom; y++) {
+    let lumaSum = 0;
+    let lumaSquareSum = 0;
+    let count = 0;
+
+    for (let x = xStart; x <= xEnd; x += xStep) {
+      const idx = (y * width + x) * 4;
+      const luma = toLuma(data[idx], data[idx + 1], data[idx + 2]);
+      lumaSum += luma;
+      lumaSquareSum += luma * luma;
+      count++;
+    }
+
+    if (count === 0) continue;
+    const mean = lumaSum / count;
+    const variance = Math.max(0, lumaSquareSum / count - mean * mean);
+    samples.push({ y, score: variance });
+  }
+
+  if (samples.length === 0) return fallbackY;
+
+  const sortedScores = samples.map((s) => s.score).sort((a, b) => a - b);
+  const bestScore = sortedScores[0];
+  const p35 = percentile(sortedScores, 0.35);
+  const thresholdFactor = clamp(
+    params.scanStableVarianceThresholdFactor ?? 1,
+    0.2,
+    3,
+  );
+  const stableThreshold =
+    bestScore + Math.max(0.6, (p35 - bestScore) * 1.15) * thresholdFactor;
+
+  type Segment = {
+    startY: number;
+    endY: number;
+    avgScore: number;
+    len: number;
+  };
+  const segments: Segment[] = [];
+  let segStart = -1;
+  let segEnd = -1;
+  let segScoreSum = 0;
+  let segCount = 0;
+
+  const flushSegment = () => {
+    if (segStart < 0 || segCount === 0) return;
+    const len = segEnd - segStart + 1;
+    segments.push({
+      startY: segStart,
+      endY: segEnd,
+      avgScore: segScoreSum / segCount,
+      len,
+    });
+    segStart = -1;
+    segEnd = -1;
+    segScoreSum = 0;
+    segCount = 0;
+  };
+
+  for (const sample of samples) {
+    const isStable = sample.score <= stableThreshold;
+    if (!isStable) {
+      flushSegment();
+      continue;
+    }
+    if (segStart < 0) {
+      segStart = sample.y;
+      segEnd = sample.y;
+    } else {
+      segEnd = sample.y;
+    }
+    segScoreSum += sample.score;
+    segCount++;
+  }
+  flushSegment();
+
+  if (segments.length === 0) {
+    const bestSingle = samples.reduce((best, cur) =>
+      cur.score < best.score ? cur : best,
+    );
+    const mid = bestSingle.y;
+    const startY = clamp(
+      mid - Math.floor(minStableHeight / 2),
+      searchTop,
+      Math.max(searchTop, searchBottom - minStableHeight + 1),
+    );
+    const endY = clamp(startY + minStableHeight - 1, startY, searchBottom);
+    return Math.round((startY + endY) / 2);
+  }
+
+  const chosen = segments.sort((a, b) => {
+    if (a.avgScore !== b.avgScore) return a.avgScore - b.avgScore;
+    if (a.len !== b.len) return b.len - a.len;
+    const aMid = (a.startY + a.endY) / 2;
+    const bMid = (b.startY + b.endY) / 2;
+    return Math.abs(aMid - fallbackY) - Math.abs(bMid - fallbackY);
+  })[0];
+
+  const normalizedStartY =
+    chosen.len >= minStableHeight
+      ? chosen.startY
+      : clamp(
+          Math.round((chosen.startY + chosen.endY) / 2) -
+            Math.floor(minStableHeight / 2),
+          searchTop,
+          Math.max(searchTop, searchBottom - minStableHeight + 1),
+        );
+  const normalizedEndY =
+    chosen.len >= minStableHeight
+      ? chosen.endY
+      : clamp(
+          normalizedStartY + minStableHeight - 1,
+          normalizedStartY,
+          searchBottom,
+        );
+
+  const bestY = Math.round((normalizedStartY + normalizedEndY) / 2);
+
+  return bestY;
+}
+
 /**
  * Y轴检测（滑动窗口算法）
  * 找出所有面板的 Y 坐标范围
@@ -264,6 +569,8 @@ interface PanelVerticalRange {
   startY: number;
   endY: number;
 }
+
+// ----- C1. 大 panel：Y 轴范围检测（垂直分段） -----
 
 function scanVerticalLine(
   imageData: ImageData,
@@ -387,6 +694,29 @@ interface PanelHorizontalRange {
   startX: number;
   endX: number;
   icons: IconBoundary[];
+  voteDebug?: PanelHorizontalVoteDebug;
+}
+
+interface PanelHorizontalVotePoint {
+  lineIdx: number;
+  scanY: number;
+  rawStartX: number;
+  rawEndX: number;
+  startX: number;
+  endX: number;
+  startInlier: boolean;
+  endInlier: boolean;
+}
+
+interface PanelHorizontalVoteDebug {
+  candidateYs: number[];
+  voteTolerance: number;
+  startMedian: number;
+  endMedian: number;
+  robustStart: number;
+  robustEnd: number;
+  usedRobustResult: boolean;
+  points: PanelHorizontalVotePoint[];
 }
 
 interface IconBox {
@@ -399,6 +729,8 @@ interface IconBox {
   row: number;
   col: number;
 }
+
+// ----- D. 小 panel 候选框后处理（去噪/聚类/排序） -----
 
 function dedupeIconBoxes<
   T extends { leftX: number; topY: number; width: number; height: number },
@@ -461,12 +793,144 @@ function dedupeIconBoxes<
   return kept;
 }
 
+function filterIconBoxesByMainRows<
+  T extends {
+    leftX: number;
+    topY: number;
+    width: number;
+    height: number;
+    row?: number;
+    col?: number;
+  },
+>(boxes: T[], expectedTotal?: number): T[] {
+  if (boxes.length <= 2) return boxes;
+
+  const sortedByY = [...boxes].sort((a, b) => a.topY - b.topY);
+  const avgHeight =
+    sortedByY.reduce((sum, b) => sum + b.height, 0) / sortedByY.length;
+  const rowThreshold = Math.max(10, avgHeight * 0.7);
+
+  const rows: T[][] = [];
+  sortedByY.forEach((box) => {
+    const centerY = box.topY + box.height / 2;
+    const targetRow = rows.find((row) => {
+      const rowCenterY =
+        row.reduce((sum, item) => sum + item.topY + item.height / 2, 0) /
+        row.length;
+      return Math.abs(centerY - rowCenterY) <= rowThreshold;
+    });
+
+    if (targetRow) {
+      targetRow.push(box);
+    } else {
+      rows.push([box]);
+    }
+  });
+
+  if (rows.length <= 1) return boxes;
+
+  rows.forEach((row) => row.sort((a, b) => a.leftX - b.leftX));
+  rows.sort((a, b) => {
+    const aCenter =
+      a.reduce((sum, item) => sum + item.topY + item.height / 2, 0) / a.length;
+    const bCenter =
+      b.reduce((sum, item) => sum + item.topY + item.height / 2, 0) / b.length;
+    return aCenter - bCenter;
+  });
+
+  // 行优先：数量更多的行优先；数量相同则更靠上的行优先。
+  const prioritizedRows = [...rows].sort((a, b) => {
+    if (b.length !== a.length) return b.length - a.length;
+    const aTop = Math.min(...a.map((x) => x.topY));
+    const bTop = Math.min(...b.map((x) => x.topY));
+    return aTop - bTop;
+  });
+
+  const keepRows: T[][] = [];
+  let kept = 0;
+  for (const row of prioritizedRows) {
+    keepRows.push(row);
+    kept += row.length;
+    if (expectedTotal && expectedTotal > 0 && kept >= expectedTotal) {
+      break;
+    }
+  }
+
+  const selected = keepRows.flat();
+  const selectedSet = new Set(selected);
+  const filtered = boxes.filter((box) => selectedSet.has(box));
+  return filtered.length > 0 ? filtered : boxes;
+}
+
+function filterIconBoxesByMainSize<
+  T extends {
+    width: number;
+    height: number;
+  },
+>(boxes: T[]): T[] {
+  if (boxes.length <= 3) return boxes;
+
+  const pickMedian = (values: number[]): number => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[mid];
+  };
+
+  const widths = boxes.map((b) => Math.max(1, b.width));
+  const heights = boxes.map((b) => Math.max(1, b.height));
+  const areas = boxes.map((b) => Math.max(1, b.width * b.height));
+
+  const medianW = pickMedian(widths);
+  const medianH = pickMedian(heights);
+  const medianA = pickMedian(areas);
+
+  const minW = Math.max(20, medianW * 0.55);
+  const minH = Math.max(20, medianH * 0.55);
+  const minA = Math.max(400, medianA * 0.35);
+  const maxW = Math.max(minW + 1, medianW * 1.9);
+  const maxH = Math.max(minH + 1, medianH * 1.9);
+
+  const filtered = boxes.filter((b) => {
+    const area = b.width * b.height;
+    return (
+      b.width >= minW &&
+      b.height >= minH &&
+      area >= minA &&
+      b.width <= maxW &&
+      b.height <= maxH
+    );
+  });
+
+  // 如果过滤过猛，回退原始结果，避免误删真实框。
+  const minKeep = Math.max(2, Math.ceil(boxes.length * 0.5));
+  return filtered.length >= minKeep ? filtered : boxes;
+}
+
+function sortIconBoxesStable<
+  T extends { leftX: number; topY: number; width: number; height: number },
+>(boxes: T[]): T[] {
+  return [...boxes].sort((a, b) => {
+    const ay = a.topY + a.height / 2;
+    const by = b.topY + b.height / 2;
+    if (Math.abs(ay - by) > Math.max(a.height, b.height) * 0.45) {
+      return ay - by;
+    }
+    return a.leftX - b.leftX;
+  });
+}
+
 interface HorizontalRangeRecord {
   startX: number;
   endX: number;
   lineIdx: number;
   scanY: number;
+  rawStartX: number;
+  rawEndX: number;
 }
+
+// ----- C2. 大 panel：X 轴单线扫描与投票定宽 -----
 
 function scanHorizontalLine(
   imageData: ImageData,
@@ -476,98 +940,110 @@ function scanHorizontalLine(
   width: number,
 ): PanelHorizontalRange | null {
   const { data } = imageData;
+  void colorTolerance;
+  void sustainedPixels;
 
   const getPixelColor = (x: number, y: number): [number, number, number] => {
     const index = (y * width + x) * 4;
     return [data[index], data[index + 1], data[index + 2]];
   };
 
-  // Use median background from left region to reduce decoration noise.
-  const bgSampleEndX = Math.max(20, Math.floor(width * 0.15));
-  const sampleR: number[] = [];
-  const sampleG: number[] = [];
-  const sampleB: number[] = [];
-  for (let x = 0; x < bgSampleEndX; x += 2) {
-    const [r, g, b] = getPixelColor(x, scanY);
-    sampleR.push(r);
-    sampleG.push(g);
-    sampleB.push(b);
-  }
-  const backgroundColor: [number, number, number] = [
-    Math.round(median(sampleR)),
-    Math.round(median(sampleG)),
-    Math.round(median(sampleB)),
-  ];
-  const horizontalDiffs: number[] = [];
-  const localSampleEndX = Math.min(width, 260);
-  for (let x = 0; x < localSampleEndX; x += 2) {
-    horizontalDiffs.push(colorDiff(getPixelColor(x, scanY), backgroundColor));
-  }
-  const effectiveTolerance = estimateAdaptiveTolerance(
-    horizontalDiffs,
-    colorTolerance,
-  );
-
-  let inPanel = false;
-  let consecutiveBg = 0;
-  let consecutivePanel = 0;
-  let panelStartX = 0;
-  let panelEndX = 0;
-  let currentIconStart = 0;
-  const icons: IconBoundary[] = [];
-
+  // 仅使用 10x1 滑动窗口方差峰值来确定左右边界。
+  const varianceWindow = 10;
+  const varianceStep = 1;
+  const minSpan = 80;
+  const luma = new Array<number>(width).fill(0);
   for (let x = 0; x < width; x++) {
-    const currentColor = getPixelColor(x, scanY);
-    const diff = colorDiff(currentColor, backgroundColor);
+    const [r, g, b] = getPixelColor(x, scanY);
+    luma[x] = 0.299 * r + 0.587 * g + 0.114 * b;
+  }
 
-    if (diff > effectiveTolerance) {
-      consecutivePanel++;
-      consecutiveBg = 0;
+  if (width < varianceWindow + 2) {
+    return null;
+  }
 
-      if (!inPanel && consecutivePanel >= sustainedPixels) {
-        inPanel = true;
-        const iconStartX = x - sustainedPixels + 1;
-        currentIconStart = iconStartX;
+  const varianceByX = new Array<number>(width).fill(0);
+  let sum = 0;
+  let sumSq = 0;
+  for (let i = 0; i < varianceWindow; i++) {
+    const v = luma[i];
+    sum += v;
+    sumSq += v * v;
+  }
 
-        if (icons.length === 0) {
-          panelStartX = iconStartX;
-        }
-      }
-    } else {
-      consecutiveBg++;
-      consecutivePanel = 0;
+  const writeVariance = (startX: number, s: number, ss: number) => {
+    const mean = s / varianceWindow;
+    const variance = Math.max(0, ss / varianceWindow - mean * mean);
+    const centerX = startX + Math.floor(varianceWindow / 2);
+    varianceByX[centerX] = variance;
+  };
 
-      if (inPanel && consecutiveBg >= sustainedPixels) {
-        inPanel = false;
-        const iconEndX = x - sustainedPixels + 1;
-        const iconCenterX = (currentIconStart + iconEndX) / 2;
-        icons.push({
-          startX: currentIconStart,
-          endX: iconEndX,
-          centerX: iconCenterX,
-        });
+  writeVariance(0, sum, sumSq);
+
+  for (
+    let startX = varianceStep;
+    startX <= width - varianceWindow;
+    startX += varianceStep
+  ) {
+    const leftOut = luma[startX - 1];
+    const rightIn = luma[startX + varianceWindow - 1];
+    sum += rightIn - leftOut;
+    sumSq += rightIn * rightIn - leftOut * leftOut;
+    writeVariance(startX, sum, sumSq);
+  }
+
+  const validValues = varianceByX.filter((v) => Number.isFinite(v) && v > 0);
+  if (validValues.length === 0) {
+    return null;
+  }
+
+  const sortedVar = [...validValues].sort((a, b) => a - b);
+  const p80 = sortedVar[Math.floor((sortedVar.length - 1) * 0.8)] || 0;
+  const varianceThreshold = Math.max(0.5, p80);
+
+  const peaks: Array<{ x: number; score: number }> = [];
+  for (let x = 1; x < width - 1; x++) {
+    const cur = varianceByX[x];
+    if (cur < varianceThreshold) continue;
+    if (cur >= varianceByX[x - 1] && cur >= varianceByX[x + 1]) {
+      peaks.push({ x, score: cur });
+    }
+  }
+
+  if (peaks.length < 2) {
+    return null;
+  }
+
+  let bestStartX = -1;
+  let bestEndX = -1;
+  let bestPairScore = -Infinity;
+
+  const ordered = [...peaks].sort((a, b) => a.x - b.x);
+  for (let i = 0; i < ordered.length; i++) {
+    const left = ordered[i];
+    for (let j = i + 1; j < ordered.length; j++) {
+      const right = ordered[j];
+      const span = right.x - left.x;
+      if (span < minSpan) continue;
+
+      const pairScore = left.score + right.score + span * 0.015;
+      if (pairScore > bestPairScore) {
+        bestPairScore = pairScore;
+        bestStartX = left.x;
+        bestEndX = right.x;
       }
     }
   }
 
-  if (inPanel) {
-    panelEndX = width;
-    const iconCenterX = (currentIconStart + panelEndX) / 2;
-    icons.push({
-      startX: currentIconStart,
-      endX: panelEndX,
-      centerX: iconCenterX,
-    });
-  } else {
-    if (icons.length > 0) {
-      const lastIcon = icons[icons.length - 1];
-      panelEndX = lastIcon.endX;
-    }
+  if (bestStartX < 0 || bestEndX <= bestStartX) {
+    return null;
   }
 
-  if (icons.length === 0) return null;
-
-  return { startX: panelStartX, endX: panelEndX, icons };
+  return {
+    startX: clamp(bestStartX, 0, width - 1),
+    endX: clamp(bestEndX, 0, width - 1),
+    icons: [],
+  };
 }
 
 function mergeHorizontalRangesWithVotes(
@@ -625,10 +1101,13 @@ function detectHorizontalRangeByVoting(
   sustainedPixels: number,
   width: number,
   height: number,
+  options?: {
+    scanStep?: number;
+    voteTolerance?: number;
+  },
 ): PanelHorizontalRange | null {
-  const votingInnerMargin = 6;
-  const outerOffset = 30;
-  const titleBottomOffset = 5;
+  const panelInnerMargin = 12;
+  const maxScanLines = 80;
 
   const panelTop = clamp(panelRange.startY, 0, height - 1);
   const panelBottom = clamp(panelRange.endY, panelTop + 1, height - 1);
@@ -637,17 +1116,36 @@ function detectHorizontalRangeByVoting(
     panelTop + 1,
     panelBottom - 1,
   );
+  const bandTop = clamp(
+    Math.min(panelTop + panelInnerMargin, titleBottomY),
+    panelTop + 1,
+    panelBottom - 1,
+  );
+  const bandBottom = clamp(
+    panelBottom - panelInnerMargin,
+    bandTop,
+    panelBottom - 1,
+  );
 
-  // 用户指定的4根横线：上下外线 + 标题底线附近两根线。
-  const candidateYs = [
-    clamp(panelTop + outerOffset, panelTop + 1, panelBottom - 1),
-    clamp(panelBottom - outerOffset, panelTop + 1, panelBottom - 1),
-    clamp(titleBottomY - titleBottomOffset, panelTop + 1, panelBottom - 1),
-    clamp(titleBottomY + titleBottomOffset, panelTop + 1, panelBottom - 1),
-  ].filter((y, idx, arr) => arr.indexOf(y) === idx);
+  const desiredStep = Math.max(3, Math.round(options?.scanStep ?? 8));
+  const bandHeight = Math.max(1, bandBottom - bandTop + 1);
+  const adaptiveStep = Math.max(
+    desiredStep,
+    Math.ceil(bandHeight / maxScanLines),
+  );
+
+  const candidateYs: number[] = [];
+  for (let y = bandTop; y <= bandBottom; y += adaptiveStep) {
+    candidateYs.push(y);
+  }
+  if (
+    candidateYs.length === 0 ||
+    candidateYs[candidateYs.length - 1] !== bandBottom
+  ) {
+    candidateYs.push(bandBottom);
+  }
 
   const allRanges: HorizontalRangeRecord[] = [];
-  let widestRange: PanelHorizontalRange | null = null;
 
   candidateYs.forEach((scanY, lineIdx) => {
     const rawRange = scanHorizontalLine(
@@ -660,71 +1158,116 @@ function detectHorizontalRangeByVoting(
 
     if (!rawRange) return;
 
-    const shrinkStart = clamp(
-      rawRange.startX + votingInnerMargin,
-      0,
-      width - 1,
-    );
-    const shrinkEnd = clamp(rawRange.endX - votingInnerMargin, 0, width - 1);
-    if (shrinkEnd - shrinkStart < 60) {
+    if (rawRange.endX - rawRange.startX < 60) {
       return;
     }
 
-    const range: PanelHorizontalRange = {
-      ...rawRange,
-      startX: shrinkStart,
-      endX: shrinkEnd,
-    };
-
     allRanges.push({
-      startX: range.startX,
-      endX: range.endX,
+      startX: rawRange.startX,
+      endX: rawRange.endX,
       lineIdx,
       scanY,
+      rawStartX: rawRange.startX,
+      rawEndX: rawRange.endX,
     });
-
-    if (
-      !widestRange ||
-      range.endX - range.startX > widestRange.endX - widestRange.startX
-    ) {
-      widestRange = range;
-    }
   });
 
   if (allRanges.length === 0) {
     return null;
   }
 
-  const merged = mergeHorizontalRangesWithVotes(allRanges);
-  const requiredVotes = Math.max(2, Math.ceil(candidateYs.length * 0.5));
-  const voted = merged
-    .filter((m) => m.votes.size >= requiredVotes)
-    .sort(
-      (a, b) =>
-        b.votes.size - a.votes.size ||
-        Math.abs(b.endX - b.startX - (a.endX - a.startX)),
-    );
+  // 左右端点密度投票：每条线在端点附近按核函数投 N 票，最终在 X 轴找两个主峰。
+  const starts = allRanges.map((r) => r.startX);
+  const ends = allRanges.map((r) => r.endX);
+  const voteTolerance = Math.max(6, Math.round(options?.voteTolerance ?? 18));
 
-  if (voted.length > 0) {
-    const top = voted[0];
-    const startMid = median(top.starts);
-    const endMid = median(top.ends);
+  const startVotes = new Array<number>(width).fill(0);
+  const endVotes = new Array<number>(width).fill(0);
+  // N=5 票核：每条线在端点附近投 5 个位置，中心权重更高。
+  const voteKernel: Array<{ offset: number; weight: number }> = [
+    { offset: -4, weight: 1 },
+    { offset: -2, weight: 2 },
+    { offset: 0, weight: 3 },
+    { offset: 2, weight: 2 },
+    { offset: 4, weight: 1 },
+  ];
 
-    // 仅保留接近中位边界的线，取“左右最统一”的结果。
-    const inlierStarts = top.starts.filter((s) => Math.abs(s - startMid) <= 16);
-    const inlierEnds = top.ends.filter((e) => Math.abs(e - endMid) <= 16);
+  const addVotes = (bucket: number[], x: number) => {
+    for (const item of voteKernel) {
+      const idx = clamp(Math.round(x + item.offset), 0, width - 1);
+      bucket[idx] += item.weight;
+    }
+  };
 
-    const robustStart = Math.round(
-      median(inlierStarts.length > 0 ? inlierStarts : top.starts),
-    );
-    const robustEnd = Math.round(
-      median(inlierEnds.length > 0 ? inlierEnds : top.ends),
-    );
+  allRanges.forEach((r) => {
+    addVotes(startVotes, r.startX);
+    addVotes(endVotes, r.endX);
+  });
 
-    const medianScanY = median(top.scanYs);
+  const smoothVotes = (input: number[], radius: number): number[] => {
+    const output = new Array<number>(input.length).fill(0);
+    for (let x = 0; x < input.length; x++) {
+      let sum = 0;
+      let count = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const idx = x + k;
+        if (idx < 0 || idx >= input.length) continue;
+        sum += input[idx];
+        count++;
+      }
+      output[x] = count > 0 ? sum / count : 0;
+    }
+    return output;
+  };
+
+  const startVotesSmooth = smoothVotes(startVotes, 3);
+  const endVotesSmooth = smoothVotes(endVotes, 3);
+
+  const argmax = (arr: number[]) => {
+    let bestIdx = 0;
+    let bestVal = -Infinity;
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i] > bestVal) {
+        bestVal = arr[i];
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  };
+
+  const robustStart = argmax(startVotesSmooth);
+  const robustEnd = argmax(endVotesSmooth);
+  const inlierStarts = starts.filter(
+    (s) => Math.abs(s - robustStart) <= voteTolerance,
+  );
+  const inlierEnds = ends.filter(
+    (e) => Math.abs(e - robustEnd) <= voteTolerance,
+  );
+
+  const voteDebug: PanelHorizontalVoteDebug = {
+    candidateYs,
+    voteTolerance,
+    startMedian: robustStart,
+    endMedian: robustEnd,
+    robustStart,
+    robustEnd,
+    usedRobustResult: robustEnd - robustStart >= 120,
+    points: allRanges.map((r) => ({
+      lineIdx: r.lineIdx,
+      scanY: r.scanY,
+      rawStartX: r.rawStartX,
+      rawEndX: r.rawEndX,
+      startX: r.startX,
+      endX: r.endX,
+      startInlier: Math.abs(r.startX - robustStart) <= voteTolerance,
+      endInlier: Math.abs(r.endX - robustEnd) <= voteTolerance,
+    })),
+  };
+
+  if (robustEnd - robustStart >= 120) {
+    const panelMidY = Math.round((panelTop + panelBottom) / 2);
     const nearestLine = [...allRanges].sort(
-      (a, b) =>
-        Math.abs(a.scanY - medianScanY) - Math.abs(b.scanY - medianScanY),
+      (a, b) => Math.abs(a.scanY - panelMidY) - Math.abs(b.scanY - panelMidY),
     )[0];
 
     const iconsSource = nearestLine
@@ -735,16 +1278,35 @@ function detectHorizontalRangeByVoting(
           sustainedPixels,
           width,
         )
-      : widestRange;
+      : null;
 
     return {
       startX: robustStart,
       endX: robustEnd,
       icons: iconsSource?.icons || [],
+      voteDebug,
     };
   }
 
-  return widestRange;
+  const fallbackLine = [...allRanges].sort(
+    (a, b) => b.endX - b.startX - (a.endX - a.startX),
+  )[0];
+  if (!fallbackLine) return null;
+
+  const fallbackSource = scanHorizontalLine(
+    imageData,
+    fallbackLine.scanY,
+    colorTolerance,
+    sustainedPixels,
+    width,
+  );
+
+  return {
+    startX: fallbackLine.startX,
+    endX: fallbackLine.endX,
+    icons: fallbackSource?.icons || [],
+    voteDebug,
+  };
 }
 
 function mergeVerticalRangesWithVotes(
@@ -786,6 +1348,7 @@ function mergeVerticalRangesWithVotes(
 function detectVerticalRangesByVoting(
   imageData: ImageData,
   scanLineX: number,
+  secondaryScanLineX: number | null,
   scanStartY: number,
   colorTolerance: number,
   sustainedPixels: number,
@@ -793,8 +1356,12 @@ function detectVerticalRangesByVoting(
   height: number,
 ): PanelVerticalRange[] {
   const offsets = [-24, -12, 0, 12, 24];
-  const scanLines = offsets
-    .map((offset) => clamp(scanLineX + offset, 0, width - 1))
+  const baseLines =
+    secondaryScanLineX !== null ? [scanLineX, secondaryScanLineX] : [scanLineX];
+  const scanLines = baseLines
+    .flatMap((baseX) =>
+      offsets.map((offset) => clamp(baseX + offset, 0, width - 1)),
+    )
     .filter((x, idx, arr) => arr.indexOf(x) === idx);
 
   const allRanges: Array<{ startY: number; endY: number; lineIdx: number }> =
@@ -834,6 +1401,8 @@ function detectVerticalRangesByVoting(
     height,
   );
 }
+
+// ----- E. 小 panel 视觉兜底（连通域法） -----
 
 function detectIconBoxesByVision(
   imageData: ImageData,
@@ -1007,7 +1576,7 @@ function detectIconBoxesByVision(
   return result;
 }
 
-// ===== 主处理函数 =====
+// ----- F. 主处理流程编排（最终输出 blueBox / greenBox / redBoxes） -----
 
 /**
  * 检测 Wiki 图片，返回精确的裁切坐标（纯前端模式）
@@ -1048,6 +1617,17 @@ export async function detectWikiImage(
           ...params,
         };
 
+        const scanInset = 42;
+        const secondaryScanLineX = clamp(
+          Math.round(
+            finalParams.scanLineX + finalParams.chainBoardWidth - scanInset * 2,
+          ),
+          0,
+          img.width - 1,
+        );
+        const useSecondaryScanLine =
+          Math.abs(secondaryScanLineX - finalParams.scanLineX) >= 24;
+
         // 1. 在内存中创建一个隐形的 Canvas
         const canvas = document.createElement("canvas");
         canvas.width = img.width;
@@ -1062,12 +1642,25 @@ export async function detectWikiImage(
         ctx.drawImage(img, 0, 0);
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const pixelBuffer = Buffer.from(imageData.data);
+        const effectiveScanStartY = estimateLocalStableScanStartY(
+          imageData,
+          finalParams.scanLineX,
+          finalParams.scanStartY,
+          finalParams,
+        );
+
+        if (effectiveScanStartY !== finalParams.scanStartY) {
+          console.log(
+            `[WikiImageDetector] scanStartY 局部锁定搜索: ${finalParams.scanStartY} -> ${effectiveScanStartY}`,
+          );
+        }
 
         // 3. 执行 Y 轴扫描，找大框
         let panelVerticalRanges = detectVerticalRangesByVoting(
           imageData,
           finalParams.scanLineX,
-          finalParams.scanStartY,
+          useSecondaryScanLine ? secondaryScanLineX : null,
+          effectiveScanStartY,
           finalParams.colorTolerance,
           finalParams.sustainedPixels,
           canvas.width,
@@ -1077,16 +1670,17 @@ export async function detectWikiImage(
         if (panelVerticalRanges.length === 0) {
           const fallbackStartY = Math.max(
             40,
-            Math.min(Math.floor(canvas.height * 0.12), finalParams.scanStartY),
+            Math.min(Math.floor(canvas.height * 0.12), effectiveScanStartY),
           );
 
-          if (fallbackStartY !== finalParams.scanStartY) {
+          if (fallbackStartY !== effectiveScanStartY) {
             console.log(
               `[WikiImageDetector] 首次Y轴扫描无结果，使用 fallbackStartY=${fallbackStartY} 重试`,
             );
             panelVerticalRanges = detectVerticalRangesByVoting(
               imageData,
               finalParams.scanLineX,
+              useSecondaryScanLine ? secondaryScanLineX : null,
               fallbackStartY,
               finalParams.colorTolerance,
               finalParams.sustainedPixels,
@@ -1106,6 +1700,33 @@ export async function detectWikiImage(
           `[WikiImageDetector] Y轴扫描检测到 ${panelVerticalRanges.length} 个潜在区域`,
         );
 
+        const baseGridStartYGlobal = Math.max(
+          1,
+          Math.round(finalParams.gridStartY),
+        );
+
+        const initialHorizontalByIndex = new Map<
+          number,
+          PanelHorizontalRange | null
+        >();
+
+        panelVerticalRanges.forEach((vRange, idx) => {
+          const probe = detectHorizontalRangeByVoting(
+            imageData,
+            vRange,
+            baseGridStartYGlobal,
+            finalParams.colorToleranceX,
+            finalParams.sustainedPixelsX,
+            canvas.width,
+            canvas.height,
+            {
+              scanStep: finalParams.panelWidthScanStep,
+              voteTolerance: finalParams.panelWidthVoteTolerance,
+            },
+          );
+          initialHorizontalByIndex.set(idx, probe);
+        });
+
         // 4. 遍历处理每个 Panel
         const detectedPanels: DetectedPanel[] = [];
 
@@ -1113,17 +1734,25 @@ export async function detectWikiImage(
           const vRange = panelVerticalRanges[i];
           // 🌟 获取当前面板的"上帝视角"信息
           const meta = metaPanels && metaPanels[i] ? metaPanels[i] : null;
+          const baseGridStartY = baseGridStartYGlobal;
 
           // 执行 X 轴投票扫描（提高 panel 宽度稳定性）
-          const hRange = detectHorizontalRangeByVoting(
-            imageData,
-            vRange,
-            finalParams.gridStartY,
-            finalParams.colorToleranceX,
-            finalParams.sustainedPixelsX,
-            canvas.width,
-            canvas.height,
-          );
+          let hRange =
+            initialHorizontalByIndex.get(i) ??
+            detectHorizontalRangeByVoting(
+              imageData,
+              vRange,
+              baseGridStartY,
+              finalParams.colorToleranceX,
+              finalParams.sustainedPixelsX,
+              canvas.width,
+              canvas.height,
+              {
+                scanStep: finalParams.panelWidthScanStep,
+                voteTolerance: finalParams.panelWidthVoteTolerance,
+              },
+            );
+          const initialVoteDebug = hRange?.voteDebug;
 
           const rawStartX = hRange?.startX ?? 0;
           const rawEndX = hRange?.endX ?? rawStartX;
@@ -1132,92 +1761,265 @@ export async function detectWikiImage(
           let startX = rawStartX;
           let width = rawWidth;
 
-          const unifiedWidth = Math.max(
-            40,
+          const fallbackWidth = clamp(
             Math.round(finalParams.chainBoardWidth),
+            120,
+            canvas.width,
           );
-          if (Number.isFinite(unifiedWidth) && unifiedWidth > 0) {
+
+          const applyWidthPolicy = (
+            detectedStartX: number,
+            detectedWidth: number,
+            fallbackCenterX: number,
+          ) => {
+            const autoEnabled = finalParams.autoDetectPanelWidth !== false;
+
+            if (!autoEnabled) {
+              const centerX =
+                detectedWidth > 0
+                  ? detectedStartX + detectedWidth / 2
+                  : fallbackCenterX;
+              const safeWidth = Math.min(canvas.width, fallbackWidth);
+              return {
+                nextStartX: clamp(
+                  Math.round(centerX - safeWidth / 2),
+                  0,
+                  Math.max(0, canvas.width - safeWidth),
+                ),
+                nextWidth: safeWidth,
+              };
+            }
+
+            const safeDetectedWidth = Math.max(0, detectedWidth);
+            if (safeDetectedWidth > 0) {
+              const safeWidth = clamp(safeDetectedWidth, 120, canvas.width);
+              return {
+                nextStartX: clamp(
+                  Math.round(detectedStartX),
+                  0,
+                  Math.max(0, canvas.width - safeWidth),
+                ),
+                nextWidth: safeWidth,
+              };
+            }
+
             const centerX =
-              rawWidth > 0
-                ? rawStartX + rawWidth / 2
-                : rawStartX + unifiedWidth / 2;
-            width = Math.min(canvas.width, unifiedWidth);
-            startX = clamp(
-              Math.round(centerX - width / 2),
-              0,
-              Math.max(0, canvas.width - width),
+              safeDetectedWidth > 0
+                ? detectedStartX + safeDetectedWidth / 2
+                : fallbackCenterX;
+            const safeWidth = Math.min(canvas.width, fallbackWidth);
+            return {
+              nextStartX: clamp(
+                Math.round(centerX - safeWidth / 2),
+                0,
+                Math.max(0, canvas.width - safeWidth),
+              ),
+              nextWidth: safeWidth,
+            };
+          };
+
+          {
+            const fallbackCenterX =
+              rawWidth > 0 ? rawStartX + rawWidth / 2 : canvas.width / 2;
+            const applied = applyWidthPolicy(
+              rawStartX,
+              rawWidth,
+              fallbackCenterX,
             );
+            startX = applied.nextStartX;
+            width = applied.nextWidth;
           }
 
           const height = vRange.endY - vRange.startY;
-
-          // 跳过标题逻辑：缩小扫描范围并直接挖掉绿框高度
-          const padding = 10;
-          const scanX = startX + padding;
-          const scanY = vRange.startY + finalParams.gridStartY + padding;
-          const scanWidth = width - padding * 2;
-          const scanHeight = height - finalParams.gridStartY - padding * 2;
-
-          // 边界检测
-          const bounds = detectAllBounds(
-            pixelBuffer,
-            canvas.width,
-            scanX,
-            scanY,
-            scanWidth,
-            scanHeight,
-            {
-              windowHeight: finalParams.boundsWindowHeight,
-              windowWidth: finalParams.boundsWindowWidth,
-              varianceThresholdRow: finalParams.boundsVarianceThresholdRow,
-              varianceThresholdCol: finalParams.boundsVarianceThresholdCol,
-              stepSize: finalParams.boundsStepSize,
-              minRowHeight: finalParams.boundsMinRowHeight,
-              minColWidth: finalParams.boundsMinColWidth,
-            },
+          const panelGridStartY = estimatePanelGridStartY(
+            imageData,
+            startX,
+            vRange.startY,
+            width,
+            height,
+            finalParams,
           );
 
-          // 计算坐标
-          let boundsIcons = calculateIconPositionsFromBounds(bounds);
+          // 使用自动标题高度再跑一次 X 轴投票，减少标题高度变化带来的宽度抖动。
+          hRange = detectHorizontalRangeByVoting(
+            imageData,
+            vRange,
+            panelGridStartY,
+            finalParams.colorToleranceX,
+            finalParams.sustainedPixelsX,
+            canvas.width,
+            canvas.height,
+            {
+              scanStep: finalParams.panelWidthScanStep,
+              voteTolerance: finalParams.panelWidthVoteTolerance,
+            },
+          );
+          const refinedVoteDebug = hRange?.voteDebug;
 
-          if (
-            finalParams.useVisionFallback !== false &&
-            boundsIcons.length === 0
-          ) {
-            const fallbackIcons = detectIconBoxesByVision(
-              imageData,
+          const refinedStartX = hRange?.startX ?? startX;
+          const refinedEndX = hRange?.endX ?? refinedStartX;
+          const refinedWidth = Math.max(0, refinedEndX - refinedStartX);
+
+          {
+            const fallbackCenterX = startX + width / 2;
+            const applied = applyWidthPolicy(
+              refinedStartX,
+              refinedWidth,
+              fallbackCenterX,
+            );
+            startX = applied.nextStartX;
+            width = applied.nextWidth;
+          }
+
+          const padding = 10;
+          const scanX = startX + padding;
+          const scanWidth = width - padding * 2;
+
+          const scoreCandidate = (icons: IconBoundsPosition[]): number => {
+            if (icons.length === 0) return -100000;
+
+            let score = icons.length * 6;
+
+            if (meta?.total && meta.total > 0) {
+              score -= Math.abs(icons.length - meta.total) * 14;
+            }
+
+            const rowSet = new Set(
+              icons
+                .map((icon) => icon.row)
+                .filter((v): v is number => typeof v === "number"),
+            );
+            if (meta?.rows && meta.rows > 0 && rowSet.size > 0) {
+              score -= Math.abs(rowSet.size - meta.rows) * 18;
+            }
+
+            return score;
+          };
+
+          const runCandidate = (extraStartOffset: number) => {
+            const scanY =
+              vRange.startY +
+              panelGridStartY +
+              padding +
+              Math.max(0, extraStartOffset);
+            const scanHeight =
+              height -
+              panelGridStartY -
+              padding * 2 -
+              Math.max(0, extraStartOffset);
+
+            if (scanWidth <= 16 || scanHeight <= 16) {
+              return {
+                bounds: { rows: [], cols: [] },
+                icons: [] as IconBoundsPosition[],
+                score: -100000,
+                scanY,
+                scanHeight,
+              };
+            }
+
+            const bounds = detectAllBounds(
+              pixelBuffer,
+              canvas.width,
+              scanX,
+              scanY,
+              scanWidth,
+              scanHeight,
               {
-                x: scanX,
-                y: scanY,
-                width: scanWidth,
-                height: scanHeight,
+                windowHeight: finalParams.boundsWindowHeight,
+                windowWidth: finalParams.boundsWindowWidth,
+                varianceThresholdRow: finalParams.boundsVarianceThresholdRow,
+                varianceThresholdCol: finalParams.boundsVarianceThresholdCol,
+                stepSize: finalParams.boundsStepSize,
+                minRowHeight: finalParams.boundsMinRowHeight,
+                minColWidth: finalParams.boundsMinColWidth,
               },
-              finalParams.colorTolerance,
             );
 
-            if (fallbackIcons.length > boundsIcons.length) {
-              console.log(
-                `[WikiImageDetector] 视觉兜底生效: bounds=${boundsIcons.length}, vision=${fallbackIcons.length}`,
+            let icons = calculateIconPositionsFromBounds(bounds);
+
+            if (finalParams.useVisionFallback !== false && icons.length === 0) {
+              const fallbackIcons = detectIconBoxesByVision(
+                imageData,
+                {
+                  x: scanX,
+                  y: scanY,
+                  width: scanWidth,
+                  height: scanHeight,
+                },
+                finalParams.colorTolerance,
               );
-              boundsIcons = fallbackIcons;
+
+              if (fallbackIcons.length > icons.length) {
+                console.log(
+                  `[WikiImageDetector] 视觉兜底生效: bounds=${icons.length}, vision=${fallbackIcons.length}`,
+                );
+                icons = fallbackIcons.map(
+                  (icon): IconBoundsPosition => ({
+                    ...icon,
+                    rightX: icon.leftX + icon.width,
+                    bottomY: icon.topY + icon.height,
+                  }),
+                );
+              }
+            }
+
+            icons = dedupeIconBoxes(icons);
+            icons = filterIconBoxesByMainRows(icons, meta?.total);
+            icons = filterIconBoxesByMainSize(icons);
+            icons = sortIconBoxesStable(icons);
+
+            if (finalParams.filterEmptyIcons) {
+              icons = icons.filter((icon) => {
+                const variance = calculateColorVariance(
+                  imageData,
+                  icon.leftX,
+                  icon.topY,
+                  icon.width,
+                  icon.height,
+                );
+                return variance >= finalParams.emptyIconVarianceThreshold;
+              });
+            }
+
+            return {
+              bounds,
+              icons,
+              score: scoreCandidate(icons),
+              scanY,
+              scanHeight,
+            };
+          };
+
+          const primaryCandidate = runCandidate(0);
+          const shouldRetryWithLowerStart =
+            primaryCandidate.icons.length === 0 ||
+            (meta?.total
+              ? Math.abs(primaryCandidate.icons.length - meta.total) >
+                Math.max(2, Math.ceil(meta.total * 0.35))
+              : false);
+
+          let chosenCandidate = primaryCandidate;
+          if (shouldRetryWithLowerStart) {
+            const lowerStartOffset = Math.max(
+              14,
+              Math.min(34, Math.round(panelGridStartY * 0.28)),
+            );
+            const secondaryCandidate = runCandidate(lowerStartOffset);
+            if (secondaryCandidate.score > primaryCandidate.score) {
+              console.log(
+                `[WikiImageDetector] 小panel检测重试采用下移起点: panel=${i + 1}, offset=${lowerStartOffset}, score ${primaryCandidate.score} -> ${secondaryCandidate.score}`,
+              );
+              chosenCandidate = secondaryCandidate;
             }
           }
 
-          boundsIcons = dedupeIconBoxes(boundsIcons);
+          console.log(
+            `[WikiImageDetector] Panel ${i + 1} titleHeight=${panelGridStartY} (fallback=${baseGridStartY})`,
+          );
 
-          // 过滤空图标
-          if (finalParams.filterEmptyIcons) {
-            boundsIcons = boundsIcons.filter((icon) => {
-              const variance = calculateColorVariance(
-                imageData,
-                icon.leftX,
-                icon.topY,
-                icon.width,
-                icon.height,
-              );
-              return variance >= finalParams.emptyIconVarianceThreshold;
-            });
-          }
+          let boundsIcons = chosenCandidate.icons;
+          const bounds = chosenCandidate.bounds;
 
           // 🌟 修复脱节 2：应用我们在调试台使用的"总数截断"终极必杀技
           if (meta && meta.total && meta.total < boundsIcons.length) {
@@ -1241,9 +2043,9 @@ export async function detectWikiImage(
             let drawWidth = width;
             let drawHeight = height;
 
-            // 先去掉图标右侧的小三角连接区域：仅对非最后一列应用右侧裁剪。
-            const isLastCol = typeof col === "number" && col >= cols - 1;
-            if (!isLastCol) {
+            // 简化裁边逻辑：同一大panel内仅“最后一个”不裁，其他都裁右侧。
+            const isLastIcon = iconIndex === boundsIcons.length - 1;
+            if (!isLastIcon) {
               const trimRight = Math.max(
                 6,
                 Math.min(18, Math.round(drawWidth * 0.1)),
@@ -1251,21 +2053,13 @@ export async function detectWikiImage(
               drawWidth = Math.max(8, drawWidth - trimRight);
             }
 
-            // 再做偏移校准与正方形，确保基于“去小三角后”的框体结果。
+            // 再做偏移校准与正方形：以左上角为锚点，按短边统一为 1:1。
             if (finalParams.forceSquareIcons) {
               const squareSize = Math.max(8, Math.min(drawWidth, drawHeight));
-              const adjustedCenterX = drawLeftX + drawWidth / 2;
-              const adjustedCenterY = drawTopY + drawHeight / 2;
               drawWidth = squareSize;
               drawHeight = squareSize;
-              drawLeftX =
-                adjustedCenterX -
-                squareSize / 2 +
-                finalParams.forceSquareOffsetX;
-              drawTopY =
-                adjustedCenterY -
-                squareSize / 2 +
-                finalParams.forceSquareOffsetY;
+              drawLeftX = drawLeftX + finalParams.forceSquareOffsetX;
+              drawTopY = drawTopY + finalParams.forceSquareOffsetY;
             }
 
             // 🌟 修复脱节 3：保留真实的行列号和序号，防止后端算错
@@ -1310,9 +2104,13 @@ export async function detectWikiImage(
               x: startX,
               y: vRange.startY,
               width: width,
-              height: finalParams.gridStartY,
+              height: panelGridStartY,
             },
             redBoxes,
+            horizontalVoteDebug: {
+              initial: initialVoteDebug,
+              refined: refinedVoteDebug,
+            },
           });
 
           console.log(

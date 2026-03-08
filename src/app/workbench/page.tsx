@@ -1,7 +1,7 @@
 "use client";
 
 //#region 引入依赖 (Imports)
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   Card,
   CardContent,
@@ -33,7 +33,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ResourceItem, WikiCroppedImage, MappingRelation } from "@/types";
-import DebugModal, { DetectedPanel } from "@/components/debug-modal";
+import DebugModal from "@/features/crops/components/crop-confirm-modal";
+import type { DetectedPanel } from "@/features/crops/types";
 //#endregion
 
 //#region 子组件 (Sub Components)
@@ -355,12 +356,44 @@ export default function WorkbenchPage() {
    * 当前正在调试台查看的文件名
    */
   const [currentFilename, setCurrentFilename] = useState("");
+  const [debugImageQueue, setDebugImageQueue] = useState<
+    Array<{ filename: string; imageUrl: string; imageName: string }>
+  >([]);
+  const [currentDebugImageIndex, setCurrentDebugImageIndex] = useState(0);
+  const [isDebugImageCropping, setIsDebugImageCropping] = useState(false);
+  const [batchCompletedImages, setBatchCompletedImages] = useState(0);
+  const [batchCompletedChains, setBatchCompletedChains] = useState(0);
+  const [batchCompletedIcons, setBatchCompletedIcons] = useState(0);
+  const [processedImageNames, setProcessedImageNames] = useState<string[]>([]);
+  const [showBatchDoneModal, setShowBatchDoneModal] = useState(false);
+  const [isDownloadingBatchZip, setIsDownloadingBatchZip] = useState(false);
+  const [batchDownloadStage, setBatchDownloadStage] = useState<
+    "packing" | "downloading" | ""
+  >("");
 
   //#endregion
 
   //#region 常量定义 (Constants)
   // 调试台前端检测 + 坐标裁切链（保留主链）
   const DEBUG_CROP_PIPELINE_NAME = "DebugCoordinateCropPipeline";
+
+  const resetWikiCropResultState = useCallback(() => {
+    setWikiProcessed(false);
+    setWikiImages([]);
+    setChainCount(0);
+    setWikiProcessingStep("");
+    setShowDebugModal(false);
+    setDebugImageQueue([]);
+    setCurrentDebugImageIndex(0);
+    setIsDebugImageCropping(false);
+    setBatchCompletedImages(0);
+    setBatchCompletedChains(0);
+    setBatchCompletedIcons(0);
+    setProcessedImageNames([]);
+    setShowBatchDoneModal(false);
+    setIsDownloadingBatchZip(false);
+    setBatchDownloadStage("");
+  }, []);
 
   // 预设Wiki URL列表
   const presetWikiUrls = [
@@ -399,6 +432,7 @@ export default function WorkbenchPage() {
     const items = Array.from(e.dataTransfer.items);
 
     if (type === "wiki" && files.length > 0) {
+      resetWikiCropResultState();
       setWikiFiles((prev) => [...prev, ...files]);
 
       // 不自动触发处理，避免竞态条件
@@ -563,6 +597,7 @@ export default function WorkbenchPage() {
     const files = Array.from(e.target.files || []);
 
     if (type === "wiki" && files.length > 0) {
+      resetWikiCropResultState();
       setWikiFiles((prev) => [...prev, ...files]);
     } else if (type === "local") {
       // 检查是否是文件夹上传（通过webkitRelativePath）
@@ -892,6 +927,7 @@ export default function WorkbenchPage() {
 
       // 显示获取结果（包含过滤统计）
       if (downloadedImages.length > 0) {
+        resetWikiCropResultState();
         const totalValid =
           filteringCompleteData?.validCount || downloadedImages.length;
         const totalFound = filteringCompleteData?.totalFound || 0;
@@ -940,6 +976,7 @@ export default function WorkbenchPage() {
    * @param index 文件索引
    */
   const removeWikiFile = (index: number) => {
+    resetWikiCropResultState();
     setWikiFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -948,6 +985,7 @@ export default function WorkbenchPage() {
    * @param index 文件索引
    */
   const removeFetchedWikiFile = (index: number) => {
+    resetWikiCropResultState();
     setFetchedWikiFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -983,38 +1021,60 @@ export default function WorkbenchPage() {
   };
 
   /**
-   * 解析当前用于调试裁切的源图信息（上传文件 or Wiki抓取文件）
+   * 解析当前用于调试裁切的源图队列（上传文件 + Wiki抓取文件）
    */
-  const resolveWikiDebugSourceImage = () => {
+  const resolveWikiDebugSourceImages = () => {
     const actualWikiName = fetchedWikiName || "default";
+    const images: Array<{
+      filename: string;
+      imageUrl: string;
+      imageName: string;
+    }> = [];
 
     if (wikiFiles.length > 0) {
-      const filename = wikiFiles[0].name;
-      return {
-        filename,
-        imageUrl: `/api/uploads/wiki/${encodeURIComponent(filename)}`,
-      };
+      wikiFiles.forEach((file) => {
+        images.push({
+          filename: file.name,
+          imageUrl: `/api/uploads/wiki/${encodeURIComponent(file.name)}`,
+          imageName: file.name.replace(/\.[^.]+$/, ""),
+        });
+      });
     }
 
-    const filename = fetchedWikiFiles[0];
-    return {
-      filename,
-      imageUrl: `/WikiPic/${actualWikiName}/${filename}`,
-    };
+    if (fetchedWikiFiles.length > 0) {
+      fetchedWikiFiles.forEach((filename) => {
+        images.push({
+          filename,
+          imageUrl: `/WikiPic/${actualWikiName}/${filename}`,
+          imageName: filename.replace(/\.[^.]+$/, ""),
+        });
+      });
+    }
+
+    return images;
   };
 
   /**
    * 下载裁切后的图标 ZIP 包
    */
-  const handleDownloadZip = async () => {
+  const handleDownloadZip = async (imageNames?: string[]) => {
     try {
       const wikiName = fetchedWikiName || "default";
+      const normalizedImageNames = Array.from(
+        new Set((imageNames || []).filter((name) => !!name && name.trim())),
+      );
+
+      setIsDownloadingBatchZip(true);
+      setBatchDownloadStage("packing");
 
       // 调用后端API生成ZIP
       const response = await fetch("/api/download-zip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wikiName }),
+        body: JSON.stringify({
+          wikiName,
+          imageNames: normalizedImageNames,
+        }),
       });
 
       if (!response.ok) {
@@ -1022,11 +1082,15 @@ export default function WorkbenchPage() {
       }
 
       // 获取Blob并下载
+      setBatchDownloadStage("downloading");
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${wikiName}-cropped.zip`;
+      link.download =
+        normalizedImageNames.length > 0
+          ? `${wikiName}-cropped-batch.zip`
+          : `${wikiName}-cropped.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1038,6 +1102,9 @@ export default function WorkbenchPage() {
       alert(
         "下载失败：" + (error instanceof Error ? error.message : "未知错误"),
       );
+    } finally {
+      setIsDownloadingBatchZip(false);
+      setBatchDownloadStage("");
     }
   };
 
@@ -1067,14 +1134,31 @@ export default function WorkbenchPage() {
       return;
     }
 
-    const { filename, imageUrl } = resolveWikiDebugSourceImage();
+    const queue = resolveWikiDebugSourceImages();
+    if (queue.length === 0) {
+      alert("没有可处理的Wiki长图，请重新上传或拉取");
+      return;
+    }
+
     console.log(`[${DEBUG_CROP_PIPELINE_NAME}] 打开切图确认弹窗，准备前端检测`);
 
-    // 打开切图确认弹窗
-    setCurrentImageUrl(imageUrl);
-    setCurrentFilename(filename);
+    // 打开切图确认弹窗（批量序列确认）
+    setWikiProcessed(false);
+    setIsProcessingWiki(true);
+    setShowBatchDoneModal(false);
+    setBatchCompletedImages(0);
+    setBatchCompletedChains(0);
+    setBatchCompletedIcons(0);
+    setProcessedImageNames([]);
+    setWikiImages([]);
+    setChainCount(0);
+    setDebugImageQueue(queue);
+    setCurrentDebugImageIndex(0);
+    setIsDebugImageCropping(false);
+    setCurrentImageUrl(queue[0].imageUrl);
+    setCurrentFilename(queue[0].filename);
     setShowDebugModal(true);
-    setWikiProcessingStep("");
+    setWikiProcessingStep(`请确认切图（1/${queue.length}）`);
   };
 
   /**
@@ -1082,9 +1166,17 @@ export default function WorkbenchPage() {
    * @param panels 检测到的面板数据
    */
   const handleDebugCoordinateCropExport = async (panels: DetectedPanel[]) => {
-    setShowDebugModal(false);
-    setIsProcessingWiki(true);
-    setWikiProcessingStep("正在裁切...");
+    const queue = debugImageQueue;
+    const active = queue[currentDebugImageIndex];
+    if (!active) {
+      alert("当前批量队列状态异常，请重新开始裁切");
+      return;
+    }
+
+    setIsDebugImageCropping(true);
+    setWikiProcessingStep(
+      `正在裁切第 ${currentDebugImageIndex + 1}/${queue.length} 张...`,
+    );
     setWikiProcessed(false);
 
     try {
@@ -1096,7 +1188,7 @@ export default function WorkbenchPage() {
         `[打点2 - 发起请求前] 准备发给后端的 payload:`,
         JSON.stringify(
           {
-            imageUrl: currentImageUrl,
+            imageUrl: active.imageUrl,
             panelsCount: panels.length,
             firstPanelRedBoxesCount: panels[0]?.redBoxes?.length,
           },
@@ -1110,7 +1202,7 @@ export default function WorkbenchPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          imageUrl: currentImageUrl,
+          imageUrl: active.imageUrl,
           debugPanels: panels,
           wikiName: actualWikiName || "default",
         }),
@@ -1150,28 +1242,56 @@ export default function WorkbenchPage() {
           panelName: result.name.split("_")[0],
           title: result.name.split("_")[0],
           wikiName: actualWikiName || "default",
-          id: `${actualWikiName || "default"}_${result.filename}`,
+          id: `${active.imageName}_${result.filename}`,
           imageUrl: result.imageUrl,
         }),
       );
 
-      setWikiImages(convertedCrops);
-      setChainCount(panels.length); // 合成链数量 = 面板数量
-      setWikiProcessed(true);
-      setWikiProcessingStep("✅ 裁切完成");
-
-      // 🌟 显示切图完成弹窗
-      alert(
-        `✅ 切图完成！\n\n📊 统计信息：\n- 合成链数量：${panels.length} 条\n- 图标数量：${cropData.total} 个\n\n📁 保存位置：\npublic/wiki-cropped/${currentFilename.split(".")[0]}/`,
+      setWikiImages((prev) => [...prev, ...convertedCrops]);
+      setBatchCompletedImages((prev) => prev + 1);
+      setBatchCompletedChains((prev) => prev + panels.length);
+      setBatchCompletedIcons((prev) => prev + Number(cropData.total || 0));
+      setProcessedImageNames((prev) =>
+        prev.includes(active.imageName) ? prev : [...prev, active.imageName],
       );
+
+      const nextIndex = currentDebugImageIndex + 1;
+      const totalChainsNext = batchCompletedChains + panels.length;
+      const totalIconsNext = batchCompletedIcons + Number(cropData.total || 0);
+      const processedCountNext = batchCompletedImages + 1;
+
+      setChainCount(totalChainsNext);
+
+      if (nextIndex < queue.length) {
+        const next = queue[nextIndex];
+        setCurrentDebugImageIndex(nextIndex);
+        setCurrentImageUrl(next.imageUrl);
+        setCurrentFilename(next.filename);
+        setWikiProcessingStep(
+          `已完成 ${processedCountNext}/${queue.length}，请确认下一张`,
+        );
+        setIsDebugImageCropping(false);
+        return;
+      }
+
+      setIsDebugImageCropping(false);
+      setIsProcessingWiki(false);
+      setShowDebugModal(false);
+      setWikiProcessed(true);
+      setWikiProcessingStep("✅ 批量裁切完成");
+      setShowBatchDoneModal(true);
     } catch (error) {
       console.error("裁切失败:", error);
       alert(
         "裁切失败：" + (error instanceof Error ? error.message : "未知错误"),
       );
       setWikiProcessingStep("❌ 裁切失败");
-    } finally {
+      setIsDebugImageCropping(false);
       setIsProcessingWiki(false);
+    } finally {
+      if (currentDebugImageIndex + 1 >= debugImageQueue.length) {
+        setIsProcessingWiki(false);
+      }
     }
   };
 
@@ -1539,6 +1659,7 @@ export default function WorkbenchPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() => {
+                        resetWikiCropResultState();
                         setFetchedWikiFiles([]);
                         setFetchedWikiName("");
                       }}
@@ -1635,12 +1756,19 @@ export default function WorkbenchPage() {
 
                     {/* 🌟 下载按钮 */}
                     <Button
-                      onClick={handleDownloadZip}
+                      onClick={() =>
+                        void handleDownloadZip(processedImageNames)
+                      }
                       variant="outline"
                       size="sm"
+                      disabled={isDownloadingBatchZip}
                       className="ml-2 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950"
                     >
-                      下载全部
+                      {isDownloadingBatchZip
+                        ? batchDownloadStage === "packing"
+                          ? "正在打包..."
+                          : "正在下载..."
+                        : "下载全部"}
                     </Button>
                   </>
                 )}
@@ -2315,14 +2443,78 @@ export default function WorkbenchPage() {
     ) : null;
   //#endregion
 
+  //#region UI 渲染函数 - 批量切图完成弹窗
+  const renderBatchDoneModal = () =>
+    showBatchDoneModal ? (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <Card className="w-full max-w-lg">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-500" />
+              批量切图完成
+            </CardTitle>
+            <CardDescription>
+              共处理 {batchCompletedImages} 张图，{batchCompletedChains}{" "}
+              条合成链，
+              {batchCompletedIcons} 个图标
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-300">
+              结果已保存，可直接确认或下载全部裁切结果。
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setShowBatchDoneModal(false)}
+                disabled={isDownloadingBatchZip}
+              >
+                确认
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={() => void handleDownloadZip(processedImageNames)}
+                disabled={isDownloadingBatchZip}
+              >
+                {isDownloadingBatchZip
+                  ? batchDownloadStage === "packing"
+                    ? "正在打包..."
+                    : "正在下载..."
+                  : "打包下载"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    ) : null;
+  //#endregion
+
   //#region UI 渲染函数 - 调试弹窗
   const renderDebugModal = () =>
     showDebugModal && currentImageUrl ? (
       <DebugModal
         imageUrl={currentImageUrl}
         isOpen={showDebugModal}
+        autoCloseOnExport={false}
+        disableClose={isDebugImageCropping}
+        batchCurrent={currentDebugImageIndex + 1}
+        batchTotal={debugImageQueue.length}
+        batchCompletedImages={batchCompletedImages}
+        batchCompletedChains={batchCompletedChains}
+        batchCompletedIcons={batchCompletedIcons}
+        batchProcessingLabel={
+          isDebugImageCropping
+            ? `正在处理 ${currentDebugImageIndex + 1}/${Math.max(debugImageQueue.length, 1)}`
+            : "等待确认"
+        }
         onExport={handleDebugCoordinateCropExport}
-        onClose={() => setShowDebugModal(false)}
+        onClose={() => {
+          if (isDebugImageCropping) return;
+          setShowDebugModal(false);
+          setIsProcessingWiki(false);
+          setWikiProcessingStep("已取消批量切图");
+        }}
       />
     ) : null;
   //#endregion
@@ -2338,6 +2530,7 @@ export default function WorkbenchPage() {
       </div>
 
       {renderSummaryModal()}
+      {renderBatchDoneModal()}
       {renderDebugModal()}
     </div>
   );

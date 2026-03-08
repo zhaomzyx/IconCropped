@@ -10,7 +10,10 @@ import archiver from "archiver";
  */
 export async function POST(request: NextRequest) {
   try {
-    const { wikiName } = await request.json();
+    const { wikiName, imageNames } = (await request.json()) as {
+      wikiName?: string;
+      imageNames?: string[];
+    };
 
     if (!wikiName) {
       return NextResponse.json(
@@ -19,22 +22,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 裁切后的图片保存路径
-    const croppedDir = path.join(
-      process.cwd(),
-      "public",
-      "wiki-cropped",
-      wikiName,
-    );
+    const croppedRootDir = path.join(process.cwd(), "public", "wiki-cropped");
+    const requestedImageNames = Array.isArray(imageNames)
+      ? Array.from(new Set(imageNames.filter((name) => !!name && name.trim())))
+      : [];
 
-    // 检查目录是否存在
-    try {
-      await fs.access(croppedDir);
-    } catch {
-      return NextResponse.json(
-        { success: false, error: `目录不存在: ${wikiName}` },
-        { status: 404 },
-      );
+    if (requestedImageNames.length === 0) {
+      const legacyDir = path.join(croppedRootDir, wikiName);
+      try {
+        await fs.access(legacyDir);
+      } catch {
+        return NextResponse.json(
+          { success: false, error: `目录不存在: ${wikiName}` },
+          { status: 404 },
+        );
+      }
     }
 
     // 创建临时ZIP文件
@@ -64,8 +66,33 @@ export async function POST(request: NextRequest) {
     // 将输出管道连接到ZIP文件
     archive.pipe(output);
 
-    // 添加裁切后的文件夹到ZIP
-    archive.directory(croppedDir, wikiName);
+    if (requestedImageNames.length > 0) {
+      const existingDirs: string[] = [];
+      for (const imageName of requestedImageNames) {
+        const dirPath = path.join(croppedRootDir, imageName);
+        try {
+          await fs.access(dirPath);
+          existingDirs.push(imageName);
+        } catch {
+          console.warn(`[download-zip] 跳过不存在目录: ${imageName}`);
+        }
+      }
+
+      if (existingDirs.length === 0) {
+        return NextResponse.json(
+          { success: false, error: "没有可下载的裁切目录" },
+          { status: 404 },
+        );
+      }
+
+      for (const imageName of existingDirs) {
+        const dirPath = path.join(croppedRootDir, imageName);
+        archive.directory(dirPath, path.join(`${wikiName}-cropped`, imageName));
+      }
+    } else {
+      const legacyDir = path.join(croppedRootDir, wikiName);
+      archive.directory(legacyDir, wikiName);
+    }
 
     // 完成ZIP创建
     await archive.finalize();
@@ -86,7 +113,7 @@ export async function POST(request: NextRequest) {
     return new NextResponse(zipBuffer, {
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="${wikiName}-cropped.zip"`,
+        "Content-Disposition": `attachment; filename="${wikiName}-${requestedImageNames.length > 0 ? "batch" : "cropped"}.zip"`,
         "Content-Length": zipBuffer.length.toString(),
       },
     });
